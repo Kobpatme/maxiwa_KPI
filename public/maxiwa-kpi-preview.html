@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MAXIWA KPI Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <style>
+    :root {
+      --bg: #07111d;
+      --bg-soft: #0d1726;
+      --panel: rgba(10, 21, 35, 0.72);
+      --panel-strong: rgba(12, 24, 40, 0.92);
+      --line: rgba(150, 187, 218, 0.14);
+      --text: #f4f7fb;
+      --muted: #93a8bc;
+      --teal: #22c1a1;
+      --cobalt: #4f7cff;
+      --amber: #ffb84d;
+      --danger: #ff6b6b;
+      --violet: #85a8ff;
+      --shadow: 0 30px 80px rgba(0, 0, 0, 0.38);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Manrope", "IBM Plex Sans Thai", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(79, 124, 255, 0.18), transparent 28%),
+        radial-gradient(circle at top right, rgba(34, 193, 161, 0.14), transparent 26%),
+        linear-gradient(145deg, #050c15 0%, #07111d 38%, #0c1828 100%);
+      min-height: 100vh;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 70px 70px;
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.35), rgba(0,0,0,0));
+      pointer-events: none;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 24px;
+      max-width: 1560px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .sidebar,
+    .content-card,
+    .stat-card,
+    .panel,
+    .mini-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      box-shadow: var(--shadow);
+    }
+
+    .sidebar {
+      border-radius: var(--radius-xl);
+      padding: 26px 22px;
+      position: sticky;
+      top: 24px;
+      height: calc(100vh - 48px);
+      overflow: auto;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+
+    .brand-mark {
+      width: 52px;
+      height: 52px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #4f7cff 0%, #22c1a1 100%);
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      color: white;
+      box-shadow: 0 18px 38px rgba(34, 193, 161, 0.2);
+    }
+
+    .brand h1,
+    .brand p,
+    .topbar h2,
+    .hero-copy h3,
+    .section-title,
+    .stat-value,
+    .queue-title,
+    .team-name {
+      margin: 0;
+    }
+
+    .brand h1 {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .brand p,
+    .nav-caption,
+    .muted,
+    .queue-sub,
+    .metric-label,
+    .team-meta,
+    .activity-time,
+    .task-meta {
+      color: var(--muted);
+    }
+
+    .nav-caption {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      margin: 22px 0 10px;
+    }
+
+    .nav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-radius: 18px;
+      padding: 14px 14px;
+      color: #d8e5f5;
+      background: transparent;
+      border: 1px solid transparent;
+    }
+
+    .nav-item.active {
+      background: linear-gradient(135deg, rgba(79,124,255,0.18), rgba(34,193,161,0.13));
+      border-color: rgba(120, 165, 255, 0.22);
+    }
+
+    .nav-item i {
+      width: 18px;
+      text-align: center;
+      color: #8eb3ff;
+    }
+
+    .sidebar-footer {
+      margin-top: 28px;
+      padding: 16px;
+      border-radius: 20px;
+      background: linear-gradient(145deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      border: 1px solid var(--line);
+    }
+
+    .content {
+      display: grid;
+      gap: 22px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .topbar h2 {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .command-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 999px;
+      background: rgba(8, 18, 31, 0.82);
+      border: 1px solid var(--line);
+      min-width: 360px;
+    }
+
+    .command-bar input {
+      flex: 1;
+      background: transparent;
+      border: 0;
+      color: var(--text);
+      font: inherit;
+      outline: none;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.3fr 0.9fr;
+      gap: 20px;
+    }
+
+    .content-card {
+      border-radius: var(--radius-xl);
+      padding: 28px;
+    }
+
+    .hero-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      width: fit-content;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(79,124,255,0.12);
+      border: 1px solid rgba(134, 168, 255, 0.18);
+      color: #cbd9ff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .hero-copy h3 {
+      font-size: clamp(32px, 4vw, 54px);
+      line-height: 1.02;
+      font-weight: 800;
+      letter-spacing: -0.05em;
+      max-width: 10.5ch;
+    }
+
+    .hero-copy p {
+      max-width: 70ch;
+      color: #bed0e2;
+      line-height: 1.8;
+      margin: 0;
+      font-family: "IBM Plex Sans Thai", sans-serif;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 0;
+      border-radius: 16px;
+      padding: 14px 18px;
+      color: white;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4f7cff 0%, #22c1a1 100%);
+      box-shadow: 0 20px 40px rgba(34, 193, 161, 0.18);
+    }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .hero-rail {
+      display: grid;
+      gap: 14px;
+    }
+
+    .mini-card {
+      border-radius: var(--radius-lg);
+      padding: 18px 18px 16px;
+    }
+
+    .queue-title {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .queue-sub {
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
+    .queue-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 184, 77, 0.12);
+      color: #ffd089;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .stat-card {
+      border-radius: var(--radius-lg);
+      padding: 22px;
+    }
+
+    .metric-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 700;
+    }
+
+    .stat-value {
+      margin-top: 16px;
+      font-size: 38px;
+      font-weight: 800;
+      letter-spacing: -0.05em;
+    }
+
+    .metric-trend {
+      margin-top: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .trend-up { color: #7ef0d0; }
+    .trend-warn { color: #ffd089; }
+    .trend-down { color: #ff9c9c; }
+
+    .grid-main {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 20px;
+    }
+
+    .panel {
+      border-radius: var(--radius-xl);
+      padding: 24px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .section-title {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      color: #d0dceb;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .chart-area {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      gap: 18px;
+      align-items: end;
+    }
+
+    .bars {
+      display: flex;
+      align-items: end;
+      gap: 14px;
+      min-height: 260px;
+      padding-top: 18px;
+    }
+
+    .bar-group {
+      flex: 1;
+      text-align: center;
+      min-width: 0;
+    }
+
+    .bar-stack {
+      height: 220px;
+      display: flex;
+      align-items: end;
+      justify-content: center;
+    }
+
+    .bar {
+      width: 100%;
+      border-radius: 18px 18px 8px 8px;
+      background: linear-gradient(180deg, rgba(79,124,255,0.96), rgba(34,193,161,0.75));
+      border: 1px solid rgba(140,178,255,0.2);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
+    }
+
+    .bar-label {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .risk-list,
+    .activity-list,
+    .team-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .risk-item,
+    .activity-item,
+    .team-card {
+      display: grid;
+      gap: 8px;
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .risk-top,
+    .activity-top,
+    .team-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .risk-code,
+    .activity-title,
+    .team-name {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .risk-tag,
+    .status-pill {
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .tag-danger { background: rgba(255,107,107,0.14); color: #ffb1b1; }
+    .tag-warn { background: rgba(255,184,77,0.14); color: #ffd089; }
+    .tag-good { background: rgba(34,193,161,0.14); color: #90f3dc; }
+
+    .risk-meta,
+    .task-meta,
+    .activity-time {
+      font-size: 12px;
+      font-family: "IBM Plex Sans Thai", sans-serif;
+    }
+
+    .progress {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #4f7cff, #22c1a1);
+    }
+
+    .footer-note {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: right;
+      margin-top: 6px;
+    }
+
+    @media (max-width: 1200px) {
+      .shell,
+      .hero,
+      .grid-main,
+      .chart-area {
+        grid-template-columns: 1fr;
+      }
+
+      .stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .sidebar {
+        position: static;
+        height: auto;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .shell { padding: 16px; }
+      .stats { grid-template-columns: 1fr; }
+      .topbar { flex-direction: column; align-items: stretch; }
+      .command-bar { min-width: 0; width: 100%; }
+      .hero-copy h3 { max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">M</div>
+        <div>
+          <h1>MAXIWA KPI</h1>
+          <p>Executive Performance System</p>
+        </div>
+      </div>
+
+      <div class="nav-caption">Command</div>
+      <div class="nav-list">
+        <div class="nav-item active"><i class="fa-solid fa-chart-line"></i><span>Executive Dashboard</span></div>
+        <div class="nav-item"><i class="fa-solid fa-briefcase"></i><span>Task Center</span></div>
+        <div class="nav-item"><i class="fa-solid fa-diagram-project"></i><span>Job Tracker</span></div>
+        <div class="nav-item"><i class="fa-solid fa-users-viewfinder"></i><span>Team Command</span></div>
+        <div class="nav-item"><i class="fa-solid fa-file-waveform"></i><span>Reports</span></div>
+      </div>
+
+      <div class="nav-caption">Operations</div>
+      <div class="nav-list">
+        <div class="nav-item"><i class="fa-solid fa-user-gear"></i><span>People & Permissions</span></div>
+        <div class="nav-item"><i class="fa-solid fa-sliders"></i><span>KPI Studio</span></div>
+        <div class="nav-item"><i class="fa-solid fa-calendar-days"></i><span>Holiday Calendar</span></div>
+        <div class="nav-item"><i class="fa-solid fa-shield-halved"></i><span>Audit & Governance</span></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="queue-title">System Principle</div>
+        <div class="queue-sub">ทุกอย่างจบในระบบเดียว เชื่อม backend และฐานข้อมูลเดิมได้ทันที โดยไม่ต้องให้ใครไปแตะ database โดยตรง</div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="topbar">
+        <div>
+          <div class="eyebrow"><i class="fa-solid fa-wave-square"></i> MAXIWA KPI Preview</div>
+          <h2>Executive Operations Dashboard</h2>
+        </div>
+        <div class="command-bar">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input value="Search job, team, staff, or KPI..." aria-label="Search command" />
+          <i class="fa-solid fa-bolt"></i>
+        </div>
+      </div>
+
+      <section class="hero">
+        <div class="content-card">
+          <div class="hero-copy">
+            <div class="eyebrow"><i class="fa-solid fa-crown"></i> Boardroom-ready experience</div>
+            <h3>เร็วกว่า ชัดกว่า และดูมีมูลค่ากว่าเดิม</h3>
+            <p>
+              MAXIWA KPI ถูกออกแบบใหม่ให้ผู้บริหารเห็นภาพรวม, ความเสี่ยง, และคอขวดของงานได้ในทันที
+              โดยยังใช้ logic เดิม, backend เดิม, และฐานข้อมูลเดิมทั้งหมด แต่ยกระดับ UX/UI ให้ทันสมัยและใช้งานง่ายขึ้นอย่างชัดเจน
+            </p>
+            <div class="hero-actions">
+              <button class="btn btn-primary"><i class="fa-solid fa-play"></i> View New Dashboard Flow</button>
+              <button class="btn btn-secondary"><i class="fa-solid fa-layer-group"></i> Compare Feature Parity</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-rail">
+          <div class="mini-card">
+            <div class="queue-title">Operational Risk Queue</div>
+            <div class="queue-sub">งานที่ควรเรียกดูทันทีในมุมผู้บริหาร</div>
+            <div class="queue-badge"><i class="fa-solid fa-triangle-exclamation"></i> 7 jobs approaching SLA</div>
+          </div>
+          <div class="mini-card">
+            <div class="queue-title">Closed-loop Administration</div>
+            <div class="queue-sub">ผู้ดูแลระบบจัดการ User, Team, KPI, Holiday, Audit จากภายในระบบเท่านั้น</div>
+            <div class="queue-badge" style="background: rgba(34,193,161,0.12); color:#90f3dc;"><i class="fa-solid fa-shield-halved"></i> No direct DB touch required</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="stats">
+        <div class="stat-card">
+          <div class="metric-label">SLA Health</div>
+          <div class="stat-value">94.8%</div>
+          <div class="metric-trend trend-up"><i class="fa-solid fa-arrow-up"></i> +3.1% from last month</div>
+        </div>
+        <div class="stat-card">
+          <div class="metric-label">Active Jobs</div>
+          <div class="stat-value">128</div>
+          <div class="metric-trend trend-warn"><i class="fa-solid fa-layer-group"></i> 23 need leadership review</div>
+        </div>
+        <div class="stat-card">
+          <div class="metric-label">Completion Score</div>
+          <div class="stat-value">89.2%</div>
+          <div class="metric-trend trend-up"><i class="fa-solid fa-bolt"></i> Faster update workflow</div>
+        </div>
+        <div class="stat-card">
+          <div class="metric-label">Pending Accept</div>
+          <div class="stat-value">14</div>
+          <div class="metric-trend trend-down"><i class="fa-solid fa-hourglass-half"></i> Bottleneck requiring follow-up</div>
+        </div>
+      </section>
+
+      <section class="grid-main">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="section-title">Team Performance Pulse</div>
+              <div class="muted">มองภาพรวม KPI, SLA และ throughput โดยไม่ต้องไล่หลายหน้าจอ</div>
+            </div>
+            <div class="chip"><i class="fa-solid fa-filter"></i> April 2026</div>
+          </div>
+
+          <div class="chart-area">
+            <div class="bars">
+              <div class="bar-group">
+                <div class="bar-stack"><div class="bar" style="height: 78%;"></div></div>
+                <div class="bar-label">Civil</div>
+              </div>
+              <div class="bar-group">
+                <div class="bar-stack"><div class="bar" style="height: 66%;"></div></div>
+                <div class="bar-label">Permit</div>
+              </div>
+              <div class="bar-group">
+                <div class="bar-stack"><div class="bar" style="height: 90%;"></div></div>
+                <div class="bar-label">OSP</div>
+              </div>
+              <div class="bar-group">
+                <div class="bar-stack"><div class="bar" style="height: 58%;"></div></div>
+                <div class="bar-label">Survey</div>
+              </div>
+              <div class="bar-group">
+                <div class="bar-stack"><div class="bar" style="height: 84%;"></div></div>
+                <div class="bar-label">Support</div>
+              </div>
+            </div>
+
+            <div class="team-list">
+              <div class="team-card">
+                <div class="team-head">
+                  <div>
+                    <div class="team-name">OSP Team</div>
+                    <div class="team-meta">Best weighted SLA score</div>
+                  </div>
+                  <span class="status-pill tag-good">97.4%</span>
+                </div>
+                <div class="progress"><span style="width:97.4%"></span></div>
+              </div>
+
+              <div class="team-card">
+                <div class="team-head">
+                  <div>
+                    <div class="team-name">Survey Team</div>
+                    <div class="team-meta">Needs intervention</div>
+                  </div>
+                  <span class="status-pill tag-warn">83.1%</span>
+                </div>
+                <div class="progress"><span style="width:83.1%; background: linear-gradient(90deg, #ffb84d, #ff7f50);"></span></div>
+              </div>
+
+              <div class="team-card">
+                <div class="team-head">
+                  <div>
+                    <div class="team-name">Permit Team</div>
+                    <div class="team-meta">Pending approvals rising</div>
+                  </div>
+                  <span class="status-pill tag-danger">11 risk</span>
+                </div>
+                <div class="progress"><span style="width:68%; background: linear-gradient(90deg, #ff857a, #ffb84d);"></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="section-title">Priority Queue</div>
+              <div class="muted">รายการที่ผู้บริหารควรเห็นก่อน</div>
+            </div>
+            <div class="chip"><i class="fa-solid fa-sparkles"></i> Smart Ordering</div>
+          </div>
+
+          <div class="risk-list">
+            <div class="risk-item">
+              <div class="risk-top">
+                <div class="risk-code">DS26_0039</div>
+                <div class="risk-tag tag-danger">At Risk</div>
+              </div>
+              <div class="risk-meta">3 tasks under the same job, 2 assignees, deadline in 1 business day</div>
+            </div>
+
+            <div class="risk-item">
+              <div class="risk-top">
+                <div class="risk-code">CW26_0181</div>
+                <div class="risk-tag tag-warn">Pending Accept</div>
+              </div>
+              <div class="risk-meta">Assigned 18 hours ago, waiting for acceptance</div>
+            </div>
+
+            <div class="risk-item">
+              <div class="risk-top">
+                <div class="risk-code">OSP26_0108</div>
+                <div class="risk-tag tag-good">Healthy</div>
+              </div>
+              <div class="risk-meta">On track, strong completion trend, no holiday impact</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid-main">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="section-title">Modern Task Center Preview</div>
+              <div class="muted">สรุปจากหลาย flow เดิมให้ใช้งานเร็วขึ้นในหน้าเดียว</div>
+            </div>
+            <div class="chip"><i class="fa-solid fa-wand-magic-sparkles"></i> New workflow</div>
+          </div>
+
+          <div class="activity-list">
+            <div class="activity-item">
+              <div class="activity-top">
+                <div class="activity-title">Approve / Accept / Update Status</div>
+                <div class="status-pill tag-good">Inline</div>
+              </div>
+              <div class="task-meta">ไม่ต้องเปิดหลาย modal เพื่อเปลี่ยนสถานะ, แนบเหตุผล, หรือดู SLA context</div>
+              <div class="activity-time">Staff, Lead, Manager จะใช้ pattern เดียวกัน แต่สิทธิ์ต่างกันตาม role</div>
+            </div>
+
+            <div class="activity-item">
+              <div class="activity-top">
+                <div class="activity-title">Job Tracker ที่ชัดว่า Job != Task</div>
+                <div class="status-pill tag-warn">Clarity First</div>
+              </div>
+              <div class="task-meta">แยกชัดว่ารายการไหนคือ Job และรายการไหนคือ Task ย่อย ลดความสับสนเรื่องข้อมูลซ้ำ</div>
+              <div class="activity-time">มี risk label และ grouping summary ให้ผู้บริหารอ่านจบในไม่กี่วินาที</div>
+            </div>
+
+            <div class="activity-item">
+              <div class="activity-top">
+                <div class="activity-title">Admin Studio ที่จบครบในระบบ</div>
+                <div class="status-pill tag-good">Closed Loop</div>
+              </div>
+              <div class="task-meta">User, Team, KPI, Holiday, Audit และ Recalculate Deadline จะถูกย้ายมาเป็น guided workflows</div>
+              <div class="activity-time">ไม่ต้องพึ่งคน technical เข้า database แม้แต่ครั้งเดียว</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="section-title">Recent Critical Updates</div>
+              <div class="muted">Activity feed แบบผู้บริหารอ่านรู้เรื่องทันที</div>
+            </div>
+          </div>
+
+          <div class="activity-list">
+            <div class="activity-item">
+              <div class="activity-top">
+                <div class="activity-title">Holiday calendar recalculated</div>
+                <div class="status-pill tag-good">Done</div>
+              </div>
+              <div class="activity-time">Synced 42 open tasks to the latest working-day calendar</div>
+            </div>
+
+            <div class="activity-item">
+              <div class="activity-top">
+                <div class="activity-title">Permit queue exceeded threshold</div>
+                <div class="status-pill tag-danger">Alert</div>
+              </div>
+              <div class="activity-time">11 pending items now waiting over internal target</div>
+            </div>
+
+            <div class="activity-item">
+              <div class="activity-top">
+                <div class="activity-title">KPI definition updated</div>
+                <div class="status-pill tag-warn">Review</div>
+              </div>
+              <div class="activity-time">Support team SLA changed and requires manager confirmation</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="footer-note">Preview concept for MAXIWA KPI. Designed to sit on top of the current system without backend or database changes.</div>
+    </main>
+  </div>
+</body>
+</html>
