@@ -43,7 +43,7 @@
 - [x] Delete team
 - [x] Delete KPI
 - [x] Delete holiday
-- [ ] Rich permission editor parity
+- [x] Rich permission editor parity
 
 ## Job Tracker
 - [x] Search by job
@@ -52,11 +52,12 @@
 - [x] Expand task details
 - [x] Show note content
 - [x] Show audit timeline
-- [ ] Rich visual timeline and duplicate heuristics refinement
+- [x] Rich visual timeline and duplicate heuristics refinement
 
 ## Remaining production tasks
 - [ ] Promote MAXIWA KPI to public entry point
-- [ ] Add realtime refresh behavior
+- [x] Add realtime refresh behavior
 - [ ] Polish validation and error states
-- [ ] Add deeper edit-task-details workflow
+- [x] Add deeper edit-task-details workflow
+- [x] Add Cloudflare build/deploy structure
 - [ ] Side-by-side UAT against legacy pages

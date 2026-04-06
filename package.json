@@ -1,0 +1,14 @@
+{
+  "name": "maxiwa-kpi",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "npm run build && wrangler pages dev dist",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name maxiwa-kpi"
+  },
+  "devDependencies": {
+    "wrangler": "^4.10.0"
+  }
+}

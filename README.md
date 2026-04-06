@@ -13,14 +13,24 @@ This folder contains the planning artifacts for the rebuild:
 - [`docs/legacy-system-audit.md`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/docs/legacy-system-audit.md)
 - [`docs/product-blueprint.md`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/docs/product-blueprint.md)
 - [`docs/ux-ui-direction.md`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/docs/ux-ui-direction.md)
+- [`docs/feature-parity-checklist.md`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/docs/feature-parity-checklist.md)
+- [`DEPLOY.md`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/DEPLOY.md)
+
+Deploy-ready project structure:
+- [`public/maxiwa.html`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/public/maxiwa.html)
+- [`public/js/maxiwa.js`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/public/js/maxiwa.js)
+- [`public/js/api.js`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/public/js/api.js)
+- [`public/config.js`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/public/config.js)
+- [`wrangler.toml`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/wrangler.toml)
+- [`package.json`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/package.json)
 
 Non-negotiable release rule:
 - Release 1 of MAXIWA KPI must work against the existing routes, existing tables, and existing business logic contracts.
 
-Recommended next build steps:
-1. Freeze feature parity and compatibility scope from the audit
-2. Produce a route-and-data compatibility map for the current APIs
-3. Design the new information architecture and screen map
-4. Scaffold the new app shell and design system
-5. Rebuild modules in this order: auth, task engine, dashboards, team operations, admin
-6. Run side-by-side validation against the current system before migration
+Current delivery status:
+1. Standalone frontend deploy structure for Cloudflare Pages is in place
+2. Runtime API target is configurable via `MAXIWA_API_BASE` at build time
+3. Task Center now includes richer filtering, duplicate signals, and edit-task workflow
+4. Admin Studio now includes richer user permission editing and in-system operations
+5. Job Tracker now uses deeper grouped timeline cards with audit detail
+6. Remaining work is focused on final parity gaps and side-by-side UAT
