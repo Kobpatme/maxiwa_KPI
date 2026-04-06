@@ -98,13 +98,17 @@ function adminHeaders(empId) {
   };
 }
 
+function getApiBase() {
+  return (typeof window !== 'undefined' && window.API_BASE) ? window.API_BASE : '/api';
+}
+
 async function adminGet(path, empId) {
-  const res = await fetch(`/api/${path}`, { headers: adminHeaders(empId) });
+  const res = await fetch(`${getApiBase()}/${path}`, { headers: adminHeaders(empId) });
   return res.json();
 }
 
 async function adminPost(path, payload, empId) {
-  const res = await fetch(`/api/${path}`, {
+  const res = await fetch(`${getApiBase()}/${path}`, {
     method: 'POST',
     headers: adminHeaders(empId),
     body: JSON.stringify(payload),
@@ -113,7 +117,7 @@ async function adminPost(path, payload, empId) {
 }
 
 async function adminDelete(path, empId) {
-  const res = await fetch(`/api/${path}`, {
+  const res = await fetch(`${getApiBase()}/${path}`, {
     method: 'DELETE',
     headers: adminHeaders(empId),
   });
