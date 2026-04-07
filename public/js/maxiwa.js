@@ -490,7 +490,7 @@ function useAppData(user, view) {
 }
 
 // ─── Dashboard View ─────────────────────────────────────────────────────────────
-function DashboardView({ user, data, filterMonth, filterYear }) {
+function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatusChange, onNavigate }) {
   if (!data) {
     return (
       <Panel title="Executive Overview" subtitle="กำลังเตรียมข้อมูล...">
@@ -530,30 +530,76 @@ function DashboardView({ user, data, filterMonth, filterYear }) {
     const kpiEntries = Object.entries(kpiDist).sort((a, b) => b[1] - a[1]);
     const maxKpi = kpiEntries.length > 0 ? kpiEntries[0][1] : 1;
 
-    // Upcoming deadlines
-    const upcoming = tasks
-      .filter((t) => ['On Process', 'Pending', 'On Hold'].includes(t.status) && t.deadline)
-      .map((t) => ({ ...t, _dl: new Date(t.deadline) }))
-      .sort((a, b) => a._dl - b._dl)
-      .slice(0, 5);
+    // All active tasks (not completed/cancelled)
+    const activeTasks = tasks.filter((t) => !['Completed', 'Cancelled'].includes(t.status));
 
     const periodLabel = filterMonth === 0 ? `ทุกเดือน ${filterYear}` : `${MONTH_NAMES[filterMonth - 1]} ${filterYear}`;
 
+    const [dashModal, setDashModal] = useState({ show: false });
+    const [dashNotePopup, setDashNotePopup] = useState({ show: false, note: '' });
+
+    const handleDashAction = (task, action) => {
+      const ts = getTimestamp();
+      if (action === 'accept') {
+        setDashModal({ show: true, title: 'ยืนยันรับงาน', message: 'ต้องการเริ่มดำเนินการงานนี้ใช่หรือไม่?', color: 'blue', type: 'confirm', action: () => onAccept(task) });
+      } else if (action === 'complete') {
+        setDashModal({ show: true, title: 'งานเสร็จสิ้น', message: 'ยืนยันว่างานนี้เสร็จสมบูรณ์แล้วใช่หรือไม่?', color: 'emerald', type: 'confirm', action: () => onStatusChange(task, 'Completed', `${ts} งานเสร็จสิ้น`) });
+      } else if (action === 'hold') {
+        setDashModal({ show: true, title: 'พักงาน', message: 'ระบุรายละเอียดการพักงาน:', color: 'amber', type: 'prompt', action: (reason) => { if (reason?.trim()) onStatusChange(task, 'On Hold', `${ts} [On Hold] ${reason}`); } });
+      } else if (action === 'resume') {
+        onStatusChange(task, 'On Process', `${ts} ดำเนินการต่อ`);
+      } else if (action === 'cancel') {
+        setDashModal({ show: true, title: 'ยกเลิกงาน', message: 'ระบุเหตุผลที่ยกเลิกงาน:', color: 'rose', type: 'prompt', action: (reason) => { if (reason?.trim()) onStatusChange(task, 'Cancelled', `${ts} [Cancelled] ${reason}`); } });
+      } else if (action === 'note') {
+        setDashModal({ show: true, title: 'เพิ่ม Note', message: 'ระบุรายละเอียดเพิ่มเติม:', color: 'blue', type: 'prompt', action: (note) => { if (note?.trim()) onStatusChange(task, task.status, `${ts} ${note}`, 'note_only'); } });
+      }
+    };
+
+    const ActionBtn = ({ icon, color, onClick, label }) => {
+      const variants = {
+        emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-500 hover:text-white hover:shadow-lg hover:shadow-emerald-500/30',
+        amber: 'bg-amber-50 text-amber-600 border-amber-100 hover:bg-amber-500 hover:text-white hover:shadow-lg hover:shadow-amber-500/30',
+        rose: 'bg-rose-50 text-rose-600 border-rose-100 hover:bg-rose-500 hover:text-white hover:shadow-lg hover:shadow-rose-500/30',
+        blue: 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-500 hover:text-white hover:shadow-lg hover:shadow-blue-500/30',
+        indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-500 hover:text-white hover:shadow-lg hover:shadow-indigo-500/30',
+      };
+      return (
+        <div className="relative group">
+          <button onClick={onClick} className={`w-10 h-10 flex items-center justify-center rounded-xl border transition-all duration-200 active:scale-90 hover:scale-110 ${variants[color] || ''}`}>
+            <i className={`fas ${icon} text-sm`}></i>
+          </button>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+            {label}
+            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div className="grid gap-5">
+        <ActionModal config={dashModal} onClose={() => setDashModal({ show: false })} />
+        {dashNotePopup.show && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
+            <div className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl">
+              <h3 className="text-xl font-extrabold mb-4"><i className="fas fa-sticky-note mr-2 text-blue-400"></i>บันทึกงาน</h3>
+              <div className="max-h-80 overflow-y-auto rounded-[16px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
+                <div className="text-sm leading-7 whitespace-pre-wrap">{dashNotePopup.note}</div>
+              </div>
+              <button className="mx-btn mx-btn-soft w-full mt-5" onClick={() => setDashNotePopup({ show: false, note: '' })}>ปิด</button>
+            </div>
+          </div>
+        )}
+
+        {/* Metric Cards */}
         <div className="mx-grid-auto">
           <MetricCard label="Total Tasks" value={tasks.length} sub={`งานใน${periodLabel}`} icon="fa-list-check" />
           <MetricCard label="Active" value={active} sub="งานที่ยังต้องติดตาม" icon="fa-bolt" accent="var(--mx-teal)" />
           <MetricCard label="Completed" value={completed} sub="งานที่ปิดแล้ว" icon="fa-check-double" accent="var(--mx-green)" />
-          <MetricCard
-            label="Weighted SLA"
-            value={scores.sla !== null ? `${scores.sla}%` : '-'}
-            sub="คะแนน SLA แบบ weighted"
-            icon="fa-chart-line"
-            accent="var(--mx-amber)"
-          />
+          <MetricCard label="Weighted SLA" value={scores.sla !== null ? `${scores.sla}%` : '-'} sub="คะแนน SLA แบบ weighted" icon="fa-chart-line" accent="var(--mx-amber)" />
         </div>
 
+        {/* KPI Distribution */}
         {kpiEntries.length > 0 && (
           <Panel title="KPI Distribution" subtitle="สัดส่วนงานแยกตาม Main KPI">
             <div className="grid gap-3">
@@ -561,10 +607,7 @@ function DashboardView({ user, data, filterMonth, filterYear }) {
                 <div key={kpi} className="flex items-center gap-3">
                   <div className="text-sm font-bold w-44 truncate flex-shrink-0">{kpi}</div>
                   <div className="flex-1 h-3 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-[#4f7cff] to-[#22c1a1] transition-all duration-700"
-                      style={{ width: `${(count / maxKpi) * 100}%` }}
-                    />
+                    <div className="h-full rounded-full bg-gradient-to-r from-[#4f7cff] to-[#22c1a1]" style={{ width: `${(count / maxKpi) * 100}%` }} />
                   </div>
                   <div className="text-sm text-[var(--mx-muted)] w-16 text-right flex-shrink-0">{count} งาน</div>
                 </div>
@@ -573,26 +616,64 @@ function DashboardView({ user, data, filterMonth, filterYear }) {
           </Panel>
         )}
 
-        <Panel title="Priority for Today" subtitle="งานที่ใกล้ถึงกำหนดและต้องติดตาม">
+        {/* Active Tasks with action buttons */}
+        <Panel
+          title="งานที่ต้องดำเนินการ"
+          subtitle="งาน Pending / On Process / On Hold ที่ต้องติดตาม"
+          actions={[
+            <button key="add" className="mx-btn mx-btn-primary" onClick={() => onNavigate('create')}>
+              <i className="fa-solid fa-plus mr-2"></i>เพิ่มงานใหม่
+            </button>
+          ]}
+        >
           <div className="grid gap-3">
-            {upcoming.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มีงานเร่งด่วนในช่วงนี้</div>}
-            {upcoming.map((task) => {
-              const daysLeft = Math.ceil((task._dl - now) / 86400000);
-              const isOverdue = daysLeft < 0;
-              const isUrgent = !isOverdue && daysLeft <= 3;
+            {activeTasks.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มีงานที่ต้องดำเนินการ</div>}
+            {activeTasks.map((task) => {
+              const dl = task.deadline ? new Date(task.deadline) : null;
+              const daysLeft = dl ? Math.ceil((dl - now) / 86400000) : null;
+              const isOverdue = daysLeft !== null && daysLeft < 0;
               return (
                 <div key={task.id} className="mx-data-card">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="font-bold">{task.job}</div>
+                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold break-all">{task.job}</span>
+                        <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status}</span>
+                        {task.note && (
+                          <button onClick={() => setDashNotePopup({ show: true, note: task.note })} className="text-xs text-blue-400 bg-blue-500/10 px-3 py-1.5 rounded-lg border border-blue-500/20 hover:bg-blue-500/20 font-bold">
+                            <i className="fas fa-sticky-note mr-1"></i>ดูบันทึก
+                          </button>
+                        )}
+                      </div>
                       <div className="mt-1 text-sm text-[var(--mx-muted)]">
-                        {task.subkpi || 'ไม่ระบุ Sub KPI'} • Due {formatDate(task.deadline)}
+                        {task.mainkpi || '-'} • {task.subkpi || '-'}
+                      </div>
+                      <div className="mt-1 text-sm text-[var(--mx-muted)]">
+                        Deadline {formatDate(task.deadline)}
+                        {isOverdue && <span className="ml-2 text-red-400 font-bold">เกิน {Math.abs(daysLeft)} วัน</span>}
+                        {!isOverdue && daysLeft !== null && daysLeft <= 3 && <span className="ml-2 text-amber-400 font-bold">อีก {daysLeft} วัน</span>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status}</span>
-                      {isOverdue && <span className="mx-badge mx-status-cancelled">เกิน {Math.abs(daysLeft)} วัน</span>}
-                      {isUrgent && <span className="mx-badge mx-status-pending">อีก {daysLeft} วัน</span>}
+                    <div className="flex flex-wrap gap-2 flex-shrink-0 items-start">
+                      {task.status === 'Pending' && (
+                        <ActionBtn icon="fa-play" color="blue" onClick={() => handleDashAction(task, 'accept')} label="เริ่มงาน" />
+                      )}
+                      {task.status === 'On Process' && (
+                        <>
+                          <ActionBtn icon="fa-check" color="emerald" onClick={() => handleDashAction(task, 'complete')} label="เสร็จสิ้น" />
+                          <ActionBtn icon="fa-pause" color="amber" onClick={() => handleDashAction(task, 'hold')} label="พักงาน" />
+                          <ActionBtn icon="fa-comment-dots" color="blue" onClick={() => handleDashAction(task, 'note')} label="เพิ่มบันทึก" />
+                        </>
+                      )}
+                      {task.status === 'On Hold' && (
+                        <>
+                          <ActionBtn icon="fa-play" color="blue" onClick={() => handleDashAction(task, 'resume')} label="ดำเนินการต่อ" />
+                          <ActionBtn icon="fa-comment-dots" color="blue" onClick={() => handleDashAction(task, 'note')} label="เพิ่มบันทึก" />
+                        </>
+                      )}
+                      {!['Completed', 'Cancelled'].includes(task.status) && (
+                        <ActionBtn icon="fa-trash" color="rose" onClick={() => handleDashAction(task, 'cancel')} label="ยกเลิก" />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1304,6 +1385,14 @@ function QuickCreateView({ user, people, onSaved }) {
     return kpis;
   }, [user, isStaff]);
 
+  const [loadedStaffKpis, setLoadedStaffKpis] = useState([]);
+  useEffect(() => {
+    if (!isStaff) return;
+    API.getKPIsByTeam(user.team).then((res) => {
+      if (res && res.kpis && res.kpis.length > 0) setLoadedStaffKpis(res.kpis);
+    }).catch(() => {});
+  }, [user.team, isStaff]);
+
   const [form, setForm] = useState({
     job: '', note: '', subkpi: '', mainkpi: '', deadline: '',
     assignedToName: isStaff ? user.name : '',
@@ -1328,7 +1417,7 @@ function QuickCreateView({ user, people, onSaved }) {
       .catch(() => setAssigneeKpis([]));
   }, [form.assignedToEmpId, isStaff, people]);
 
-  const activeKpis = isStaff ? teamKpis : assigneeKpis;
+  const activeKpis = isStaff ? (loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis) : assigneeKpis;
 
   const handleSubKpiChange = async (subkpi) => {
     if (!subkpi) {
@@ -2012,7 +2101,15 @@ function App() {
           </header>
 
           {view === 'dashboard' && (
-            <DashboardView user={user} data={state.dashboard} filterMonth={filterMonth} filterYear={filterYear} />
+            <DashboardView
+              user={user}
+              data={state.dashboard}
+              filterMonth={filterMonth}
+              filterYear={filterYear}
+              onAccept={handleAccept}
+              onStatusChange={handleStatusChange}
+              onNavigate={setView}
+            />
           )}
           {view === 'tasks' && (
             <TaskCenterView
