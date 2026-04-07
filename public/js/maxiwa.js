@@ -709,6 +709,9 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
   // StatusChangeModal for Lead/Manager
   const [statusTarget, setStatusTarget] = useState(null);
 
+  // Note viewer popup
+  const [notePopup, setNotePopup] = useState({ show: false, note: '' });
+
   // Edit task modal
   const [editingTask, setEditingTask] = useState(null);
   const [editForm, setEditForm] = useState({ job: '', subkpi: '' });
@@ -717,6 +720,32 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
   // PR completion modal
   const [prModal, setPrModal] = useState({ show: false, task: null, fundNumber: '', amount: '' });
   const [savingPr, setSavingPr] = useState(false);
+
+  // Icon action button with tooltip (matches original ActionButton)
+  const ActionButton = ({ icon, color, onClick, label }) => {
+    const variants = {
+      emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-500 hover:text-white hover:shadow-lg hover:shadow-emerald-500/30',
+      amber: 'bg-amber-50 text-amber-600 border-amber-100 hover:bg-amber-500 hover:text-white hover:shadow-lg hover:shadow-amber-500/30',
+      rose: 'bg-rose-50 text-rose-600 border-rose-100 hover:bg-rose-500 hover:text-white hover:shadow-lg hover:shadow-rose-500/30',
+      slate: 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-600 hover:text-white',
+      blue: 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-500 hover:text-white hover:shadow-lg hover:shadow-blue-500/30',
+      indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-500 hover:text-white hover:shadow-lg hover:shadow-indigo-500/30',
+    };
+    return (
+      <div className="relative group">
+        <button
+          onClick={onClick}
+          className={`w-10 h-10 flex items-center justify-center rounded-xl border transition-all duration-200 active:scale-90 hover:scale-110 hover:-translate-y-0.5 ${variants[color] || variants.slate}`}
+        >
+          <i className={`fas ${icon} text-sm`}></i>
+        </button>
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-50">
+          {label}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+        </div>
+      </div>
+    );
+  };
 
   const filtered = useMemo(() => {
     return (tasks || []).filter((task) => {
@@ -831,10 +860,28 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
   };
 
   const canEdit = (task) => !['Completed', 'Cancelled'].includes(task.status);
+  const canCancel = (task) => !['Completed', 'Cancelled'].includes(task.status);
 
   return (
     <div className="grid gap-5">
       <ActionModal config={modal} onClose={closeModal} />
+
+      {/* Note Viewer Popup */}
+      {notePopup.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
+          <div className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl">
+            <h3 className="text-xl font-extrabold mb-4">
+              <i className="fas fa-sticky-note mr-2 text-blue-400"></i>บันทึกงาน
+            </h3>
+            <div className="max-h-80 overflow-y-auto rounded-[16px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
+              <div className="text-sm leading-7 whitespace-pre-wrap">{notePopup.note || '-'}</div>
+            </div>
+            <button className="mx-btn mx-btn-soft w-full mt-5" onClick={() => setNotePopup({ show: false, note: '' })}>
+              ปิด
+            </button>
+          </div>
+        </div>
+      )}
 
       {statusTarget && (
         <StatusChangeModal
@@ -969,6 +1016,14 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
                     >
                       {expandedTaskId === task.id ? 'ซ่อน' : 'รายละเอียด'}
                     </button>
+                    {task.note && (
+                      <button
+                        onClick={() => setNotePopup({ show: true, note: task.note })}
+                        className="text-xs text-blue-400 bg-blue-500/10 px-3 py-1.5 rounded-lg border border-blue-500/20 hover:bg-blue-500/20 transition-colors font-bold"
+                      >
+                        <i className="fas fa-sticky-note mr-1"></i>ดูบันทึก
+                      </button>
+                    )}
                   </div>
                   <div className="mt-2 text-sm text-[var(--mx-muted)]">
                     {task.name || '-'} • {task.team || '-'} • {task.subkpi || 'ไม่ระบุ Sub KPI'}
@@ -989,47 +1044,45 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
                   )}
                 </div>
 
-                <div className="flex flex-wrap gap-2 flex-shrink-0">
+                {/* ─── Action Buttons (icon + tooltip แบบต้นฉบับ) ─── */}
+                <div className="flex flex-wrap gap-2 flex-shrink-0 items-start">
                   {/* Staff actions */}
-                  {user.role === 'Staff' && task.status === 'Pending' && (
-                    <button className="mx-btn mx-btn-primary" onClick={() => handleStaffAction(task, 'accept')}>รับงาน</button>
-                  )}
-                  {user.role === 'Staff' && task.status === 'On Process' && (
+                  {user.role === 'Staff' && (
                     <>
-                      <button className="mx-btn mx-btn-soft" style={{ color: '#10b981' }} onClick={() => handleStaffAction(task, 'complete')}>เสร็จ</button>
-                      <button className="mx-btn mx-btn-soft" style={{ color: '#f59e0b' }} onClick={() => handleStaffAction(task, 'hold')}>พัก</button>
-                      <button className="mx-btn mx-btn-soft" style={{ color: '#94a3b8' }} onClick={() => handleStaffAction(task, 'note')}>Note</button>
-                      <button className="mx-btn mx-btn-soft" style={{ color: '#ef4444' }} onClick={() => handleStaffAction(task, 'cancel')}>ยกเลิก</button>
+                      {task.status === 'Pending' && (
+                        <ActionButton icon="fa-play" color="blue" onClick={() => handleStaffAction(task, 'accept')} label="เริ่มงาน" />
+                      )}
+                      {task.status === 'On Process' && (
+                        <>
+                          <ActionButton icon="fa-check" color="emerald" onClick={() => handleStaffAction(task, 'complete')} label="เสร็จสิ้น" />
+                          <ActionButton icon="fa-pause" color="amber" onClick={() => handleStaffAction(task, 'hold')} label="พักงาน" />
+                          <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" />
+                        </>
+                      )}
+                      {task.status === 'On Hold' && (
+                        <>
+                          <ActionButton icon="fa-play" color="blue" onClick={() => handleStaffAction(task, 'resume')} label="ดำเนินการต่อ" />
+                          <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" />
+                        </>
+                      )}
+                      {canCancel(task) && (
+                        <ActionButton icon="fa-trash" color="rose" onClick={() => handleStaffAction(task, 'cancel')} label="ยกเลิก" />
+                      )}
+                      {canEdit(task) && (
+                        <ActionButton icon="fa-edit" color="indigo" onClick={() => handleEditOpen(task)} label="แก้ไข" />
+                      )}
                     </>
-                  )}
-                  {user.role === 'Staff' && task.status === 'On Hold' && (
-                    <>
-                      <button className="mx-btn mx-btn-soft" style={{ color: '#22c1a1' }} onClick={() => handleStaffAction(task, 'resume')}>ดำเนินต่อ</button>
-                      <button className="mx-btn mx-btn-soft" style={{ color: '#94a3b8' }} onClick={() => handleStaffAction(task, 'note')}>Note</button>
-                      <button className="mx-btn mx-btn-soft" style={{ color: '#ef4444' }} onClick={() => handleStaffAction(task, 'cancel')}>ยกเลิก</button>
-                    </>
-                  )}
-                  {user.role === 'Staff' && canEdit(task) && (
-                    <button className="mx-btn mx-btn-soft" onClick={() => handleEditOpen(task)}>แก้ไข</button>
                   )}
 
                   {/* Lead / Manager / Admin actions */}
                   {['Lead', 'Manager', 'Admin'].includes(user.role) && (
                     <>
-                      <button className="mx-btn mx-btn-soft" onClick={() => setStatusTarget(task)}>
-                        <i className="fa-solid fa-arrow-right-arrow-left mr-1"></i>สถานะ
-                      </button>
+                      <ActionButton icon="fa-arrow-right-arrow-left" color="blue" onClick={() => setStatusTarget(task)} label="เปลี่ยนสถานะ" />
                       {canEdit(task) && (
-                        <button className="mx-btn mx-btn-soft" onClick={() => handleEditOpen(task)}>แก้ไข</button>
+                        <ActionButton icon="fa-edit" color="indigo" onClick={() => handleEditOpen(task)} label="แก้ไข" />
                       )}
                       {['Manager', 'Admin'].includes(user.role) && (
-                        <button
-                          className="mx-btn mx-btn-soft"
-                          style={{ color: '#ef4444' }}
-                          onClick={() => onDelete(task)}
-                        >
-                          ลบ
-                        </button>
+                        <ActionButton icon="fa-trash" color="rose" onClick={() => onDelete(task)} label="ลบงาน" />
                       )}
                     </>
                   )}
