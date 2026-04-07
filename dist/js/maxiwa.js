@@ -2135,3 +2135,6 @@ function App() {
     </div>
   );
 }
+
+const _root = ReactDOM.createRoot(document.getElementById('root'));
+_root.render(<App />);
