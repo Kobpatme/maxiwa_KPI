@@ -10,5 +10,8 @@
   },
   "devDependencies": {
     "wrangler": "^4.10.0"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.7.2"
   }
 }
