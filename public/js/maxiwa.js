@@ -714,7 +714,7 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
 
   // Edit task modal
   const [editingTask, setEditingTask] = useState(null);
-  const [editForm, setEditForm] = useState({ job: '', subkpi: '' });
+  const [editForm, setEditForm] = useState({ job: '', subkpi: '', extra_data: {} });
   const [savingEdit, setSavingEdit] = useState(false);
 
   // PR completion modal
@@ -807,7 +807,7 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
   };
 
   const handleEditOpen = (task) => {
-    setEditForm({ job: task.job || '', subkpi: task.subkpi || '' });
+    setEditForm({ job: task.job || '', subkpi: task.subkpi || '', extra_data: task.extra_data || {} });
     setEditingTask(task);
   };
 
@@ -825,7 +825,7 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
         subkpi: editForm.subkpi,
         mainkpi: editingTask.mainkpi,
         deadline: editingTask.deadline,
-        extra_data: editingTask.extra_data || {},
+        extra_data: editForm.extra_data || {},
       });
       setEditingTask(null);
       onRefresh();
@@ -912,6 +912,11 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
                   onChange={(e) => setEditForm((p) => ({ ...p, subkpi: e.target.value }))}
                 />
               </div>
+              <ExtraDataFields
+                subkpi={editForm.subkpi}
+                extraData={editForm.extra_data}
+                onChange={(ed) => setEditForm((p) => ({ ...p, extra_data: ed }))}
+              />
               <div className="text-sm text-[var(--mx-muted)]">
                 Main KPI: {editingTask.mainkpi || '-'} • Deadline: {formatDate(editingTask.deadline)}
               </div>
@@ -1242,6 +1247,52 @@ function TrackerViewNew() {
   );
 }
 
+// ─── Extra Data Fields (conditional per Sub KPI) ──────────────────────────────
+function ExtraDataFields({ subkpi, extraData, onChange }) {
+  if (!subkpi) return null;
+  const sub = subkpi;
+  const isCoord  = sub.includes('ประสานงานอาคาร');
+  const isNotify = sub.includes('แจ้ง Job ให้ผู้รับเหมา');
+  const isSAP    = sub.toLowerCase().includes('open job sap');
+  const isOWF    = sub.toLowerCase().includes('open job owf');
+  if (!isCoord && !isNotify && !isSAP && !isOWF) return null;
+
+  const ed = extraData || {};
+  const upd = (k, v) => onChange({ ...ed, [k]: v });
+
+  return (
+    <div className="md:col-span-2 rounded-[18px] p-4 bg-[rgba(251,191,36,0.06)] border border-[rgba(251,191,36,0.25)]">
+      <p className="text-xs font-extrabold text-amber-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+        <i className="fas fa-clipboard-list"></i>ข้อมูลเพิ่มเติม
+      </p>
+      <div className="grid gap-3">
+        {isCoord && (
+          <>
+            <input className="mx-input" placeholder="อาคาร" value={ed.building || ''} onChange={(e) => upd('building', e.target.value)} />
+            <input className="mx-input" placeholder="ลูกค้า" value={ed.client || ''} onChange={(e) => upd('client', e.target.value)} />
+            <input className="mx-input" placeholder="ผู้รับเหมา" value={ed.contractor || ''} onChange={(e) => upd('contractor', e.target.value)} />
+          </>
+        )}
+        {isNotify && (
+          <>
+            <input className="mx-input" placeholder="ชื่อผู้รับเหมา" value={ed.contractorName || ''} onChange={(e) => upd('contractorName', e.target.value)} />
+            <select className="mx-select" value={ed.contractorType || ''} onChange={(e) => upd('contractorType', e.target.value)}>
+              <option value="">เลือก TYPE</option>
+              {['B1','C1','C2','E1'].map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </>
+        )}
+        {isSAP && (
+          <input className="mx-input" placeholder="SSR Number" value={ed.ssrNumber || ''} onChange={(e) => upd('ssrNumber', e.target.value)} />
+        )}
+        {isOWF && (
+          <input className="mx-input" placeholder="OSP Number" value={ed.ospNumber || ''} onChange={(e) => upd('ospNumber', e.target.value)} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Quick Create / Assign Task ────────────────────────────────────────────────
 function QuickCreateView({ user, people, onSaved }) {
   const isStaff = user.role === 'Staff';
@@ -1258,10 +1309,12 @@ function QuickCreateView({ user, people, onSaved }) {
     assignedToName: isStaff ? user.name : '',
     assignedToTeam: user?.team || '',
     assignedToEmpId: '',
+    extra_data: {},
   });
   const [assigneeKpis, setAssigneeKpis] = useState([]);
   const [loadingDeadline, setLoadingDeadline] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveResult, setSaveResult] = useState('');
 
   // For Lead/Manager: when assignee changes, load their team's KPIs
   useEffect(() => {
@@ -1269,7 +1322,7 @@ function QuickCreateView({ user, people, onSaved }) {
     if (!form.assignedToEmpId) { setAssigneeKpis([]); return; }
     const person = (people || []).find((p) => p.empId === form.assignedToEmpId);
     if (!person) return;
-    setForm((prev) => ({ ...prev, assignedToName: person.name, assignedToTeam: person.team, subkpi: '', mainkpi: '', deadline: '' }));
+    setForm((prev) => ({ ...prev, assignedToName: person.name, assignedToTeam: person.team, subkpi: '', mainkpi: '', deadline: '', extra_data: {} }));
     API.getKPIsByTeam(person.team)
       .then((res) => setAssigneeKpis(res.kpis || []))
       .catch(() => setAssigneeKpis([]));
@@ -1279,11 +1332,11 @@ function QuickCreateView({ user, people, onSaved }) {
 
   const handleSubKpiChange = async (subkpi) => {
     if (!subkpi) {
-      setForm((p) => ({ ...p, subkpi: '', mainkpi: '', deadline: '' }));
+      setForm((p) => ({ ...p, subkpi: '', mainkpi: '', deadline: '', extra_data: {} }));
       return;
     }
     const kpi = activeKpis.find((k) => k.sub === subkpi);
-    setForm((p) => ({ ...p, subkpi, mainkpi: kpi?.main || '' }));
+    setForm((p) => ({ ...p, subkpi, mainkpi: kpi?.main || '', extra_data: {} }));
 
     setLoadingDeadline(true);
     try {
@@ -1305,26 +1358,39 @@ function QuickCreateView({ user, people, onSaved }) {
     if (!form.subkpi.trim()) return alert('กรุณาเลือก Sub KPI');
     if (!isStaff && !form.assignedToName.trim()) return alert('กรุณาเลือกผู้รับผิดชอบ');
     setSaving(true);
+    setSaveResult('');
     try {
+      let res;
       if (isStaff) {
-        await API.saveNewTask({ name: user.name, team: user.team, job: form.job, subkpi: form.subkpi, note: form.note });
+        res = await API.saveNewTask({
+          name: user.name, team: user.team, empId: user.empId,
+          job: form.job, subkpi: form.subkpi, mainkpi: form.mainkpi,
+          deadline: form.deadline, note: form.note, extra_data: form.extra_data,
+        });
       } else {
-        await API.assignNewTask({
-          assignedToName: form.assignedToName,
-          assignedToTeam: form.assignedToTeam || user.team,
-          job: form.job,
+        // Lead/Manager: support multiple jobs per line
+        const jobs = form.job.split('\n').map((j) => j.trim()).filter(Boolean);
+        res = await API.saveNewTask({
+          jobs,
+          name: form.assignedToName,
+          team: form.assignedToTeam || user.team,
+          mainkpi: form.mainkpi,
           subkpi: form.subkpi,
+          deadline: form.deadline,
+          note: form.note,
         });
       }
+      const msg = (res && res.message) ? res.message : 'บันทึกงานเรียบร้อย';
+      setSaveResult(msg);
       setForm({
         job: '', note: '', subkpi: '', mainkpi: '', deadline: '',
         assignedToName: isStaff ? user.name : '',
         assignedToTeam: user.team,
         assignedToEmpId: '',
+        extra_data: {},
       });
       setAssigneeKpis([]);
       onSaved?.();
-      alert('บันทึกงานเรียบร้อย');
     } catch (e) {
       alert(e.message || 'บันทึกไม่สำเร็จ');
     } finally {
@@ -1335,16 +1401,24 @@ function QuickCreateView({ user, people, onSaved }) {
   return (
     <Panel
       title={isStaff ? 'Create Personal Task' : 'Assign Task'}
-      subtitle={isStaff ? 'สร้างงานของตัวเองจาก shell ใหม่' : 'มอบหมายงานผ่านระบบใหม่ โดยยังใช้ API เดิม'}
+      subtitle={isStaff ? 'สร้างงานของตัวเองจาก shell ใหม่' : 'มอบหมายงานได้ครั้งละหลาย Job (แต่ละบรรทัด = 1 งาน)'}
     >
+      {saveResult && (
+        <div className="mb-4 rounded-[14px] p-3 bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-400 font-bold">
+          <i className="fas fa-check-circle mr-2"></i>{saveResult}
+        </div>
+      )}
       <div className="grid md:grid-cols-2 gap-4">
         <div className="md:col-span-2">
-          <label className="block mb-2 text-sm font-bold">Job / รายละเอียดงาน</label>
+          <label className="block mb-2 text-sm font-bold">
+            Job / รายละเอียดงาน
+            {!isStaff && <span className="ml-2 text-xs text-[var(--mx-muted)] font-normal">(แต่ละบรรทัด = 1 งาน)</span>}
+          </label>
           <textarea
             className="mx-textarea min-h-[110px]"
             value={form.job}
             onChange={(e) => setForm((p) => ({ ...p, job: e.target.value }))}
-            placeholder="ระบุ job หรือรายละเอียดงาน"
+            placeholder={isStaff ? 'ระบุ job หรือรายละเอียดงาน' : 'Job 1\nJob 2\nJob 3 (แต่ละบรรทัดจะสร้างเป็น 1 งาน)'}
           />
         </div>
 
@@ -1394,6 +1468,12 @@ function QuickCreateView({ user, people, onSaved }) {
             placeholder={loadingDeadline ? 'กำลังคำนวณ...' : 'กรอกอัตโนมัติเมื่อเลือก Sub KPI'}
           />
         </div>
+
+        <ExtraDataFields
+          subkpi={form.subkpi}
+          extraData={form.extra_data}
+          onChange={(ed) => setForm((p) => ({ ...p, extra_data: ed }))}
+        />
 
         <div>
           <label className="block mb-2 text-sm font-bold">Deadline (คำนวณจาก SLA)</label>
