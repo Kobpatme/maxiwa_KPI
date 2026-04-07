@@ -14,6 +14,8 @@ const NAV_BY_ROLE = {
     { id: 'tasks', label: 'Team Tasks', icon: 'fa-list-check' },
     { id: 'assign', label: 'Assign Task', icon: 'fa-user-plus' },
     { id: 'people', label: 'Team People', icon: 'fa-users' },
+    { id: 'personalDashboard', label: 'My Dashboard', icon: 'fa-gauge-high' },
+    { id: 'personalTasks', label: 'My Tasks', icon: 'fa-clipboard-check' },
     { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project' },
   ],
   Manager: [
@@ -46,6 +48,27 @@ function formatDate(value, withTime = false) {
     : { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+const MONTH_OPTIONS = [
+  { value: 0, label: 'ทุกเดือน' },
+  { value: 1, label: 'ม.ค.' },
+  { value: 2, label: 'ก.พ.' },
+  { value: 3, label: 'มี.ค.' },
+  { value: 4, label: 'เม.ย.' },
+  { value: 5, label: 'พ.ค.' },
+  { value: 6, label: 'มิ.ย.' },
+  { value: 7, label: 'ก.ค.' },
+  { value: 8, label: 'ส.ค.' },
+  { value: 9, label: 'ก.ย.' },
+  { value: 10, label: 'ต.ค.' },
+  { value: 11, label: 'พ.ย.' },
+  { value: 12, label: 'ธ.ค.' },
+];
+
+function getAvailableYears() {
+  const currentYear = new Date().getFullYear();
+  return Array.from({ length: 7 }, (_, index) => currentYear - 5 + index);
+}
+
 function parseJsonSafe(value, fallback = null) {
   try {
     return JSON.parse(value);
@@ -59,6 +82,186 @@ function parseExtraData(extraData) {
   if (typeof extraData === 'string') return parseJsonSafe(extraData, null);
   if (typeof extraData === 'object') return extraData;
   return null;
+}
+
+function parseDate(value) {
+  if (!value || value === '-') return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDisplayDate(value) {
+  const date = parseDate(value);
+  if (!date) return '-';
+  return date.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function formatMonthLabel(month, year) {
+  const monthText = MONTH_OPTIONS.find((item) => item.value === Number(month))?.label || 'ทุกเดือน';
+  return `${monthText}-${year}`;
+}
+
+function getTimestampLabel() {
+  const now = new Date();
+  return `[${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}]`;
+}
+
+function isOpenPrSubKpi(subKpi) {
+  return String(subKpi || '').toLowerCase().includes('open pr');
+}
+
+function getExtraFieldDefinitions(subKpi) {
+  const text = String(subKpi || '').toLowerCase();
+  const fields = [];
+  if (text.includes('ประสานงานอาคาร')) {
+    fields.push({ key: 'building', label: 'Building', placeholder: 'อาคาร' });
+    fields.push({ key: 'client', label: 'Client', placeholder: 'ลูกค้า' });
+    fields.push({ key: 'contractor', label: 'Contractor', placeholder: 'ผู้รับเหมา' });
+  }
+  if (text.includes('แจ้ง job ให้ผู้รับเหมา')) {
+    fields.push({ key: 'contractorName', label: 'Contractor Name', placeholder: 'ชื่อผู้รับเหมา' });
+    fields.push({ key: 'contractorType', label: 'Type', type: 'select', options: ['B1', 'C1', 'C2', 'E1'] });
+  }
+  if (text.includes('open job sap')) {
+    fields.push({ key: 'ssrNumber', label: 'SSR Number', placeholder: 'SSR Number' });
+  }
+  if (text.includes('open job owf')) {
+    fields.push({ key: 'ospNumber', label: 'OSP Number', placeholder: 'OSP Number' });
+  }
+  if (isOpenPrSubKpi(subKpi)) {
+    fields.push({ key: 'fundNumber', label: 'Fund Number', placeholder: 'Fund Number' });
+    fields.push({ key: 'amount', label: 'Amount', placeholder: 'จำนวนเงิน', type: 'number' });
+  }
+  return fields;
+}
+
+function buildTaskNotifications(tasks) {
+  const now = new Date();
+  const notifications = [];
+
+  (tasks || []).forEach((task) => {
+    const status = String(task.status || '').toLowerCase();
+    const deadline = parseDate(task.deadline);
+
+    if (status === 'pending') {
+      notifications.push({
+        id: `pending-${task.id}`,
+        priority: 'high',
+        message: `มีงานใหม่รอรับ: ${String(task.job || '').slice(0, 48)}`,
+      });
+    }
+
+    if (deadline && status !== 'completed' && status !== 'cancelled') {
+      const daysUntil = Math.ceil((deadline - now) / (1000 * 60 * 60 * 24));
+      if (daysUntil > 0 && daysUntil <= 3) {
+        notifications.push({
+          id: `deadline-${task.id}`,
+          priority: daysUntil === 1 ? 'urgent' : 'medium',
+          message: `ใกล้ถึงกำหนดในอีก ${daysUntil} วัน: ${String(task.job || '').slice(0, 48)}`,
+        });
+      }
+      if (daysUntil <= 0) {
+        notifications.push({
+          id: `overdue-${task.id}`,
+          priority: 'urgent',
+          message: `เกินกำหนดแล้ว: ${String(task.job || '').slice(0, 48)}`,
+        });
+      }
+    }
+  });
+
+  return notifications;
+}
+
+function exportTasksCsv(tasks, userName, selectedMonth, selectedYear) {
+  const headers = ['ลำดับ', 'รายละเอียดงาน', 'Main KPI', 'Sub KPI', 'สถานะ', 'วันเริ่มต้น', 'Deadline', 'วันเสร็จ', 'ผล'];
+  const escape = (value) => `"${String(value == null ? '' : value).replace(/"/g, '""')}"`;
+  const rows = (tasks || []).map((task, index) => {
+    const deadline = parseDate(task.deadline);
+    const completed = parseDate(task.completiondate);
+    const onTime = task.status === 'Completed' && deadline && completed ? completed <= deadline : null;
+    return [
+      index + 1,
+      escape(task.job),
+      escape(task.mainkpi),
+      escape(task.subkpi),
+      escape(task.status),
+      escape(formatDisplayDate(task.startdate)),
+      escape(formatDisplayDate(task.deadline)),
+      escape(formatDisplayDate(task.completiondate)),
+      escape(task.status === 'Completed' ? (onTime ? 'ตรงเวลา' : 'เกินกำหนด') : '-'),
+    ].join(',');
+  });
+  const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `tasks_${(userName || 'export').replace(/\s+/g, '_')}_${formatMonthLabel(selectedMonth, selectedYear)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportTrackerCsv(groups, selectedMonth, selectedYear) {
+  const escape = (value) => {
+    const text = String(value == null ? '' : value);
+    return text.includes(',') || text.includes('"') || text.includes('\n') ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const rows = [[
+    'Job Code',
+    'ชื่องาน',
+    'ผู้รับผิดชอบ',
+    'ทีม',
+    'Sub KPI',
+    'สถานะ',
+    'วันเริ่ม',
+    'กำหนดเสร็จ',
+    'วันเสร็จ',
+    'อาคาร',
+    'ลูกค้า',
+    'ผู้รับเหมา',
+    'ชื่อผู้รับเหมา',
+    'TYPE',
+    'SSR Number',
+    'OSP Number',
+    'Fund Number',
+    'จำนวนเงิน',
+  ]];
+
+  (groups || []).forEach((group) => {
+    group.tasks.forEach((task) => {
+      const ed = parseExtraData(task.extra_data) || {};
+      rows.push([
+        escape(group.code),
+        escape(task.job),
+        escape(task.name),
+        escape(task.team),
+        escape(task.subkpi),
+        escape(task.status),
+        escape(task.startdate ? formatDisplayDate(task.startdate) : ''),
+        escape(task.deadline ? formatDisplayDate(task.deadline) : ''),
+        escape(task.completiondate ? formatDisplayDate(task.completiondate) : ''),
+        escape(ed.building || ''),
+        escape(ed.client || ''),
+        escape(ed.contractor || ''),
+        escape(ed.contractorName || ''),
+        escape(ed.contractorType || ''),
+        escape(ed.ssrNumber || ''),
+        escape(ed.ospNumber || ''),
+        escape(ed.fundNumber || ''),
+        escape(ed.amount || ''),
+      ]);
+    });
+  });
+
+  const csv = '\uFEFF' + rows.map((row) => row.join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `job-tracker-${selectedYear}${selectedMonth > 0 ? `-${String(selectedMonth).padStart(2, '0')}` : ''}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function normalizePermissions(permissions) {
@@ -154,7 +357,9 @@ function TaskEditModal({ user, task, onClose, onSaved }) {
     job: task?.job || '',
     subkpi: task?.subkpi || '',
     note: task?.note || '',
-    extraDataText: JSON.stringify(parseExtraData(task?.extra_data) || {}, null, 2),
+    mainkpi: task?.mainkpi || '',
+    deadline: task?.deadline || '',
+    extraData: parseExtraData(task?.extra_data) || {},
   });
   const [kpis, setKpis] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -174,18 +379,26 @@ function TaskEditModal({ user, task, onClose, onSaved }) {
     };
   }, [task.team]);
 
+  const handleSubKpiChange = async (subkpi) => {
+    if (!subkpi) {
+      setForm((prev) => ({ ...prev, subkpi: '', mainkpi: '', deadline: '', extraData: {} }));
+      return;
+    }
+    const matchedKpi = kpis.find((kpi) => kpi.sub === subkpi);
+    setForm((prev) => ({ ...prev, subkpi, mainkpi: matchedKpi?.main || prev.mainkpi, deadline: '', extraData: {} }));
+    try {
+      const preview = await API.calculateDeadlinePreview({
+        team: task.team,
+        subkpi,
+        startDate: task.startdate || new Date().toISOString(),
+      });
+      setForm((prev) => ({ ...prev, subkpi, mainkpi: preview.mainkpi || matchedKpi?.main || '', deadline: preview.deadline || '', extraData: prev.extraData || {} }));
+    } catch {}
+  };
+
   const handleSave = async () => {
     if (!form.job.trim()) return setError('เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธเธฃเธฒเธขเธฅเธฐเน€เธญเธตเธขเธ”เธเธฒเธ');
     if (!form.subkpi.trim()) return setError('เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธเธซเธฃเธทเธญเน€เธฅเธทเธญเธ Sub KPI');
-
-    let extraData = null;
-    if (form.extraDataText.trim()) {
-      extraData = parseJsonSafe(form.extraDataText, '__invalid__');
-      if (extraData === '__invalid__') {
-        setError('Extra data เธ•เนเธญเธเน€เธเนเธ JSON เธ—เธตเนเธ–เธนเธเธ•เนเธญเธ');
-        return;
-      }
-    }
 
     setSaving(true);
     setError('');
@@ -196,7 +409,7 @@ function TaskEditModal({ user, task, onClose, onSaved }) {
         job: form.job.trim(),
         subkpi: form.subkpi.trim(),
         note: form.note,
-        extra_data: extraData,
+        extra_data: form.extraData,
         changedBy: user.name,
       };
       const res = await API.updateTaskDetails(payload);
@@ -209,6 +422,8 @@ function TaskEditModal({ user, task, onClose, onSaved }) {
       setSaving(false);
     }
   };
+
+  const extraFields = getExtraFieldDefinitions(form.subkpi);
 
   return (
     <div className="fixed inset-0 bg-[rgba(3,8,14,0.75)] backdrop-blur-md z-[80] flex items-center justify-center p-4">
@@ -234,7 +449,7 @@ function TaskEditModal({ user, task, onClose, onSaved }) {
                 list="mx-kpi-options"
                 className="mx-input"
                 value={form.subkpi}
-                onChange={(e) => setForm((p) => ({ ...p, subkpi: e.target.value }))}
+                onChange={(e) => handleSubKpiChange(e.target.value)}
                 placeholder="เน€เธฅเธทเธญเธเธซเธฃเธทเธญเธเธดเธกเธเน Sub KPI"
               />
               <datalist id="mx-kpi-options">
@@ -242,9 +457,14 @@ function TaskEditModal({ user, task, onClose, onSaved }) {
               </datalist>
             </div>
             <div>
-              <label className="block mb-2 text-sm font-bold">Team</label>
-              <input className="mx-input" value={task.team || ''} disabled />
+              <label className="block mb-2 text-sm font-bold">Main KPI</label>
+              <input className="mx-input" value={form.mainkpi || ''} disabled />
             </div>
+          </div>
+
+          <div>
+            <label className="block mb-2 text-sm font-bold">Deadline</label>
+            <input className="mx-input" value={form.deadline ? `${formatDisplayDate(form.deadline)} 23:59` : ''} disabled />
           </div>
 
           <div>
@@ -252,10 +472,32 @@ function TaskEditModal({ user, task, onClose, onSaved }) {
             <textarea className="mx-textarea min-h-[120px]" value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} />
           </div>
 
-          <div>
-            <label className="block mb-2 text-sm font-bold">Extra Data JSON</label>
-            <textarea className="mx-textarea min-h-[140px] font-mono text-sm" value={form.extraDataText} onChange={(e) => setForm((p) => ({ ...p, extraDataText: e.target.value }))} />
-          </div>
+          {extraFields.length > 0 ? (
+            <div className="rounded-[18px] p-4 bg-[rgba(255,184,77,0.08)] border border-[rgba(255,184,77,0.18)] grid md:grid-cols-2 gap-3">
+              {extraFields.map((field) => (
+                <div key={field.key}>
+                  <label className="block mb-2 text-sm font-bold">{field.label}</label>
+                  {field.type === 'select' ? (
+                    <select className="mx-select" value={form.extraData?.[field.key] || ''} onChange={(e) => setForm((prev) => ({ ...prev, extraData: { ...(prev.extraData || {}), [field.key]: e.target.value } }))}>
+                      <option value="">เลือก {field.label}</option>
+                      {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  ) : (
+                    <input className="mx-input" type={field.type || 'text'} value={form.extraData?.[field.key] || ''} onChange={(e) => setForm((prev) => ({ ...prev, extraData: { ...(prev.extraData || {}), [field.key]: e.target.value } }))} />
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div>
+              <label className="block mb-2 text-sm font-bold">Extra Data JSON</label>
+              <textarea className="mx-textarea min-h-[140px] font-mono text-sm" value={JSON.stringify(form.extraData || {}, null, 2)} onChange={(e) => {
+                const parsed = parseJsonSafe(e.target.value, '__invalid__');
+                if (parsed !== '__invalid__') setForm((prev) => ({ ...prev, extraData: parsed }));
+                else setError('Extra data ต้องเป็น JSON ที่ถูกต้อง');
+              }} />
+            </div>
+          )}
           {error ? <div className="text-sm font-bold text-[#ffb7b7]">{error}</div> : null}
         </div>
 
@@ -392,7 +634,7 @@ function LoginScreen({ onLogin, loading, error }) {
   );
 }
 
-function useAppData(user, view) {
+function useAppData(user, view, selectedMonth, selectedYear) {
   const [state, setState] = useState({
     loading: false,
     error: '',
@@ -408,25 +650,22 @@ function useAppData(user, view) {
     if (!user) return;
     safeSet({ loading: true, error: '' });
     try {
-      if (user.role === 'Staff') {
-        const now = new Date();
-        const res = await API.getEmployeeTasks(user, now.getMonth() + 1, now.getFullYear(), false, user.empId);
+      if (user.role === 'Staff' || (user.role === 'Lead' && view === 'personalDashboard')) {
+        const res = await API.getEmployeeTasks(user, selectedMonth, selectedYear, false, user.empId);
         safeSet({ dashboard: { tasks: res.tasks || res || [] }, loading: false });
         return;
       }
 
       if (user.role === 'Lead') {
-        const now = new Date();
-        const res = await API.getTeamSummaryReport(user.team, now.getMonth() + 1, now.getFullYear(), user.empId);
+        const res = await API.getTeamSummaryReport(user.team, selectedMonth, selectedYear, user.empId);
         safeSet({ dashboard: { summary: res.summary || [], period: res.period }, loading: false });
         return;
       }
 
       if (user.role === 'Manager') {
-        const now = new Date();
         const [summaryRes, tasksRes] = await Promise.all([
-          API.getSummaryReport(now.getMonth() + 1, now.getFullYear(), user.empId),
-          API.getAllTasks(now.getMonth() + 1, now.getFullYear(), 'all', user.empId),
+          API.getSummaryReport(selectedMonth, selectedYear, user.empId),
+          API.getAllTasks(selectedMonth, selectedYear, 'all', user.empId),
         ]);
         safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period }, loading: false });
         return;
@@ -443,25 +682,24 @@ function useAppData(user, view) {
     } catch (e) {
       safeSet({ loading: false, error: e.message || 'เนเธซเธฅเธ” dashboard เนเธกเนเธชเธณเน€เธฃเนเธ' });
     }
-  }, [user]);
+  }, [user, view, selectedMonth, selectedYear]);
 
   const loadTasks = useCallback(async () => {
     if (!user) return;
     safeSet({ loading: true, error: '' });
     try {
-      const now = new Date();
-      if (user.role === 'Staff') {
-        const res = await API.getEmployeeTasks(user, now.getMonth() + 1, now.getFullYear(), false, user.empId);
+      if (user.role === 'Staff' || (user.role === 'Lead' && view === 'personalTasks')) {
+        const res = await API.getEmployeeTasks(user, selectedMonth, selectedYear, false, user.empId);
         safeSet({ tasks: res.tasks || res || [], loading: false });
         return;
       }
       const team = user.role === 'Lead' ? user.team : 'all';
-      const res = await API.getAllTasks(now.getMonth() + 1, now.getFullYear(), team, user.empId);
+      const res = await API.getAllTasks(selectedMonth, selectedYear, team, user.empId);
       safeSet({ tasks: res.tasks || [], loading: false });
     } catch (e) {
       safeSet({ loading: false, error: e.message || 'เนเธซเธฅเธ” tasks เนเธกเนเธชเธณเน€เธฃเนเธ' });
     }
-  }, [user]);
+  }, [user, view, selectedMonth, selectedYear]);
 
   const loadPeople = useCallback(async () => {
     if (!user) return;
@@ -506,7 +744,9 @@ function useAppData(user, view) {
   useEffect(() => {
     if (!user) return;
     if (view === 'dashboard') loadDashboard();
+    if (view === 'personalDashboard') loadDashboard();
     if (view === 'tasks') loadTasks();
+    if (view === 'personalTasks') loadTasks();
     if (view === 'people') loadPeople();
     if (view === 'assign') loadPeople();
     if (view === 'admin') loadAdmin();
@@ -515,12 +755,12 @@ function useAppData(user, view) {
   return { state, reloadDashboard: loadDashboard, reloadTasks: loadTasks, reloadPeople: loadPeople, reloadAdmin: loadAdmin };
 }
 
-function DashboardView({ user, data }) {
+function DashboardView({ user, data, view }) {
   if (!data) {
     return <Panel title="Executive Overview" subtitle="เธเธณเธฅเธฑเธเน€เธ•เธฃเธตเธขเธกเธเนเธญเธกเธนเธฅเนเธซเนเธเธธเธ“..."><div className="text-[var(--mx-muted)]">Loading dashboard...</div></Panel>;
   }
 
-  if (user.role === 'Staff') {
+  if (user.role === 'Staff' || (user.role === 'Lead' && view === 'personalDashboard')) {
     const tasks = data.tasks || [];
     const completed = tasks.filter((t) => t.status === 'Completed').length;
     const active = tasks.filter((t) => ['On Process', 'Pending', 'On Hold'].includes(t.status)).length;
@@ -866,11 +1106,16 @@ function QuickCreateView({ user, people, onSaved }) {
     job: '',
     note: '',
     subkpi: '',
+    mainkpi: '',
+    deadline: '',
+    extra_data: {},
     assignedToName: '',
     assignedToTeam: user?.team || '',
   });
   const [saving, setSaving] = useState(false);
+  const [availableKpis, setAvailableKpis] = useState(user?.kpis || []);
   const isStaff = user.role === 'Staff';
+  const selectedTeam = isStaff ? user.team : form.assignedToTeam;
 
   useEffect(() => {
     setForm((prev) => ({
@@ -880,21 +1125,90 @@ function QuickCreateView({ user, people, onSaved }) {
     }));
   }, [user, isStaff]);
 
+  useEffect(() => {
+    if (isStaff) {
+      setAvailableKpis(user?.kpis || []);
+      return;
+    }
+    if (!selectedTeam) {
+      setAvailableKpis([]);
+      return;
+    }
+    let active = true;
+    API.getKPIsByTeam(selectedTeam)
+      .then((res) => {
+        if (active) setAvailableKpis(res.kpis || []);
+      })
+      .catch(() => {
+        if (active) setAvailableKpis([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isStaff, selectedTeam, user]);
+
+  const handleSubKpiChange = async (subkpi) => {
+    if (!subkpi) {
+      setForm((prev) => ({ ...prev, subkpi: '', mainkpi: '', deadline: '', extra_data: {} }));
+      return;
+    }
+    const matchedKpi = availableKpis.find((kpi) => kpi.sub === subkpi);
+    setForm((prev) => ({
+      ...prev,
+      subkpi,
+      mainkpi: matchedKpi?.main || '',
+      deadline: '',
+      extra_data: {},
+    }));
+    if (!selectedTeam) return;
+    try {
+      const preview = await API.calculateDeadlinePreview({
+        team: selectedTeam,
+        subkpi,
+        startDate: new Date().toISOString(),
+      });
+      setForm((prev) => ({
+        ...prev,
+        subkpi,
+        mainkpi: preview.mainkpi || matchedKpi?.main || '',
+        deadline: preview.deadline || '',
+        extra_data: prev.subkpi === subkpi ? prev.extra_data : {},
+      }));
+    } catch {}
+  };
+
   const handleSave = async () => {
     if (!form.job.trim()) return alert('เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธ job');
     if (!form.subkpi.trim()) return alert('เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธ Sub KPI');
     setSaving(true);
     try {
       if (isStaff) {
-        await API.saveNewTask({ name: user.name, team: user.team, job: form.job, subkpi: form.subkpi, note: form.note });
+        await API.saveNewTask({
+          name: user.name,
+          team: user.team,
+          job: form.job,
+          subkpi: form.subkpi,
+          note: form.note,
+          extra_data: form.extra_data,
+        });
       } else {
         if (!form.assignedToName.trim()) return alert('เธเธฃเธธเธ“เธฒเน€เธฅเธทเธญเธเธเธนเนเธฃเธฑเธเธเธดเธ”เธเธญเธ');
-        await API.assignNewTask({ assignedToName: form.assignedToName, assignedToTeam: form.assignedToTeam || user.team, job: form.job, subkpi: form.subkpi });
+        await API.assignNewTask({
+          assignedToName: form.assignedToName,
+          assignedToTeam: form.assignedToTeam || user.team,
+          job: form.job,
+          subkpi: form.subkpi,
+          note: form.note,
+          extra_data: form.extra_data,
+        });
       }
       setForm({
         job: '',
         note: '',
         subkpi: '',
+        mainkpi: '',
+        deadline: '',
+        extra_data: {},
         assignedToName: isStaff ? user.name : '',
         assignedToTeam: isStaff ? user.team : user.team,
       });
@@ -907,6 +1221,8 @@ function QuickCreateView({ user, people, onSaved }) {
     }
   };
 
+  const extraFields = getExtraFieldDefinitions(form.subkpi);
+
   return (
     <Panel title={isStaff ? 'Create Personal Task' : 'Assign Task'} subtitle={isStaff ? 'เธชเธฃเนเธฒเธเธเธฒเธเธเธญเธเธ•เธฑเธงเน€เธญเธเธเธฒเธ shell เนเธซเธกเน' : 'เธกเธญเธเธซเธกเธฒเธขเธเธฒเธเธเนเธฒเธเธฃเธฐเธเธเนเธซเธกเน เนเธ”เธขเธขเธฑเธเนเธเน API เน€เธ”เธดเธก'}>
       <div className="grid md:grid-cols-2 gap-4">
@@ -916,7 +1232,10 @@ function QuickCreateView({ user, people, onSaved }) {
         </div>
         <div>
           <label className="block mb-2 text-sm font-bold">Sub KPI</label>
-          <input className="mx-input" value={form.subkpi} onChange={(e) => setForm((p) => ({ ...p, subkpi: e.target.value }))} placeholder="Sub KPI" />
+          <select className="mx-select" value={form.subkpi} onChange={(e) => handleSubKpiChange(e.target.value)}>
+            <option value="">เลือก Sub KPI</option>
+            {availableKpis.map((kpi) => <option key={`${kpi.team}-${kpi.sub}`} value={kpi.sub}>{kpi.sub} ({kpi.main})</option>)}
+          </select>
         </div>
         {!isStaff && (
           <>
@@ -936,12 +1255,41 @@ function QuickCreateView({ user, people, onSaved }) {
             </div>
           </>
         )}
-        {isStaff && (
-          <div className="md:col-span-2">
-            <label className="block mb-2 text-sm font-bold">Note</label>
-            <textarea className="mx-textarea min-h-[100px]" value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} placeholder="เธซเธกเธฒเธขเน€เธซเธ•เธธเน€เธเธดเนเธกเน€เธ•เธดเธก"></textarea>
+        <div>
+          <label className="block mb-2 text-sm font-bold">Main KPI</label>
+          <div className="mx-input !bg-[rgba(255,255,255,0.02)]">{form.mainkpi || 'เลือก Sub KPI ก่อน'}</div>
+        </div>
+        <div>
+          <label className="block mb-2 text-sm font-bold">Deadline</label>
+          <div className="mx-input !bg-[rgba(255,255,255,0.02)]">{form.deadline ? `${formatDisplayDate(form.deadline)} 23:59` : 'รอคำนวณจาก KPI'}</div>
+        </div>
+        {extraFields.length > 0 ? (
+          <div className="md:col-span-2 rounded-[18px] p-4 bg-[rgba(255,184,77,0.08)] border border-[rgba(255,184,77,0.18)] grid md:grid-cols-2 gap-3">
+            {extraFields.map((field) => (
+              <div key={field.key} className={field.type === 'select' ? '' : ''}>
+                <label className="block mb-2 text-sm font-bold">{field.label}</label>
+                {field.type === 'select' ? (
+                  <select className="mx-select" value={form.extra_data?.[field.key] || ''} onChange={(e) => setForm((prev) => ({ ...prev, extra_data: { ...(prev.extra_data || {}), [field.key]: e.target.value } }))}>
+                    <option value="">เลือก {field.label}</option>
+                    {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    className="mx-input"
+                    type={field.type || 'text'}
+                    placeholder={field.placeholder}
+                    value={form.extra_data?.[field.key] || ''}
+                    onChange={(e) => setForm((prev) => ({ ...prev, extra_data: { ...(prev.extra_data || {}), [field.key]: e.target.value } }))}
+                  />
+                )}
+              </div>
+            ))}
           </div>
-        )}
+        ) : null}
+        <div className="md:col-span-2">
+          <label className="block mb-2 text-sm font-bold">Note</label>
+          <textarea className="mx-textarea min-h-[100px]" value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} placeholder="หมายเหตุเพิ่มเติม"></textarea>
+        </div>
       </div>
       <div className="mt-5">
         <button className="mx-btn mx-btn-primary" disabled={saving} onClick={handleSave}>{saving ? 'เธเธณเธฅเธฑเธเธเธฑเธเธ—เธถเธ...' : isStaff ? 'Create Task' : 'Assign Task'}</button>
@@ -1166,7 +1514,7 @@ function AdminStudio({ user, adminData, onRefresh }) {
   );
 }
 
-function TaskCenterPro({ user, tasks, onAccept, onStatusChange, onDelete, onRefresh, onEdit }) {
+function TaskCenterPro({ user, tasks, onAccept, onStatusChange, onDelete, onRefresh, onEdit, onOpenStatusModal, onOpenNoteModal }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [teamFilter, setTeamFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -1256,9 +1604,12 @@ function TaskCenterPro({ user, tasks, onAccept, onStatusChange, onDelete, onRefr
                 <div className="flex flex-wrap gap-2">
                   {user.role === 'Staff' && task.status === 'Pending' ? <button className="mx-btn mx-btn-primary" onClick={() => onAccept(task)}>Accept</button> : null}
                   <button className="mx-btn mx-btn-soft" onClick={() => onEdit(task)}>Edit</button>
-                  <button className="mx-btn mx-btn-soft" onClick={() => onStatusChange(task, 'On Process')}>On Process</button>
-                  <button className="mx-btn mx-btn-soft" onClick={() => onStatusChange(task, 'On Hold')}>On Hold</button>
-                  <button className="mx-btn mx-btn-soft" onClick={() => onStatusChange(task, 'Completed')}>Completed</button>
+                  {task.status !== 'Completed' ? <button className="mx-btn mx-btn-soft" onClick={() => onOpenNoteModal(task)}>Add Note</button> : null}
+                  {task.status === 'Pending' ? <button className="mx-btn mx-btn-soft" onClick={() => onOpenStatusModal(task, 'On Process')}>On Process</button> : null}
+                  {task.status === 'On Process' ? <button className="mx-btn mx-btn-soft" onClick={() => onOpenStatusModal(task, 'Completed')}>Completed</button> : null}
+                  {task.status === 'On Process' ? <button className="mx-btn mx-btn-soft" onClick={() => onOpenStatusModal(task, 'On Hold')}>On Hold</button> : null}
+                  {task.status === 'On Hold' ? <button className="mx-btn mx-btn-soft" onClick={() => onOpenStatusModal(task, 'On Process')}>Resume</button> : null}
+                  {task.status !== 'Completed' && task.status !== 'Cancelled' ? <button className="mx-btn mx-btn-soft" onClick={() => onOpenStatusModal(task, 'Cancelled')}>Cancel</button> : null}
                   {(user.role === 'Manager' || user.role === 'Admin') ? <button className="mx-btn mx-btn-soft" onClick={() => onDelete(task)}>Delete</button> : null}
                 </div>
               </div>
@@ -1270,88 +1621,101 @@ function TaskCenterPro({ user, tasks, onAccept, onStatusChange, onDelete, onRefr
   );
 }
 
-function TrackerViewPro() {
-  const [query, setQuery] = useState('');
+function TrackerViewPro({ user, selectedMonth, selectedYear }) {
+  const [filterText, setFilterText] = useState('');
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
-  const [logsByTask, setLogsByTask] = useState({});
   const [expandedJob, setExpandedJob] = useState(null);
   const [expandedTaskId, setExpandedTaskId] = useState(null);
+  const [logsByTask, setLogsByTask] = useState({});
 
-  const handleSearch = async () => {
-    if (query.trim().length < 3) {
-      setError('Please enter at least 3 characters.');
-      return;
-    }
+  const loadTasks = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await API.getTasksByJob(query.trim());
+      const res = await API.getAllTasks(selectedMonth, selectedYear, 'all', user?.empId);
       const tasks = res.tasks || [];
       setItems(tasks);
       setExpandedJob(null);
       setExpandedTaskId(null);
-      const logPairs = await Promise.all(tasks.map(async (task) => {
-        try {
-          const logRes = await API.getAuditLogsByTask(task.id);
-          return [task.id, logRes.logs || []];
-        } catch {
-          return [task.id, []];
-        }
-      }));
-      setLogsByTask(Object.fromEntries(logPairs));
     } catch (e) {
-      setError(e.message || 'Search failed');
+      setError(e.message || 'โหลด Job Tracker ไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedMonth, selectedYear, user]);
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
 
   const grouped = useMemo(() => {
     const groups = {};
-    items.forEach((task) => {
+    const query = filterText.trim().toLowerCase();
+    const filteredItems = query
+      ? items.filter((task) =>
+        [task.job, task.name, task.team, task.subkpi, task.status]
+          .some((value) => String(value || '').toLowerCase().includes(query)))
+      : items;
+
+    filteredItems.forEach((task) => {
       const code = extractJobCode(task.job);
       if (!groups[code]) groups[code] = [];
       groups[code].push(task);
     });
+
     return Object.entries(groups).map(([code, tasks]) => {
       const ordered = [...tasks].sort((a, b) => new Date(a.startdate || 0) - new Date(b.startdate || 0));
       const owners = [...new Set(ordered.map((task) => task.name).filter(Boolean))];
-      const duplicateSignals = Object.values(ordered.reduce((acc, task) => {
+      const fingerprints = ordered.reduce((acc, task) => {
         const key = getTaskFingerprint(task);
         acc[key] = (acc[key] || 0) + 1;
         return acc;
-      }, {})).filter((count) => count > 1).length;
-      return [code, {
+      }, {});
+      return {
+        code,
         tasks: ordered,
         owners,
         completed: ordered.filter((task) => task.status === 'Completed').length,
         active: ordered.filter((task) => ['Pending', 'On Process', 'On Hold'].includes(task.status)).length,
-        duplicateSignals,
+        duplicateSignals: Object.values(fingerprints).filter((count) => count > 1).length,
         lastActivity: ordered.reduce((latest, task) => {
           const stamp = new Date(task.completiondate || task.startdate || 0).getTime();
           return stamp > latest ? stamp : latest;
         }, 0),
-      }];
-    });
-  }, [items]);
+      };
+    }).sort((a, b) => String(b.code).localeCompare(String(a.code)));
+  }, [filterText, items]);
+
+  const handleOpenTask = async (taskId) => {
+    setExpandedTaskId((prev) => (prev === taskId ? null : taskId));
+    if (logsByTask[taskId]) return;
+    try {
+      const logRes = await API.getAuditLogsByTask(taskId);
+      setLogsByTask((prev) => ({ ...prev, [taskId]: logRes.logs || [] }));
+    } catch {
+      setLogsByTask((prev) => ({ ...prev, [taskId]: [] }));
+    }
+  };
 
   return (
     <div className="grid gap-5">
-      <Panel title="Job Tracker" subtitle="Timeline-style tracking to make one job with many child tasks easier to read">
-        <div className="grid md:grid-cols-[1fr_180px] gap-3 mb-5">
-          <input className="mx-input" placeholder="Search by job code or job title" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} />
-          <button className="mx-btn mx-btn-primary" onClick={handleSearch} disabled={loading}>{loading ? 'Searching...' : 'Search'}</button>
+      <Panel title="Job Tracker" subtitle="ติดตามงานแบบ grouped timeline พร้อมกรองตามช่วงเวลาและดาวน์โหลด CSV">
+        <div className="grid md:grid-cols-[1fr_180px_180px_180px] gap-3 mb-5">
+          <input className="mx-input" placeholder="ค้นหา Job / คน / ทีม / Sub KPI / สถานะ" value={filterText} onChange={(e) => setFilterText(e.target.value)} />
+          <button className="mx-btn mx-btn-soft" onClick={loadTasks} disabled={loading}>{loading ? 'กำลังโหลด...' : 'Refresh'}</button>
+          <button className="mx-btn mx-btn-soft" onClick={() => exportTrackerCsv(grouped, selectedMonth, selectedYear)} disabled={grouped.length === 0}>Export CSV</button>
+          <div className="mx-input !bg-[rgba(255,255,255,0.02)] flex items-center justify-center">{formatMonthLabel(selectedMonth, selectedYear)}</div>
         </div>
         {error ? <div className="mb-4 text-sm text-[#ffb7b7] font-bold">{error}</div> : null}
         <div className="grid gap-4">
-          {grouped.length === 0 ? <div className="text-sm text-[var(--mx-muted)]">No results yet.</div> : null}
-          {grouped.map(([code, group]) => (
-            <div key={code} className="mx-data-card">
+          {grouped.length === 0 ? <div className="text-sm text-[var(--mx-muted)]">{filterText ? 'ลองเปลี่ยนคำค้นหา' : 'ไม่มีงานในช่วงเวลาที่เลือก'}</div> : null}
+          {grouped.map((group) => (
+            <div key={group.code} className="mx-data-card">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="font-extrabold text-lg">{code}</div>
+                  <div className="font-extrabold text-lg">{group.code}</div>
                   <div className="mt-1 text-sm text-[var(--mx-muted)]">{group.tasks.length} task(s) grouped under this job</div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1359,13 +1723,13 @@ function TrackerViewPro() {
                   <span className="mx-badge mx-status-completed">{group.completed} completed</span>
                   <span className="mx-badge mx-status-pending">{group.active} active</span>
                   {group.duplicateSignals ? <span className="mx-badge mx-status-cancelled">{group.duplicateSignals} duplicate signal</span> : null}
-                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => setExpandedJob(expandedJob === code ? null : code)}>
-                    {expandedJob === code ? 'Collapse' : 'Open Timeline'}
+                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => setExpandedJob(expandedJob === group.code ? null : group.code)}>
+                    {expandedJob === group.code ? 'Collapse' : 'Open Timeline'}
                   </button>
                 </div>
               </div>
               {group.lastActivity ? <div className="mt-3 text-xs text-[var(--mx-muted)]">Last activity {formatDate(group.lastActivity, true)}</div> : null}
-              {expandedJob === code ? (
+              {expandedJob === group.code ? (
                 <div className="mt-4 grid gap-3">
                   {group.tasks.map((task, idx) => (
                     <div key={task.id} className="rounded-[16px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
@@ -1377,7 +1741,7 @@ function TrackerViewPro() {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status}</span>
-                          <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}>
+                          <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => handleOpenTask(task.id)}>
                             {expandedTaskId === task.id ? 'Hide Detail' : 'View Detail'}
                           </button>
                         </div>
@@ -1745,7 +2109,13 @@ function App() {
   const [actionLoading, setActionLoading] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [liveMode, setLiveMode] = useState('Idle');
-  const { state, reloadDashboard, reloadTasks, reloadPeople, reloadAdmin } = useAppData(user, view);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [statusModal, setStatusModal] = useState({ show: false, task: null, status: '', reason: '' });
+  const [noteModal, setNoteModal] = useState({ show: false, task: null, note: '' });
+  const [prCompleteModal, setPrCompleteModal] = useState({ show: false, task: null, fundNumber: '', amount: '' });
+  const { state, reloadDashboard, reloadTasks, reloadPeople, reloadAdmin } = useAppData(user, view, selectedMonth, selectedYear);
 
   useEffect(() => {
     if (!user) return;
@@ -1758,8 +2128,8 @@ function App() {
     const refreshVisible = () => {
       if (!active) return;
       setLiveMode('Live Sync');
-      if (view === 'dashboard') reloadDashboard();
-      if (view === 'tasks') reloadTasks();
+      if (view === 'dashboard' || view === 'personalDashboard') reloadDashboard();
+      if (view === 'tasks' || view === 'personalTasks') reloadTasks();
       if (view === 'people' || view === 'assign') reloadPeople();
       if (view === 'admin') reloadAdmin();
     };
@@ -1821,8 +2191,41 @@ function App() {
     }
   };
 
-  const handleStatusChange = async (task, status) => {
-    const reason = window.prompt(`เธฃเธฐเธเธธเน€เธซเธ•เธธเธเธฅเธซเธฃเธทเธญเธเธฑเธเธ—เธถเธเธชเธณเธซเธฃเธฑเธ "${status}"`, '') || '';
+  const openStatusModal = (task, status) => {
+    setStatusModal({
+      show: true,
+      task,
+      status: status || task?.status || '',
+      reason: '',
+    });
+  };
+
+  const closeStatusModal = () => {
+    setStatusModal({ show: false, task: null, status: '', reason: '' });
+  };
+
+  const openNoteModal = (task) => {
+    setNoteModal({
+      show: true,
+      task,
+      note: task?.note || '',
+    });
+  };
+
+  const closeNoteModal = () => {
+    setNoteModal({ show: false, task: null, note: '' });
+  };
+
+  const handleStatusChange = async (task, status, reason = '') => {
+    if (user.role === 'Staff' && status === 'Completed' && isOpenPrSubKpi(task.subkpi)) {
+      setPrCompleteModal({
+        show: true,
+        task,
+        fundNumber: parseExtraData(task.extra_data)?.fundNumber || '',
+        amount: parseExtraData(task.extra_data)?.amount || '',
+      });
+      return;
+    }
     setActionLoading(true);
     try {
       if (user.role === 'Staff') {
@@ -1832,8 +2235,43 @@ function App() {
       }
       await reloadTasks();
       await reloadDashboard();
+      closeStatusModal();
     } catch (e) {
       alert(e.message || 'เธญเธฑเธเน€เธ”เธ•เธชเธ–เธฒเธเธฐเนเธกเนเธชเธณเน€เธฃเนเธ');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const submitStatusModal = async () => {
+    const { task, status, reason } = statusModal;
+    if (!task || !status) return;
+    if (status !== task.status && !reason.trim()) {
+      alert('กรุณาระบุเหตุผลในการเปลี่ยนสถานะ');
+      return;
+    }
+    await handleStatusChange(task, status, reason.trim());
+  };
+
+  const saveTaskNote = async () => {
+    const { task, note } = noteModal;
+    if (!task) return;
+    setActionLoading(true);
+    try {
+      await API.updateTaskDetails({
+        id: task.id,
+        team: task.team,
+        job: task.job,
+        subkpi: task.subkpi,
+        note,
+        extra_data: parseExtraData(task.extra_data) || {},
+        changedBy: user.name,
+      });
+      await reloadTasks();
+      await reloadDashboard();
+      closeNoteModal();
+    } catch (e) {
+      alert(e.message || 'บันทึก note ไม่สำเร็จ');
     } finally {
       setActionLoading(false);
     }
@@ -1865,6 +2303,45 @@ function App() {
   }
 
   const peopleForAssign = state.people?.length ? state.people : state.admin?.staff || [];
+  const availableYears = getAvailableYears();
+  const visibleTasks = view === 'dashboard' || view === 'personalDashboard'
+    ? state.dashboard?.tasks || []
+    : state.tasks || [];
+  const notifications = (user.role === 'Staff' || (user.role === 'Lead' && (view === 'personalDashboard' || view === 'personalTasks')))
+    ? buildTaskNotifications(visibleTasks)
+    : [];
+  const showPeriodControls = ['dashboard', 'tasks', 'personalDashboard', 'personalTasks', 'tracker'].includes(view);
+  const canExportTasks = ['dashboard', 'tasks', 'personalDashboard', 'personalTasks'].includes(view) && visibleTasks.length > 0;
+
+  const exportCurrentTasks = () => {
+    const fileLabel = user.role === 'Lead' && (view === 'personalDashboard' || view === 'personalTasks') ? user.name : (user.name || user.team || 'tasks');
+    exportTasksCsv(visibleTasks, fileLabel, selectedMonth, selectedYear);
+  };
+
+  const completePrTask = async () => {
+    const { task, fundNumber, amount } = prCompleteModal;
+    if (!task) return;
+    setActionLoading(true);
+    try {
+      const nextExtraData = { ...(parseExtraData(task.extra_data) || {}), fundNumber, amount };
+      await API.updateTaskDetails({
+        id: task.id,
+        team: task.team,
+        job: task.job,
+        subkpi: task.subkpi,
+        extra_data: nextExtraData,
+        changedBy: user.name,
+      });
+      await API.updateTaskStatus(task.id, task.team, 'Completed', `${getTimestampLabel()} งานเสร็จสิ้น`, 'append');
+      setPrCompleteModal({ show: false, task: null, fundNumber: '', amount: '' });
+      await reloadTasks();
+      await reloadDashboard();
+    } catch (e) {
+      alert(e.message || 'ปิดงานไม่สำเร็จ');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen p-4 md:p-6">
@@ -1880,7 +2357,9 @@ function App() {
                 </div>
                 <h1 className="mt-4 mb-0 text-[34px] md:text-[42px] font-extrabold tracking-[-0.06em]">
                   {view === 'dashboard' && (user.role === 'Manager' ? 'Executive Dashboard' : user.role === 'Lead' ? 'Team Command Center' : user.role === 'Admin' ? 'System Control Center' : 'My Work Dashboard')}
+                  {view === 'personalDashboard' && 'My Personal Dashboard'}
                   {view === 'tasks' && 'Task Center'}
+                  {view === 'personalTasks' && 'My Personal Tasks'}
                   {view === 'create' && 'Create Task'}
                   {view === 'assign' && 'Assignment Center'}
                   {view === 'people' && 'People Overview'}
@@ -1891,6 +2370,38 @@ function App() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {showPeriodControls ? (
+                  <>
+                    <select className="mx-select !w-auto min-w-[124px]" value={selectedMonth} onChange={(e) => setSelectedMonth(Number(e.target.value))}>
+                      {MONTH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                    <select className="mx-select !w-auto min-w-[112px]" value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))}>
+                      {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+                    </select>
+                  </>
+                ) : null}
+                {canExportTasks ? <button className="mx-btn mx-btn-soft" onClick={exportCurrentTasks}><i className="fa-solid fa-file-csv mr-2"></i>CSV</button> : null}
+                {(user.role === 'Staff' || (user.role === 'Lead' && (view === 'personalDashboard' || view === 'personalTasks'))) ? (
+                  <div className="relative">
+                    <button className="mx-btn mx-btn-soft" onClick={() => setShowNotifications((prev) => !prev)}>
+                      <i className="fa-solid fa-bell mr-2"></i>{notifications.length}
+                    </button>
+                    {showNotifications ? (
+                      <div className="absolute right-0 top-[calc(100%+8px)] w-[360px] max-w-[90vw] rounded-[22px] p-4 mx-shell-card z-20">
+                        <div className="font-bold text-sm">การแจ้งเตือน ({notifications.length})</div>
+                        <div className="mt-3 grid gap-2 max-h-[280px] overflow-y-auto">
+                          {notifications.length === 0 ? <div className="text-sm text-[var(--mx-muted)]">ไม่มีการแจ้งเตือน</div> : null}
+                          {notifications.map((notification) => (
+                            <div key={notification.id} className="rounded-[16px] p-3 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
+                              <div className="text-xs font-black uppercase tracking-[0.12em] text-[var(--mx-muted)]">{notification.priority}</div>
+                              <div className="mt-1 text-sm">{notification.message}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <span className="mx-badge mx-status-process"><i className="fa-solid fa-user"></i>{user.role}</span>
                 <span className="mx-badge mx-status-completed"><i className="fa-solid fa-building-user"></i>{user.team}</span>
                 {state.loading || actionLoading ? <span className="mx-badge mx-status-pending"><i className="fa-solid fa-rotate-right fa-spin"></i>Loading</span> : null}
@@ -1900,14 +2411,113 @@ function App() {
             {state.error && <div className="mt-4 text-sm text-[#ffb7b7] font-bold">{state.error}</div>}
           </header>
 
-          {view === 'dashboard' && <DashboardView user={user} data={state.dashboard} />}
-          {view === 'tasks' && <TaskCenterPro user={user} tasks={state.tasks} onAccept={handleAccept} onStatusChange={handleStatusChange} onDelete={handleDelete} onRefresh={reloadTasks} onEdit={setEditingTask} />}
+          {view === 'dashboard' && <DashboardView user={user} data={state.dashboard} view={view} />}
+          {view === 'personalDashboard' && <DashboardView user={user} data={state.dashboard} view={view} />}
+          {view === 'tasks' && <TaskCenterPro user={user} tasks={state.tasks} onAccept={handleAccept} onStatusChange={handleStatusChange} onDelete={handleDelete} onRefresh={reloadTasks} onEdit={setEditingTask} onOpenStatusModal={openStatusModal} onOpenNoteModal={openNoteModal} />}
+          {view === 'personalTasks' && <TaskCenterPro user={user} tasks={state.tasks} onAccept={handleAccept} onStatusChange={handleStatusChange} onDelete={handleDelete} onRefresh={reloadTasks} onEdit={setEditingTask} onOpenStatusModal={openStatusModal} onOpenNoteModal={openNoteModal} />}
           {view === 'create' && <QuickCreateView user={user} people={peopleForAssign} onSaved={() => { reloadTasks(); reloadDashboard(); }} />}
           {view === 'assign' && <QuickCreateView user={user} people={peopleForAssign} onSaved={() => { reloadTasks(); reloadDashboard(); reloadPeople(); }} />}
           {view === 'people' && <PeopleView user={user} people={state.people} onRefresh={reloadPeople} />}
-          {view === 'tracker' && <TrackerViewPro />}
+          {view === 'tracker' && <TrackerViewPro user={user} selectedMonth={selectedMonth} selectedYear={selectedYear} />}
           {view === 'admin' && <AdminStudioPro user={user} adminData={state.admin} onRefresh={reloadAdmin} />}
           {editingTask ? <TaskEditModal user={user} task={editingTask} onClose={() => setEditingTask(null)} onSaved={handleEditTaskSaved} /> : null}
+          {statusModal.show ? (
+            <div className="fixed inset-0 bg-[rgba(3,8,14,0.75)] backdrop-blur-md z-[90] flex items-center justify-center p-4">
+              <div className="mx-shell-card rounded-[28px] p-6 w-full max-w-[560px]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="m-0 text-[26px] font-extrabold tracking-[-0.05em]">Update Task Status</h3>
+                    <p className="mt-2 mb-0 text-sm text-[var(--mx-muted)] line-clamp-2">{statusModal.task?.job}</p>
+                  </div>
+                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={closeStatusModal}>Close</button>
+                </div>
+                <div className="grid gap-4 mt-6">
+                  <div>
+                    <label className="block mb-2 text-sm font-bold">New Status</label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {['Pending', 'On Process', 'On Hold', 'Completed', 'Cancelled'].map((status) => (
+                        <button
+                          key={status}
+                          className={`mx-btn ${statusModal.status === status ? 'mx-btn-primary' : 'mx-btn-soft'}`}
+                          onClick={() => setStatusModal((prev) => ({ ...prev, status }))}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block mb-2 text-sm font-bold">Reason / Note</label>
+                    <textarea
+                      className="mx-textarea min-h-[140px]"
+                      value={statusModal.reason}
+                      onChange={(e) => setStatusModal((prev) => ({ ...prev, reason: e.target.value }))}
+                      placeholder="ระบุเหตุผลการเปลี่ยนสถานะหรือบันทึกประกอบ"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button className="mx-btn mx-btn-soft" onClick={closeStatusModal}>Cancel</button>
+                    <button className="mx-btn mx-btn-primary" disabled={!statusModal.status || !statusModal.reason.trim() || actionLoading} onClick={submitStatusModal}>Save Status</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {noteModal.show ? (
+            <div className="fixed inset-0 bg-[rgba(3,8,14,0.75)] backdrop-blur-md z-[90] flex items-center justify-center p-4">
+              <div className="mx-shell-card rounded-[28px] p-6 w-full max-w-[720px]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="m-0 text-[26px] font-extrabold tracking-[-0.05em]">Task Note</h3>
+                    <p className="mt-2 mb-0 text-sm text-[var(--mx-muted)] line-clamp-2">{noteModal.task?.job}</p>
+                  </div>
+                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={closeNoteModal}>Close</button>
+                </div>
+                <div className="grid gap-4 mt-6">
+                  <div>
+                    <label className="block mb-2 text-sm font-bold">Note</label>
+                    <textarea
+                      className="mx-textarea min-h-[240px]"
+                      value={noteModal.note}
+                      onChange={(e) => setNoteModal((prev) => ({ ...prev, note: e.target.value }))}
+                      placeholder="บันทึกความคืบหน้าหรือรายละเอียดเพิ่มเติม"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button className="mx-btn mx-btn-soft" onClick={closeNoteModal}>Cancel</button>
+                    <button className="mx-btn mx-btn-primary" disabled={actionLoading} onClick={saveTaskNote}>Save Note</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {prCompleteModal.show ? (
+            <div className="fixed inset-0 bg-[rgba(3,8,14,0.75)] backdrop-blur-md z-[90] flex items-center justify-center p-4">
+              <div className="mx-shell-card rounded-[28px] p-6 w-full max-w-[520px]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="m-0 text-[26px] font-extrabold tracking-[-0.05em]">Open PR Completion</h3>
+                    <p className="mt-2 mb-0 text-sm text-[var(--mx-muted)]">กรอก Fund Number และจำนวนเงินก่อนปิดงานประเภท Open PR</p>
+                  </div>
+                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => setPrCompleteModal({ show: false, task: null, fundNumber: '', amount: '' })}>Close</button>
+                </div>
+                <div className="grid gap-4 mt-6">
+                  <div>
+                    <label className="block mb-2 text-sm font-bold">Fund Number</label>
+                    <input className="mx-input" value={prCompleteModal.fundNumber} onChange={(e) => setPrCompleteModal((prev) => ({ ...prev, fundNumber: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block mb-2 text-sm font-bold">Amount</label>
+                    <input className="mx-input" type="number" value={prCompleteModal.amount} onChange={(e) => setPrCompleteModal((prev) => ({ ...prev, amount: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <button className="mx-btn mx-btn-soft" onClick={() => setPrCompleteModal({ show: false, task: null, fundNumber: '', amount: '' })}>Cancel</button>
+                  <button className="mx-btn mx-btn-primary" onClick={completePrTask}>Complete Task</button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </main>
       </div>
     </div>
