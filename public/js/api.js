@@ -152,25 +152,92 @@ async function unsubscribeFromRealtime(tableName) {
   delete realtimeSubscriptions[tableName];
 }
 
-function calcWeightedScores(kpiGroups) {
+function taskWeight(task) {
+  const raw = task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight ?? 1;
+  const weight = typeof raw === "string"
+    ? Number.parseFloat(raw.replace("%", "").trim())
+    : Number(raw);
+  return Number.isFinite(weight) && weight > 0 ? weight : 1;
+}
+
+function kpiGroupKey(task) {
+  return String(task?.mainkpi ?? task?.mainKpi ?? task?.main ?? task?.subkpi ?? task?.sub ?? "Other").trim() || "Other";
+}
+
+function isTaskCompletedOnTime(task) {
+  const deadline = task?.deadline ? new Date(task.deadline) : null;
+  const completedAt = task?.completiondate ? new Date(task.completiondate) : null;
+  return Boolean(
+    deadline &&
+    completedAt &&
+    !Number.isNaN(deadline.getTime()) &&
+    !Number.isNaN(completedAt.getTime()) &&
+    completedAt <= deadline
+  );
+}
+
+function summarizeKpiGroups(kpiGroups) {
   let slaNum = 0;
   let slaDen = 0;
   let compNum = 0;
   let compDen = 0;
+  let cancelledWeight = 0;
+
   Object.values(kpiGroups || {}).forEach((g) => {
+    const groupWeight = taskWeight({ weight: g.weight });
     if (g.total > 0) {
-      compNum += g.weight * (g.completed / g.total);
-      compDen += g.weight;
+      compNum += groupWeight * (g.completed / g.total);
+      compDen += groupWeight;
+    } else if (g.cancelled > 0) {
+      cancelledWeight += groupWeight;
     }
     if (g.completed > 0) {
-      slaNum += g.weight * (g.onTime / g.completed);
-      slaDen += g.weight;
+      slaNum += groupWeight * (g.onTime / g.completed);
+      slaDen += groupWeight;
     }
   });
+
   return {
     sla: slaDen > 0 ? Math.round((slaNum / slaDen) * 100) : null,
     completion: compDen > 0 ? Math.round((compNum / compDen) * 100) : null,
+    totalWeight: compDen,
+    completedWeight: compNum,
+    onTimeWeight: slaNum,
+    slaWeight: slaDen,
+    cancelledWeight,
   };
+}
+
+function calcWeightedScores(input) {
+  if (Array.isArray(input)) {
+    const kpiGroups = {};
+
+    input.forEach((task) => {
+      const status = String(task?.status || "").toLowerCase();
+      const key = kpiGroupKey(task);
+      const weight = taskWeight(task);
+      if (!kpiGroups[key]) {
+        kpiGroups[key] = { weight, total: 0, completed: 0, onTime: 0, cancelled: 0 };
+      } else if (kpiGroups[key].weight === 1 && weight !== 1) {
+        kpiGroups[key].weight = weight;
+      }
+
+      if (status === "cancelled") {
+        kpiGroups[key].cancelled += 1;
+        return;
+      }
+
+      kpiGroups[key].total += 1;
+      if (status === "completed") {
+        kpiGroups[key].completed += 1;
+        if (isTaskCompletedOnTime(task)) kpiGroups[key].onTime += 1;
+      }
+    });
+
+    return summarizeKpiGroups(kpiGroups);
+  }
+
+  return summarizeKpiGroups(input);
 }
 
 window.API = API;

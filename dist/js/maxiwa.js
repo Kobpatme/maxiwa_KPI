@@ -1,6 +1,7 @@
 const { useEffect, useMemo, useState, useCallback } = React;
 
 const SESSION_KEY = 'maxiwa-kpi-session';
+const THEME_KEY = 'maxiwa-kpi-theme';
 const MONTH_NAMES = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
@@ -128,6 +129,152 @@ function renderExtraData(extraData) {
   );
 }
 
+function getTaskWeight(task) {
+  const raw = task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight ?? 1;
+  const weight = typeof raw === 'string'
+    ? Number.parseFloat(raw.replace('%', '').trim())
+    : Number(raw);
+  return Number.isFinite(weight) && weight > 0 ? weight : 1;
+}
+
+function formatWeight(value) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return '0';
+  return Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function formatWeightPercent(value) {
+  return `${formatWeight(value)}%`;
+}
+
+function getKpiGroupKey(task) {
+  return String(task?.mainkpi ?? task?.mainKpi ?? task?.main ?? task?.subkpi ?? task?.sub ?? 'Other').trim() || 'Other';
+}
+
+function isCompletedOnTime(task) {
+  const deadline = task?.deadline ? new Date(task.deadline) : null;
+  const completedAt = task?.completiondate ? new Date(task.completiondate) : null;
+  return Boolean(deadline && completedAt && !Number.isNaN(deadline.getTime()) && !Number.isNaN(completedAt.getTime()) && completedAt <= deadline);
+}
+
+function getSlaWeight(scores) {
+  return scores?.slaWeight ?? scores?.completedWeight ?? 0;
+}
+
+function formatScorePercent(value) {
+  return value !== null && value !== undefined ? `${value}%` : '-';
+}
+
+function completionMetricSub(scores) {
+  if (!scores || scores.completion === null || scores.completion === undefined) return 'คำนวณจากน้ำหนักงาน';
+  return `สำเร็จ ${scores.completion}% จากน้ำหนักรวม ${formatWeightPercent(scores.totalWeight)}`;
+}
+
+function slaMetricSub(scores, score = scores?.sla) {
+  if (!scores || score === null || score === undefined) return 'คำนวณจากฐาน SLA';
+  return `ตรงเวลา ${score}% จากฐาน SLA ${formatWeightPercent(getSlaWeight(scores))}`;
+}
+
+function calcTaskWeightedScores(tasks) {
+  if (window.calcWeightedScores) return window.calcWeightedScores(tasks || []);
+  const groups = {};
+  (tasks || []).forEach((task) => {
+    const key = getKpiGroupKey(task);
+    const weight = getTaskWeight(task);
+    const status = String(task?.status || '').toLowerCase();
+    if (!groups[key]) groups[key] = { weight, total: 0, completed: 0, onTime: 0, cancelled: 0 };
+    else if (groups[key].weight === 1 && weight !== 1) groups[key].weight = weight;
+    if (status === 'cancelled') {
+      groups[key].cancelled += 1;
+      return;
+    }
+    groups[key].total += 1;
+    if (status === 'completed') {
+      groups[key].completed += 1;
+      if (isCompletedOnTime(task)) groups[key].onTime += 1;
+    }
+  });
+
+  let totalWeight = 0;
+  let completedWeight = 0;
+  let slaWeight = 0;
+  let onTimeWeight = 0;
+  Object.values(groups).forEach((group) => {
+    const weight = getTaskWeight({ weight: group.weight });
+    if (group.total > 0) {
+      totalWeight += weight;
+      completedWeight += weight * (group.completed / group.total);
+    }
+    if (group.completed > 0) {
+      slaWeight += weight;
+      onTimeWeight += weight * (group.onTime / group.completed);
+    }
+  });
+
+  return {
+    sla: slaWeight > 0 ? Math.round((onTimeWeight / slaWeight) * 100) : null,
+    completion: totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100) : null,
+    totalWeight,
+    completedWeight,
+    onTimeWeight,
+    slaWeight,
+  };
+}
+
+function WeightFormulaStrip({ scores }) {
+  if (!scores) return null;
+  return (
+    <div className="mx-muted-card rounded-lg p-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <div className="text-sm font-extrabold">สูตรคำนวณแบบถ่วงน้ำหนัก</div>
+          <div className="mt-1 text-sm text-[var(--mx-muted)]">
+            SLA = น้ำหนักงานที่เสร็จตรงเวลา / น้ำหนักงานที่เสร็จทั้งหมด และ Completion = น้ำหนักงานที่เสร็จ / น้ำหนักงานทั้งหมด
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="mx-badge mx-status-completed">น้ำหนักตรงเวลา {formatWeightPercent(scores.onTimeWeight)}</span>
+          <span className="mx-badge mx-status-process">น้ำหนักเสร็จ {formatWeightPercent(scores.completedWeight)}</span>
+          <span className="mx-badge mx-status-process">ฐาน SLA {formatWeightPercent(getSlaWeight(scores))}</span>
+          <span className="mx-badge mx-status-cancelled">รวม {formatWeightPercent(scores.totalWeight)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function personKey(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function taskMatchesPerson(task, person) {
+  const taskEmp = personKey(task.empId || task.empid || task.assignedToEmpId);
+  const personEmp = personKey(person.empId || person.empid);
+  if (taskEmp && personEmp && taskEmp === personEmp) return true;
+  return personKey(task.name) === personKey(person.name) && (!person.team || task.team === person.team);
+}
+
+function enrichSummaryWithTaskWeights(summary, tasks) {
+  const sourceSummary = summary || [];
+  const sourceTasks = tasks || [];
+  return sourceSummary.map((person) => {
+    const personTasks = sourceTasks.filter((task) => taskMatchesPerson(task, person));
+    if (personTasks.length === 0) return person;
+    const weighted = calcTaskWeightedScores(personTasks);
+    return {
+      ...person,
+      totalTasks: personTasks.length,
+      completedTasks: personTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed').length,
+      weightedSlaScore: weighted.sla,
+      weightedCompletionScore: weighted.completion,
+      totalWeight: weighted.totalWeight,
+      completedWeight: weighted.completedWeight,
+      onTimeWeight: weighted.onTimeWeight,
+      slaWeight: weighted.slaWeight,
+    };
+  });
+}
+
 // ─── UI Primitives ─────────────────────────────────────────────────────────────
 function MetricCard({ label, value, sub, icon, accent = 'var(--mx-blue)' }) {
   return (
@@ -138,7 +285,7 @@ function MetricCard({ label, value, sub, icon, accent = 'var(--mx-blue)' }) {
           <i className={`fa-solid ${icon}`} style={{ color: accent }}></i>
         </div>
       </div>
-      <div className="mt-5 text-[34px] font-extrabold tracking-[-0.05em]">{value}</div>
+      <div className="mt-5 text-[34px] font-extrabold tracking-normal">{value}</div>
       <div className="mt-2 text-sm text-[var(--mx-muted)]">{sub}</div>
     </div>
   );
@@ -149,13 +296,72 @@ function Panel({ title, subtitle, actions, children }) {
     <section className="mx-shell-card rounded-[28px] p-5 md:p-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
         <div>
-          <h3 className="text-[22px] font-extrabold tracking-[-0.04em] m-0">{title}</h3>
+          <h3 className="text-[22px] font-extrabold tracking-normal m-0">{title}</h3>
           {subtitle && <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">{subtitle}</p>}
         </div>
         {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
       </div>
       {children}
     </section>
+  );
+}
+
+function ThemeToggle({ theme, onToggle }) {
+  const isDark = theme === 'dark';
+  return (
+    <button
+      className="mx-btn mx-btn-soft !py-2 !px-3 inline-flex items-center gap-2"
+      onClick={onToggle}
+      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+    >
+      <i className={`fa-solid ${isDark ? 'fa-sun' : 'fa-moon'}`}></i>
+      <span className="text-sm font-extrabold">{isDark ? 'Light' : 'Dark'}</span>
+    </button>
+  );
+}
+
+function UserAvatar({ user, size = 'lg' }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const rawPhoto = user?.pigurl || user?.pigUrl || user?.pigURL || user?.picurl || user?.picUrl || user?.picture || user?.pictureUrl || user?.profilePicture || user?.profile_picture || user?.avatar || user?.avatarUrl || user?.photoUrl || user?.photo_url || user?.profileUrl || user?.profile_url || user?.imageUrl || user?.image_url || user?.image || user?.photo || '';
+  const normalizePhotoUrl = (value) => {
+    const src = String(value || '').trim();
+    if (!src) return '';
+    const driveMatch = src.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+    if (driveMatch) return `https://drive.google.com/thumbnail?id=${driveMatch[1]}&sz=w240`;
+    const driveOpenMatch = src.match(/[?&]id=([^&]+)/);
+    if (src.includes('drive.google.com') && driveOpenMatch) return `https://drive.google.com/thumbnail?id=${driveOpenMatch[1]}&sz=w240`;
+    if (/^[A-Za-z0-9_-]{20,}$/.test(src)) return `https://drive.google.com/thumbnail?id=${src}&sz=w240`;
+    if (src.startsWith('//')) return `https:${src}`;
+    if (src.startsWith('/')) {
+      const base = (typeof window !== 'undefined' && window.API_BASE) ? window.API_BASE.replace(/\/api\/?$/, '') : '';
+      return `${base}${src}`;
+    }
+    return src;
+  };
+  const photo = normalizePhotoUrl(rawPhoto);
+  const initials = String(user?.name || user?.empId || 'U')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('') || 'U';
+  const box = size === 'xl' ? 'w-20 h-20 text-2xl' : 'w-14 h-14 text-lg';
+
+  return (
+    <div className={cn('relative rounded-lg overflow-hidden mx-brand-mark grid place-items-center font-black flex-shrink-0', box)}>
+      {photo && !imgFailed ? (
+        <img
+          src={photo}
+          alt="User profile"
+          className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        <span>{initials}</span>
+      )}
+    </div>
   );
 }
 
@@ -170,11 +376,11 @@ function ActionModal({ config, onClose }) {
   if (!config.show) return null;
 
   const colorMap = {
-    blue: 'bg-blue-600 hover:bg-blue-700',
-    rose: 'bg-rose-600 hover:bg-rose-700',
-    emerald: 'bg-emerald-600 hover:bg-emerald-700',
-    amber: 'bg-amber-500 hover:bg-amber-600',
-    slate: 'bg-slate-600 hover:bg-slate-700',
+    blue: 'mx-btn-primary',
+    rose: 'mx-action-danger',
+    emerald: 'mx-action-success',
+    amber: 'mx-action-warning',
+    slate: 'mx-action-muted',
   };
   const btnClass = colorMap[config.color] || colorMap.blue;
 
@@ -205,7 +411,7 @@ function ActionModal({ config, onClose }) {
           {config.type !== 'alert' && (
             <button className="mx-btn mx-btn-soft flex-1" onClick={onClose}>ยกเลิก</button>
           )}
-          <button className={`mx-btn text-white flex-1 ${btnClass}`} onClick={handleConfirm}>
+          <button className={`mx-btn flex-1 ${btnClass}`} onClick={handleConfirm}>
             {config.type === 'alert' ? 'รับทราบ' : 'ยืนยัน'}
           </button>
         </div>
@@ -264,20 +470,28 @@ function StatusChangeModal({ task, onSave, onClose }) {
 function Sidebar({ user, view, setView, onLogout, notifCount = 0 }) {
   const navItems = NAV_BY_ROLE[user?.role] || NAV_BY_ROLE.Staff;
   return (
-    <aside className="mx-shell-card rounded-[28px] p-5 md:p-6 h-full">
+    <aside className="mx-shell-card rounded-[28px] p-5 md:p-6 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto">
       <div className="flex items-center gap-4 mb-7">
-        <div className="w-14 h-14 rounded-[20px] bg-gradient-to-br from-[#4f7cff] to-[#22c1a1] grid place-items-center text-xl font-black shadow-[0_20px_40px_rgba(34,193,161,0.16)]">M</div>
+        <div className="mx-brand-mark w-14 h-14 rounded-lg grid place-items-center text-xl font-black">M</div>
         <div>
           <div className="text-xl font-extrabold tracking-[0.02em]">MAXIWA KPI</div>
           <div className="text-sm text-[var(--mx-muted)]">Executive Performance System</div>
         </div>
       </div>
 
-      <div className="rounded-[22px] p-4 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]">
-        <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Signed In</div>
-        <div className="mt-2 font-bold text-base">{user?.name}</div>
-        <div className="text-sm text-[var(--mx-muted)]">{user?.role} • {user?.team}</div>
-        <div className="mt-3 text-xs text-[var(--mx-muted)]">Emp ID: {user?.empId}</div>
+      <div className="mx-muted-card rounded-lg p-4">
+        <div className="flex items-center gap-4">
+          <UserAvatar user={user} size="xl" />
+          <div className="min-w-0">
+            <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Signed In</div>
+            <div className="mt-2 font-extrabold text-base truncate">{user?.name}</div>
+            <div className="mt-1 text-sm text-[var(--mx-muted)] truncate">{user?.role} • {user?.team}</div>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className="mx-badge mx-status-process">{user?.role || '-'}</span>
+          <span className="mx-badge mx-status-cancelled">Emp ID: {user?.empId}</span>
+        </div>
       </div>
 
       <div className="mt-6 text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Navigation</div>
@@ -289,11 +503,11 @@ function Sidebar({ user, view, setView, onLogout, notifCount = 0 }) {
             className={cn(
               'mx-btn text-left flex items-center gap-3 px-4 py-4 rounded-[18px]',
               view === item.id
-                ? 'bg-[linear-gradient(135deg,rgba(79,124,255,0.18),rgba(34,193,161,0.12))] border border-[rgba(138,171,255,0.22)]'
+                ? 'mx-nav-active'
                 : 'bg-transparent border border-transparent'
             )}
           >
-            <i className={`fa-solid ${item.icon} w-5 text-center text-[#9dbbff]`}></i>
+            <i className={`fa-solid ${item.icon} w-5 text-center text-[var(--mx-accent-2)]`}></i>
             <span>{item.label}</span>
             {item.id === 'tasks' && notifCount > 0 && (
               <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-black">
@@ -304,11 +518,6 @@ function Sidebar({ user, view, setView, onLogout, notifCount = 0 }) {
         ))}
       </div>
 
-      <div className="mt-6 rounded-[20px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
-        <div className="text-sm font-bold">Closed-loop system</div>
-        <div className="mt-2 text-sm text-[var(--mx-muted)]">ทุกอย่างทำผ่านระบบนี้ โดยใช้ backend และฐานข้อมูลเดิมได้ทันที</div>
-      </div>
-
       <button onClick={onLogout} className="mx-btn mx-btn-soft w-full mt-6">
         <i className="fa-solid fa-right-from-bracket mr-2"></i>ออกจากระบบ
       </button>
@@ -317,16 +526,19 @@ function Sidebar({ user, view, setView, onLogout, notifCount = 0 }) {
 }
 
 // ─── Login Screen ──────────────────────────────────────────────────────────────
-function LoginScreen({ onLogin, loading, error }) {
+function LoginScreen({ onLogin, loading, error, theme, onToggleTheme }) {
   const [empId, setEmpId] = useState('');
   return (
     <div className="min-h-screen flex items-center justify-center p-5 md:p-8">
       <div className="w-full max-w-[1120px] grid lg:grid-cols-[1.15fr_0.85fr] gap-6">
         <div className="mx-shell-card rounded-[34px] p-8 md:p-10">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[rgba(79,124,255,0.1)] border border-[rgba(138,171,255,0.16)] text-[#c8d6ff] text-xs font-extrabold uppercase tracking-[0.12em]">
-            <i className="fa-solid fa-crown"></i> MAXIWA KPI
+          <div className="flex items-center justify-between gap-3">
+            <div className="mx-brand-pill inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-extrabold uppercase tracking-[0.12em]">
+              <i className="fa-solid fa-gauge-high"></i> MAXIWA KPI
+            </div>
+            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           </div>
-          <h1 className="mt-6 text-[42px] md:text-[58px] leading-[0.95] tracking-[-0.06em] font-extrabold mb-0">
+          <h1 className="mt-6 text-[42px] md:text-[58px] leading-[1.02] tracking-normal font-extrabold mb-0">
             ระบบใหม่ที่ดูดี ใช้ง่าย และต่อของเดิมได้ทันที
           </h1>
           <p className="mt-5 mb-0 text-[15px] leading-8 text-[var(--mx-muted)] max-w-[60ch]">
@@ -336,8 +548,8 @@ function LoginScreen({ onLogin, loading, error }) {
         </div>
 
         <div className="mx-shell-card rounded-[34px] p-8 md:p-10 flex flex-col justify-center">
-          <div className="w-16 h-16 rounded-[22px] bg-gradient-to-br from-[#4f7cff] to-[#22c1a1] grid place-items-center text-2xl font-black shadow-[0_20px_42px_rgba(34,193,161,0.2)]">M</div>
-          <h2 className="mt-6 text-[30px] tracking-[-0.05em] font-extrabold mb-0">Sign in to MAXIWA KPI</h2>
+          <div className="mx-brand-mark w-16 h-16 rounded-lg grid place-items-center text-2xl font-black">M</div>
+          <h2 className="mt-6 text-[30px] tracking-normal font-extrabold mb-0">Sign in to MAXIWA KPI</h2>
           <p className="mt-3 mb-0 text-[var(--mx-muted)]">กรอกรหัสพนักงานเพื่อเข้าสู่ระบบใหม่</p>
           <div className="mt-7">
             <label className="block mb-2 text-[12px] font-extrabold uppercase tracking-[0.16em] text-[var(--mx-muted)]">Employee ID</label>
@@ -353,6 +565,111 @@ function LoginScreen({ onLogin, loading, error }) {
           <button className="mx-btn mx-btn-primary mt-6" disabled={loading} onClick={() => onLogin(empId)}>
             {loading ? 'กำลังตรวจสอบข้อมูล...' : 'เข้าสู่ระบบ'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreenPro({ onLogin, loading, error, theme, onToggleTheme }) {
+  const [empId, setEmpId] = useState('');
+  const accessHighlights = [
+    ['fa-chart-line', 'Weighted KPI', 'คำนวณคะแนนตามน้ำหนัก KPI ของแต่ละงาน'],
+    ['fa-clock', 'SLA Monitoring', 'เห็นงานเสี่ยง งานค้าง และ deadline ที่ต้องติดตาม'],
+    ['fa-building-user', 'Role Based View', 'แสดงข้อมูลตามสิทธิ์ Staff, Lead, Manager และ Admin'],
+  ];
+
+  return (
+    <div className="min-h-screen grid place-items-center p-4 md:p-8">
+      <div className="w-full max-w-[1180px] mx-shell-card overflow-hidden">
+        <div className="grid lg:grid-cols-[0.95fr_1.05fr]">
+          <section className="p-6 md:p-9 border-b lg:border-b-0 lg:border-r border-[var(--mx-line)] bg-[var(--mx-surface)]">
+            <div className="flex items-center justify-between gap-3">
+              <div className="mx-brand-pill inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-extrabold uppercase tracking-[0.14em]">
+                <i className="fa-solid fa-gauge-high"></i> MAXIWA KPI
+              </div>
+              <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+            </div>
+
+            <div className="mt-10 max-w-[520px]">
+              <div className="text-[12px] uppercase tracking-[0.18em] text-[var(--mx-muted)] font-extrabold">Performance Portal</div>
+              <h1 className="mt-4 mb-0 text-[34px] md:text-[46px] leading-tight font-extrabold tracking-normal">
+                เข้าสู่ระบบติดตาม KPI และ SLA
+              </h1>
+              <p className="mt-5 mb-0 text-[15px] leading-7 text-[var(--mx-muted)]">
+                ศูนย์กลางสำหรับติดตามงาน คะแนนถ่วงน้ำหนัก สถานะ SLA และภาพรวมผลงานของทีมในที่เดียว
+              </p>
+            </div>
+
+            <div className="mt-9 grid gap-3 max-w-[560px]">
+              {accessHighlights.map(([icon, title, desc]) => (
+                <div key={title} className="flex items-start gap-3 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] p-4">
+                  <span className="w-10 h-10 rounded-lg mx-brand-mark grid place-items-center flex-shrink-0">
+                    <i className={`fa-solid ${icon} text-[var(--mx-accent)]`}></i>
+                  </span>
+                  <div>
+                    <div className="font-extrabold">{title}</div>
+                    <div className="mt-1 text-sm leading-6 text-[var(--mx-muted)]">{desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="p-6 md:p-10 lg:p-12 flex items-center">
+            <div className="w-full max-w-[460px] mx-auto">
+              <div className="flex items-center gap-4">
+                <div className="mx-brand-mark w-14 h-14 rounded-lg grid place-items-center text-xl font-black">M</div>
+                <div>
+                  <div className="text-[12px] uppercase tracking-[0.18em] text-[var(--mx-muted)] font-extrabold">Secure Access</div>
+                  <h2 className="mt-1 mb-0 text-[28px] md:text-[34px] tracking-normal font-extrabold">เข้าสู่ระบบ</h2>
+                </div>
+              </div>
+
+              <p className="mt-5 mb-0 text-[var(--mx-muted)] leading-7">
+                กรอกรหัสพนักงานเพื่อเข้าสู่ MAXIWA KPI ระบบจะโหลดข้อมูลและสิทธิ์ของคุณโดยอัตโนมัติ
+              </p>
+
+              <div className="mt-8">
+                <label className="block mb-2 text-[12px] font-extrabold uppercase tracking-[0.16em] text-[var(--mx-muted)]">Employee ID</label>
+                <div className="relative">
+                  <i className="fa-solid fa-id-badge absolute left-4 top-1/2 -translate-y-1/2 text-[var(--mx-muted)]"></i>
+                  <input
+                    className="mx-input !pl-11 !py-4 text-[18px] font-extrabold tracking-[0.08em]"
+                    placeholder="เช่น EMP001"
+                    value={empId}
+                    onChange={(e) => setEmpId(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => e.key === 'Enter' && onLogin(empId)}
+                    autoFocus
+                  />
+                </div>
+                {error && (
+                  <div className="mt-3 rounded-lg border border-[rgba(239,68,68,0.28)] bg-[rgba(239,68,68,0.10)] px-4 py-3 text-sm text-[#ffb7b7] font-bold">
+                    <i className="fa-solid fa-circle-exclamation mr-2"></i>{error}
+                  </div>
+                )}
+              </div>
+
+              <button className="mx-btn mx-btn-primary mt-6 w-full !py-4 flex items-center justify-center gap-2" disabled={loading} onClick={() => onLogin(empId)}>
+                {loading ? (
+                  <>
+                    <i className="fa-solid fa-rotate-right fa-spin"></i>
+                    <span>กำลังตรวจสอบข้อมูล...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>เข้าสู่ระบบ</span>
+                    <i className="fa-solid fa-arrow-right"></i>
+                  </>
+                )}
+              </button>
+
+              <div className="mt-6 flex items-center gap-3 text-xs text-[var(--mx-muted)]">
+                <i className="fa-solid fa-shield-halved"></i>
+                <span>ใช้รหัสพนักงานที่ลงทะเบียนไว้ในระบบเท่านั้น</span>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -380,8 +697,11 @@ function useAppData(user, view) {
         return;
       }
       if (user.role === 'Lead') {
-        const res = await API.getTeamSummaryReport(user.team, monthParam, filterYear, user.empId);
-        safeSet({ dashboard: { summary: res.summary || [], period: res.period }, loading: false });
+        const [summaryRes, tasksRes] = await Promise.all([
+          API.getTeamSummaryReport(user.team, monthParam, filterYear, user.empId),
+          API.getAllTasks(monthParam, filterYear, user.team, user.empId),
+        ]);
+        safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period }, loading: false });
         return;
       }
       if (user.role === 'Manager') {
@@ -505,28 +825,16 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
     const active = tasks.filter((t) => ['On Process', 'Pending', 'On Hold'].includes(t.status)).length;
     const now = new Date();
 
-    // Weighted SLA calculation
-    const kpiGroups = {};
-    tasks.forEach((t) => {
-      const st = (t.status || '').toLowerCase();
-      const w = Number(t.mainkpiweight ?? 1) || 1;
-      const kp = t.mainkpi || 'Other';
-      if (!kpiGroups[kp]) kpiGroups[kp] = { weight: w, total: 0, completed: 0, onTime: 0 };
-      kpiGroups[kp].total++;
-      if (st === 'completed') {
-        kpiGroups[kp].completed++;
-        const dl = t.deadline ? new Date(t.deadline) : null;
-        const cp = t.completiondate ? new Date(t.completiondate) : null;
-        if (dl && cp && cp <= dl) kpiGroups[kp].onTime++;
-      }
-    });
-    const scores = window.calcWeightedScores
-      ? window.calcWeightedScores(kpiGroups)
-      : { sla: null, completion: null };
+    const scores = calcTaskWeightedScores(tasks);
 
     // KPI distribution bar
     const kpiDist = {};
-    tasks.forEach((t) => { const k = t.mainkpi || 'Other'; kpiDist[k] = (kpiDist[k] || 0) + 1; });
+    tasks.forEach((t) => {
+      if (String(t.status || '').toLowerCase() === 'cancelled') return;
+      const k = t.mainkpi || 'Other';
+      const weight = getTaskWeight(t);
+      if (!kpiDist[k] || (kpiDist[k] === 1 && weight !== 1)) kpiDist[k] = weight;
+    });
     const kpiEntries = Object.entries(kpiDist).sort((a, b) => b[1] - a[1]);
     const maxKpi = kpiEntries.length > 0 ? kpiEntries[0][1] : 1;
 
@@ -557,15 +865,15 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
 
     const ActionBtn = ({ icon, color, onClick, label }) => {
       const variants = {
-        emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-500 hover:text-white hover:shadow-lg hover:shadow-emerald-500/30',
-        amber: 'bg-amber-50 text-amber-600 border-amber-100 hover:bg-amber-500 hover:text-white hover:shadow-lg hover:shadow-amber-500/30',
-        rose: 'bg-rose-50 text-rose-600 border-rose-100 hover:bg-rose-500 hover:text-white hover:shadow-lg hover:shadow-rose-500/30',
-        blue: 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-500 hover:text-white hover:shadow-lg hover:shadow-blue-500/30',
-        indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-500 hover:text-white hover:shadow-lg hover:shadow-indigo-500/30',
+        emerald: 'mx-action-success',
+        amber: 'mx-action-warning',
+        rose: 'mx-action-danger',
+        blue: 'mx-action-info',
+        indigo: 'mx-action-muted',
       };
       return (
         <div className="relative group">
-          <button onClick={onClick} className={`w-10 h-10 flex items-center justify-center rounded-xl border transition-all duration-200 active:scale-90 hover:scale-110 ${variants[color] || ''}`}>
+          <button onClick={onClick} className={`w-10 h-10 flex items-center justify-center rounded-lg border transition-colors duration-200 ${variants[color] || ''}`}>
             <i className={`fas ${icon} text-sm`}></i>
           </button>
           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
@@ -582,7 +890,7 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
         {dashNotePopup.show && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
             <div className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl">
-              <h3 className="text-xl font-extrabold mb-4"><i className="fas fa-sticky-note mr-2 text-blue-400"></i>บันทึกงาน</h3>
+              <h3 className="text-xl font-extrabold mb-4"><i className="fas fa-sticky-note mr-2 text-[var(--mx-info)]"></i>บันทึกงาน</h3>
               <div className="max-h-80 overflow-y-auto rounded-[16px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
                 <div className="text-sm leading-7 whitespace-pre-wrap">{dashNotePopup.note}</div>
               </div>
@@ -594,22 +902,24 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
         {/* Metric Cards */}
         <div className="mx-grid-auto">
           <MetricCard label="Total Tasks" value={tasks.length} sub={`งานใน${periodLabel}`} icon="fa-list-check" />
-          <MetricCard label="Active" value={active} sub="งานที่ยังต้องติดตาม" icon="fa-bolt" accent="var(--mx-teal)" />
-          <MetricCard label="Completed" value={completed} sub="งานที่ปิดแล้ว" icon="fa-check-double" accent="var(--mx-green)" />
-          <MetricCard label="Weighted SLA" value={scores.sla !== null ? `${scores.sla}%` : '-'} sub="คะแนน SLA แบบ weighted" icon="fa-chart-line" accent="var(--mx-amber)" />
+          <MetricCard label="Total Weight" value={formatWeightPercent(scores.totalWeight)} sub="น้ำหนักงานที่ใช้คำนวณ KPI" icon="fa-scale-balanced" accent="var(--mx-blue)" />
+          <MetricCard label="Weighted Completion" value={formatScorePercent(scores.completion)} sub={completionMetricSub(scores)} icon="fa-check-double" accent="var(--mx-green)" />
+          <MetricCard label="Weighted SLA" value={formatScorePercent(scores.sla)} sub={slaMetricSub(scores)} icon="fa-chart-line" accent="var(--mx-amber)" />
         </div>
+
+        <WeightFormulaStrip scores={scores} />
 
         {/* KPI Distribution */}
         {kpiEntries.length > 0 && (
-          <Panel title="KPI Distribution" subtitle="สัดส่วนงานแยกตาม Main KPI">
+          <Panel title="KPI Weight Distribution" subtitle="สัดส่วนน้ำหนักงานแยกตาม Main KPI">
             <div className="grid gap-3">
               {kpiEntries.map(([kpi, count]) => (
                 <div key={kpi} className="flex items-center gap-3">
                   <div className="text-sm font-bold w-44 truncate flex-shrink-0">{kpi}</div>
-                  <div className="flex-1 h-3 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                    <div className="h-full rounded-full bg-gradient-to-r from-[#4f7cff] to-[#22c1a1]" style={{ width: `${(count / maxKpi) * 100}%` }} />
+                  <div className="flex-1 h-3 rounded-full mx-progress-track overflow-hidden">
+                    <div className="h-full rounded-full mx-progress-fill" style={{ width: `${(count / maxKpi) * 100}%` }} />
                   </div>
-                  <div className="text-sm text-[var(--mx-muted)] w-16 text-right flex-shrink-0">{count} งาน</div>
+                  <div className="text-sm text-[var(--mx-muted)] w-20 text-right flex-shrink-0">{formatWeightPercent(count)}</div>
                 </div>
               ))}
             </div>
@@ -639,8 +949,9 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold break-all">{task.job}</span>
                         <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status}</span>
+                        <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(getTaskWeight(task))}</span>
                         {task.note && (
-                          <button onClick={() => setDashNotePopup({ show: true, note: task.note })} className="text-xs text-blue-400 bg-blue-500/10 px-3 py-1.5 rounded-lg border border-blue-500/20 hover:bg-blue-500/20 font-bold">
+                          <button onClick={() => setDashNotePopup({ show: true, note: task.note })} className="mx-note-btn text-xs px-3 py-1.5 rounded-lg font-bold">
                             <i className="fas fa-sticky-note mr-1"></i>ดูบันทึก
                           </button>
                         )}
@@ -651,7 +962,7 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
                       <div className="mt-1 text-sm text-[var(--mx-muted)]">
                         Deadline {formatDate(task.deadline)}
                         {isOverdue && <span className="ml-2 text-red-400 font-bold">เกิน {Math.abs(daysLeft)} วัน</span>}
-                        {!isOverdue && daysLeft !== null && daysLeft <= 3 && <span className="ml-2 text-amber-400 font-bold">อีก {daysLeft} วัน</span>}
+                        {!isOverdue && daysLeft !== null && daysLeft <= 3 && <span className="ml-2 text-[var(--mx-warning)] font-bold">อีก {daysLeft} วัน</span>}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 flex-shrink-0 items-start">
@@ -686,17 +997,22 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
   }
 
   if (user.role === 'Lead') {
-    const summary = data.summary || [];
-    const avgSla = summary.length
-      ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length)
-      : 0;
+    const tasks = data.tasks || [];
+    const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks);
+    const teamScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
+    const avgSla = teamScores && teamScores.sla !== null
+      ? teamScores.sla
+      : (summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0);
     return (
       <div className="grid gap-5">
         <div className="mx-grid-auto">
           <MetricCard label="Team Members" value={summary.length} sub="กำลังแสดงตามสิทธิ์ของ Lead" icon="fa-users" />
-          <MetricCard label="Avg SLA" value={`${avgSla}%`} sub="ค่าเฉลี่ย weighted SLA score" icon="fa-chart-line" accent="var(--mx-teal)" />
+          <MetricCard label="Team Weight" value={teamScores ? formatWeightPercent(teamScores.totalWeight) : '-'} sub="น้ำหนักงานรวมของทีม" icon="fa-scale-balanced" accent="var(--mx-blue)" />
+          <MetricCard label="Weighted Completion" value={teamScores ? formatScorePercent(teamScores.completion) : '-'} sub={completionMetricSub(teamScores)} icon="fa-check-double" accent="var(--mx-green)" />
+          <MetricCard label="Avg SLA" value={`${avgSla}%`} sub={teamScores ? slaMetricSub(teamScores, avgSla) : 'ค่าเฉลี่ย weighted SLA score'} icon="fa-chart-line" accent="var(--mx-teal)" />
           <MetricCard label="Period" value={data.period || '-'} sub="ช่วงเวลาที่กำลังดู" icon="fa-calendar-days" accent="var(--mx-amber)" />
         </div>
+        {teamScores && <WeightFormulaStrip scores={teamScores} />}
         <Panel title="Team Performance Pulse" subtitle="ภาพรวมทีมในหน้าที่อ่านง่ายขึ้น">
           <div className="grid gap-3">
             {summary.map((person) => (
@@ -706,6 +1022,10 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
                     <div className="font-bold">{person.name}</div>
                     <div className="mt-1 text-sm text-[var(--mx-muted)]">
                       {person.team} • Total {person.totalTasks} • Completed {person.completedTasks}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(person.totalWeight)}</span>
+                      <span className="mx-badge mx-status-completed">Completion {person.weightedCompletionScore ?? '-'}%</span>
                     </div>
                   </div>
                   <div className="text-right">
@@ -722,21 +1042,25 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
   }
 
   if (user.role === 'Manager') {
-    const summary = data.summary || [];
     const tasks = data.tasks || [];
+    const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks);
     const risky = tasks.filter((t) => ['Pending', 'On Hold'].includes(t.status)).length;
-    const avgSla = summary.length
-      ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length)
-      : 0;
+    const orgScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
+    const avgSla = orgScores && orgScores.sla !== null
+      ? orgScores.sla
+      : (summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0);
     const topPeople = [...summary].sort((a, b) => (b.weightedSlaScore || 0) - (a.weightedSlaScore || 0)).slice(0, 6);
     return (
       <div className="grid gap-5">
         <div className="mx-grid-auto">
           <MetricCard label="Active Tasks" value={tasks.length} sub="โหลดจากระบบเดิมแบบตรง ๆ" icon="fa-briefcase" />
           <MetricCard label="Risk Queue" value={risky} sub="Pending / On Hold ต้องติดตาม" icon="fa-triangle-exclamation" accent="var(--mx-amber)" />
-          <MetricCard label="Avg SLA" value={`${avgSla}%`} sub="weighted SLA across visible staff" icon="fa-chart-line" accent="var(--mx-teal)" />
+          <MetricCard label="Total Weight" value={orgScores ? formatWeightPercent(orgScores.totalWeight) : '-'} sub="น้ำหนักงานรวมที่ใช้คำนวณ" icon="fa-scale-balanced" accent="var(--mx-blue)" />
+          <MetricCard label="Completion" value={orgScores ? formatScorePercent(orgScores.completion) : '-'} sub={completionMetricSub(orgScores)} icon="fa-check-double" accent="var(--mx-green)" />
+          <MetricCard label="Avg SLA" value={`${avgSla}%`} sub={orgScores ? slaMetricSub(orgScores, avgSla) : 'weighted SLA across visible staff'} icon="fa-chart-line" accent="var(--mx-teal)" />
           <MetricCard label="People" value={summary.length} sub="จำนวนคนในมุมผู้จัดการ" icon="fa-users-viewfinder" accent="var(--mx-blue)" />
         </div>
+        {orgScores && <WeightFormulaStrip scores={orgScores} />}
         <Panel title="Executive Scoreboard" subtitle="ผู้บริหารเห็นคะแนน, ปริมาณงาน, และจุดที่ควร intervene ทันที">
           <div className="grid md:grid-cols-2 gap-3">
             {topPeople.map((person) => (
@@ -745,6 +1069,10 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
                   <div>
                     <div className="font-bold">{person.name}</div>
                     <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team} • Total {person.totalTasks}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(person.totalWeight)}</span>
+                      <span className="mx-badge mx-status-completed">Completion {person.weightedCompletionScore ?? '-'}%</span>
+                    </div>
                   </div>
                   <span className="mx-badge mx-status-process">{person.weightedSlaScore ?? '-'}%</span>
                 </div>
@@ -805,18 +1133,18 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
   // Icon action button with tooltip (matches original ActionButton)
   const ActionButton = ({ icon, color, onClick, label }) => {
     const variants = {
-      emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-500 hover:text-white hover:shadow-lg hover:shadow-emerald-500/30',
-      amber: 'bg-amber-50 text-amber-600 border-amber-100 hover:bg-amber-500 hover:text-white hover:shadow-lg hover:shadow-amber-500/30',
-      rose: 'bg-rose-50 text-rose-600 border-rose-100 hover:bg-rose-500 hover:text-white hover:shadow-lg hover:shadow-rose-500/30',
-      slate: 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-600 hover:text-white',
-      blue: 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-500 hover:text-white hover:shadow-lg hover:shadow-blue-500/30',
-      indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-500 hover:text-white hover:shadow-lg hover:shadow-indigo-500/30',
+      emerald: 'mx-action-success',
+      amber: 'mx-action-warning',
+      rose: 'mx-action-danger',
+      slate: 'mx-action-muted',
+      blue: 'mx-action-info',
+      indigo: 'mx-action-muted',
     };
     return (
       <div className="relative group">
         <button
           onClick={onClick}
-          className={`w-10 h-10 flex items-center justify-center rounded-xl border transition-all duration-200 active:scale-90 hover:scale-110 hover:-translate-y-0.5 ${variants[color] || variants.slate}`}
+          className={`w-10 h-10 flex items-center justify-center rounded-lg border transition-colors duration-200 ${variants[color] || variants.slate}`}
         >
           <i className={`fas ${icon} text-sm`}></i>
         </button>
@@ -844,6 +1172,7 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
     completed: (tasks || []).filter((t) => t.status === 'Completed').length,
     risk: (tasks || []).filter((t) => ['Pending', 'On Hold'].includes(t.status)).length,
   }), [tasks]);
+  const taskScores = useMemo(() => calcTaskWeightedScores(tasks || []), [tasks]);
 
   // Staff quick actions
   const handleStaffAction = (task, action) => {
@@ -952,7 +1281,7 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
           <div className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl">
             <h3 className="text-xl font-extrabold mb-4">
-              <i className="fas fa-sticky-note mr-2 text-blue-400"></i>บันทึกงาน
+              <i className="fas fa-sticky-note mr-2 text-[var(--mx-info)]"></i>บันทึกงาน
             </h3>
             <div className="max-h-80 overflow-y-auto rounded-[16px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
               <div className="text-sm leading-7 whitespace-pre-wrap">{notePopup.note || '-'}</div>
@@ -1043,7 +1372,7 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
                 ยกเลิก
               </button>
               <button
-                className="mx-btn text-white flex-1 bg-emerald-600 hover:bg-emerald-700"
+                className="mx-btn flex-1 mx-action-success"
                 disabled={savingPr}
                 onClick={handlePrComplete}
               >
@@ -1056,10 +1385,12 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
 
       <div className="mx-grid-auto">
         <MetricCard label="Total Tasks" value={taskSummary.total} sub="ทั้งหมดในมุมมองนี้" icon="fa-list-check" />
-        <MetricCard label="Active" value={taskSummary.active} sub="งานที่ยังต้องขับเคลื่อน" icon="fa-bolt" accent="var(--mx-teal)" />
-        <MetricCard label="Completed" value={taskSummary.completed} sub="งานที่ปิดแล้ว" icon="fa-check-double" accent="var(--mx-green)" />
+        <MetricCard label="Total Weight" value={formatWeightPercent(taskScores.totalWeight)} sub="น้ำหนักงานที่ใช้คำนวณ" icon="fa-scale-balanced" accent="var(--mx-blue)" />
+        <MetricCard label="Completion" value={formatScorePercent(taskScores.completion)} sub={completionMetricSub(taskScores)} icon="fa-check-double" accent="var(--mx-green)" />
+        <MetricCard label="Weighted SLA" value={formatScorePercent(taskScores.sla)} sub={slaMetricSub(taskScores)} icon="fa-chart-line" accent="var(--mx-teal)" />
         <MetricCard label="Need Attention" value={taskSummary.risk} sub="Pending / On Hold" icon="fa-triangle-exclamation" accent="var(--mx-amber)" />
       </div>
+      <WeightFormulaStrip scores={taskScores} />
 
       <Panel
         title="Task Center"
@@ -1096,6 +1427,7 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="font-bold text-base break-all">{task.job}</div>
                     <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status}</span>
+                    <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(getTaskWeight(task))}</span>
                     <button
                       className="mx-btn mx-btn-soft !py-2 !px-3"
                       onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
@@ -1105,7 +1437,7 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
                     {task.note && (
                       <button
                         onClick={() => setNotePopup({ show: true, note: task.note })}
-                        className="text-xs text-blue-400 bg-blue-500/10 px-3 py-1.5 rounded-lg border border-blue-500/20 hover:bg-blue-500/20 transition-colors font-bold"
+                        className="mx-note-btn text-xs px-3 py-1.5 rounded-lg transition-colors font-bold"
                       >
                         <i className="fas fa-sticky-note mr-1"></i>ดูบันทึก
                       </button>
@@ -1121,6 +1453,7 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
                   {expandedTaskId === task.id && (
                     <div className="mt-4 rounded-[18px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
                       <div className="text-xs text-[var(--mx-muted)]">Task ID: {task.id}</div>
+                      <div className="mt-2 text-xs text-[var(--mx-muted)]">Weight: {formatWeightPercent(getTaskWeight(task))}</div>
                       {task.note
                         ? <div className="mt-3 text-sm leading-7 whitespace-pre-wrap">{task.note}</div>
                         : <div className="mt-3 text-sm text-[var(--mx-muted)]">ไม่มี note</div>
@@ -1343,7 +1676,7 @@ function ExtraDataFields({ subkpi, extraData, onChange }) {
 
   return (
     <div className="md:col-span-2 rounded-[18px] p-4 bg-[rgba(251,191,36,0.06)] border border-[rgba(251,191,36,0.25)]">
-      <p className="text-xs font-extrabold text-amber-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+      <p className="text-xs font-extrabold text-[var(--mx-warning)] uppercase tracking-widest mb-3 flex items-center gap-2">
         <i className="fas fa-clipboard-list"></i>ข้อมูลเพิ่มเติม
       </p>
       <div className="grid gap-3">
@@ -1493,7 +1826,7 @@ function QuickCreateView({ user, people, onSaved }) {
       subtitle={isStaff ? 'สร้างงานของตัวเองจาก shell ใหม่' : 'มอบหมายงานได้ครั้งละหลาย Job (แต่ละบรรทัด = 1 งาน)'}
     >
       {saveResult && (
-        <div className="mb-4 rounded-[14px] p-3 bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-400 font-bold">
+        <div className="mb-4 rounded-[14px] p-3 mx-status-completed text-sm font-bold">
           <i className="fas fa-check-circle mr-2"></i>{saveResult}
         </div>
       )}
@@ -1718,26 +2051,75 @@ function AdminStudio({ user, adminData, onRefresh }) {
           </div>
         </Panel>
 
-        <Panel title="Organization Controls" subtitle="ทีม, KPI, วันหยุด และการ recalculate">
-          <div className="grid gap-3">
-            <input className="mx-input" placeholder="New Team Name" value={teamName} onChange={(e) => setTeamName(e.target.value)} />
-            <button className="mx-btn mx-btn-soft" onClick={saveTeam}>Save Team</button>
-            <div className="grid md:grid-cols-2 gap-3">
-              <input className="mx-input" placeholder="Main KPI" value={kpiForm.main} onChange={(e) => setKpiForm((p) => ({ ...p, main: e.target.value }))} />
-              <input className="mx-input" placeholder="Sub KPI" value={kpiForm.sub} onChange={(e) => setKpiForm((p) => ({ ...p, sub: e.target.value }))} />
-              <input className="mx-input" placeholder="Team" value={kpiForm.team} onChange={(e) => setKpiForm((p) => ({ ...p, team: e.target.value }))} />
-              <input className="mx-input" type="number" placeholder="SLA Days" value={kpiForm.days} onChange={(e) => setKpiForm((p) => ({ ...p, days: e.target.value }))} />
-              <input className="mx-input md:col-span-2" type="number" placeholder="Weight" value={kpiForm.main_weight} onChange={(e) => setKpiForm((p) => ({ ...p, main_weight: e.target.value }))} />
+        <Panel title="Organization Controls" subtitle="ทีม, KPI, วันหยุด และการคำนวณ SLA">
+          <div className="grid gap-4">
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+                <div className="flex-1">
+                  <div className="text-sm font-extrabold">Team</div>
+                  <div className="mt-1 text-xs text-[var(--mx-muted)]">เพิ่มทีมใหม่สำหรับจัดกลุ่มผู้ใช้งานและ KPI</div>
+                  <input className="mx-input mt-3" placeholder="New Team Name" value={teamName} onChange={(e) => setTeamName(e.target.value)} />
+                </div>
+                <button className="mx-btn mx-btn-soft lg:w-36" onClick={saveTeam}>Save Team</button>
+              </div>
             </div>
-            <button className="mx-btn mx-btn-soft" onClick={saveKpi}>Save KPI</button>
-            <div className="grid md:grid-cols-2 gap-3">
-              <input className="mx-input" type="date" value={holidayForm.holiday_date} onChange={(e) => setHolidayForm((p) => ({ ...p, holiday_date: e.target.value }))} />
-              <input className="mx-input" placeholder="Holiday Name" value={holidayForm.name} onChange={(e) => setHolidayForm((p) => ({ ...p, name: e.target.value }))} />
+
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2 mb-3">
+                <div>
+                  <div className="text-sm font-extrabold">KPI Definition</div>
+                  <div className="mt-1 text-xs text-[var(--mx-muted)]">กำหนด SLA days และ Weight ที่ใช้คำนวณคะแนนแบบถ่วงน้ำหนัก</div>
+                </div>
+                <span className="mx-badge mx-status-process">Weight affects score</span>
+              </div>
+              <div className="grid md:grid-cols-2 gap-3">
+                <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                  Main KPI
+                  <input className="mx-input" placeholder="Main KPI" value={kpiForm.main} onChange={(e) => setKpiForm((p) => ({ ...p, main: e.target.value }))} />
+                </label>
+                <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                  Sub KPI
+                  <input className="mx-input" placeholder="Sub KPI" value={kpiForm.sub} onChange={(e) => setKpiForm((p) => ({ ...p, sub: e.target.value }))} />
+                </label>
+                <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                  Team
+                  <input className="mx-input" placeholder="Team" value={kpiForm.team} onChange={(e) => setKpiForm((p) => ({ ...p, team: e.target.value }))} />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                    SLA Days
+                    <input className="mx-input" type="number" min="1" placeholder="1" value={kpiForm.days} onChange={(e) => setKpiForm((p) => ({ ...p, days: e.target.value }))} />
+                  </label>
+                  <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                    Weight
+                    <input className="mx-input" type="number" min="1" step="0.1" placeholder="1" value={kpiForm.main_weight} onChange={(e) => setKpiForm((p) => ({ ...p, main_weight: e.target.value }))} />
+                  </label>
+                </div>
+              </div>
+              <button className="mx-btn mx-btn-soft w-full mt-3" onClick={saveKpi}>Save KPI</button>
             </div>
-            <button className="mx-btn mx-btn-soft" onClick={saveHoliday}>Save Holiday</button>
-            <button className="mx-btn mx-btn-primary" onClick={recalc}>
-              <i className="fa-solid fa-rotate mr-2"></i>Recalculate Deadlines
-            </button>
+
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="text-sm font-extrabold">Holiday Calendar</div>
+              <div className="mt-1 text-xs text-[var(--mx-muted)]">วันหยุดจะถูกใช้ตอนคำนวณ deadline และ SLA</div>
+              <div className="grid md:grid-cols-[180px_1fr_auto] gap-3 mt-3">
+                <input className="mx-input" type="date" value={holidayForm.holiday_date} onChange={(e) => setHolidayForm((p) => ({ ...p, holiday_date: e.target.value }))} />
+                <input className="mx-input" placeholder="Holiday Name" value={holidayForm.name} onChange={(e) => setHolidayForm((p) => ({ ...p, name: e.target.value }))} />
+                <button className="mx-btn mx-btn-soft md:w-36" onClick={saveHoliday}>Save Holiday</button>
+              </div>
+            </div>
+
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <div>
+                  <div className="text-sm font-extrabold">Maintenance</div>
+                  <div className="mt-1 text-xs text-[var(--mx-muted)]">ใช้เมื่อมีการปรับ KPI หรือวันหยุด แล้วต้องคำนวณ deadline ใหม่</div>
+                </div>
+                <button className="mx-btn mx-btn-primary lg:w-60" onClick={recalc}>
+                  <i className="fa-solid fa-rotate mr-2"></i>Recalculate Deadlines
+                </button>
+              </div>
+            </div>
           </div>
         </Panel>
       </div>
@@ -1825,6 +2207,7 @@ function AdminStudio({ user, adminData, onRefresh }) {
 // ─── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const [user, setUser] = useState(() => parseJsonSafe(localStorage.getItem(SESSION_KEY), null));
+  const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light');
   const [view, setView] = useState(() => {
     const saved = parseJsonSafe(localStorage.getItem(SESSION_KEY), null);
     return ROLE_HOME[saved?.role] || 'dashboard';
@@ -1833,11 +2216,19 @@ function App() {
   const [loginError, setLoginError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
+  const [showDashboardCreate, setShowDashboardCreate] = useState(false);
 
   const {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,
     reloadDashboard, reloadTasks, reloadPeople, reloadAdmin,
   } = useAppData(user, view);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((current) => current === 'dark' ? 'light' : 'dark');
 
   // Available years for filter
   const availableYears = useMemo(() => {
@@ -1992,113 +2383,177 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
+  const handleNavigate = (nextView) => {
+    if (nextView === 'create' && view === 'dashboard' && user.role === 'Staff') {
+      setShowDashboardCreate(true);
+      return;
+    }
+    setView(nextView);
+  };
+
   if (!user) {
-    return <LoginScreen onLogin={handleLogin} loading={loginLoading} error={loginError} />;
+    return <LoginScreenPro onLogin={handleLogin} loading={loginLoading} error={loginError} theme={theme} onToggleTheme={toggleTheme} />;
   }
 
   const showFilterBar = ['dashboard', 'tasks'].includes(view);
   const peopleForAssign = state.people?.length ? state.people : state.admin?.staff || [];
+  const pageTitle =
+    view === 'dashboard'
+      ? (user.role === 'Manager' ? 'Executive Dashboard' : user.role === 'Lead' ? 'Team Command Center' : user.role === 'Admin' ? 'System Control Center' : 'My Work Dashboard')
+      : view === 'tasks' ? 'Task Center'
+      : view === 'create' ? 'Create Task'
+      : view === 'assign' ? 'Assignment Center'
+      : view === 'people' ? 'People Overview'
+      : view === 'tracker' ? 'Job Tracker'
+      : view === 'admin' ? 'Admin Studio'
+      : 'MAXIWA KPI';
+  const pageSubtitle =
+    view === 'dashboard' ? 'KPI, SLA, งานค้าง และภาพรวมผลงานในช่วงเวลาที่เลือก'
+      : view === 'tasks' ? 'จัดการรายการงาน ติดตามสถานะ และตรวจสอบ SLA'
+      : view === 'tracker' ? 'ค้นหาและติดตามประวัติงานจากรหัสงาน'
+      : view === 'admin' ? 'ตั้งค่าทีม KPI วันหยุด และข้อมูลระบบ'
+      : 'จัดการงานและข้อมูลที่เกี่ยวข้องกับบทบาทของคุณ';
+  const activePeriodLabel = showFilterBar
+    ? `${filterMonth === 0 ? 'ทุกเดือน' : MONTH_NAMES[filterMonth - 1]} ${filterYear}`
+    : user.team;
 
   return (
     <div className="min-h-screen p-4 md:p-6">
-      <div className="max-w-[1640px] mx-auto grid xl:grid-cols-[320px_1fr] gap-5">
+      <div className="max-w-[1640px] mx-auto grid xl:grid-cols-[320px_1fr] gap-5 items-start">
         <Sidebar user={user} view={view} setView={setView} onLogout={logout} notifCount={notifications.length} />
 
-        <main className="grid gap-5">
-          <header className="mx-shell-card rounded-[28px] p-5 md:p-6">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-              <div>
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[rgba(79,124,255,0.11)] border border-[rgba(138,171,255,0.16)] text-[#c8d6ff] text-[11px] font-extrabold uppercase tracking-[0.16em]">
-                  <i className="fa-solid fa-wave-square"></i> MAXIWA KPI
-                </div>
-                <h1 className="mt-4 mb-0 text-[34px] md:text-[42px] font-extrabold tracking-[-0.06em]">
-                  {view === 'dashboard' && (user.role === 'Manager' ? 'Executive Dashboard' : user.role === 'Lead' ? 'Team Command Center' : user.role === 'Admin' ? 'System Control Center' : 'My Work Dashboard')}
-                  {view === 'tasks' && 'Task Center'}
-                  {view === 'create' && 'Create Task'}
-                  {view === 'assign' && 'Assignment Center'}
-                  {view === 'people' && 'People Overview'}
-                  {view === 'tracker' && 'Job Tracker'}
-                  {view === 'admin' && 'Admin Studio'}
-                </h1>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Month/Year filter */}
-                {showFilterBar && (
-                  <>
-                    <select
-                      className="mx-select !py-2 !text-sm"
-                      value={filterMonth}
-                      onChange={(e) => setFilterMonth(Number(e.target.value))}
-                    >
-                      <option value={0}>ทุกเดือน</option>
-                      {MONTH_NAMES.map((name, i) => (
-                        <option key={i + 1} value={i + 1}>{name}</option>
-                      ))}
-                    </select>
-                    <select
-                      className="mx-select !py-2 !text-sm"
-                      value={filterYear}
-                      onChange={(e) => setFilterYear(Number(e.target.value))}
-                    >
-                      {availableYears.map((y) => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
-                  </>
-                )}
-
-                {/* CSV Export (tasks view only) */}
-                {view === 'tasks' && state.tasks.length > 0 && (
-                  <button className="mx-btn mx-btn-soft !py-2" onClick={downloadCSV} title="Export CSV">
-                    <i className="fa-solid fa-file-csv mr-1"></i>CSV
-                  </button>
-                )}
-
-                {/* Notification bell */}
-                <div className="relative">
-                  <button className="mx-btn mx-btn-soft !py-2 !px-3 relative" onClick={() => setShowNotif((v) => !v)}>
-                    <i className="fa-solid fa-bell"></i>
-                    {notifications.length > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">
-                        {notifications.length > 9 ? '9+' : notifications.length}
-                      </span>
-                    )}
-                  </button>
-                  {showNotif && (
-                    <div className="absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]">
-                      <div className="text-sm font-extrabold mb-3 flex items-center justify-between">
-                        <span>การแจ้งเตือน</span>
-                        <button className="text-[var(--mx-muted)] hover:text-white" onClick={() => setShowNotif(false)}>
-                          <i className="fa-solid fa-xmark"></i>
-                        </button>
-                      </div>
-                      {notifications.length === 0 && (
-                        <div className="text-sm text-[var(--mx-muted)]">ไม่มีการแจ้งเตือน</div>
-                      )}
-                      <div className="grid gap-2 max-h-72 overflow-y-auto">
-                        {notifications.slice(0, 10).map((n) => (
-                          <div key={n.id} className="rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]">
-                            <div className="flex items-start gap-2 text-sm">
-                              <i className={`fa-solid ${n.icon} mt-0.5 flex-shrink-0`} style={{ color: n.color }}></i>
-                              <span>{n.message}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+        <main className="grid content-start gap-5">
+          <header className="mx-shell-card overflow-visible">
+            <div className="px-5 py-5 md:px-6 md:py-6">
+              <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="mx-brand-pill inline-flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-[0.16em]">
+                      <i className="fa-solid fa-gauge-high"></i> MAXIWA KPI
                     </div>
+                    <span className="mx-badge mx-status-process"><i className="fa-solid fa-user"></i>{user.role}</span>
+                    <span className="mx-badge mx-status-completed"><i className="fa-solid fa-building-user"></i>{user.team}</span>
+                  </div>
+                  <h1 className="mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal">
+                    {pageTitle}
+                  </h1>
+                  <p className="mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]">
+                    {pageSubtitle}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center xl:justify-end gap-2">
+                  <ThemeToggle theme={theme} onToggle={toggleTheme} />
+                  <div className="relative">
+                    <button className="mx-btn mx-btn-soft !py-2 !px-3 relative" onClick={() => setShowNotif((v) => !v)} title="Notifications" aria-label="Notifications">
+                      <i className="fa-solid fa-bell"></i>
+                      {notifications.length > 0 && (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">
+                          {notifications.length > 9 ? '9+' : notifications.length}
+                        </span>
+                      )}
+                    </button>
+                    {showNotif && (
+                      <div className="absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]">
+                        <div className="text-sm font-extrabold mb-3 flex items-center justify-between">
+                          <span>การแจ้งเตือน</span>
+                          <button className="text-[var(--mx-muted)] hover:text-[var(--mx-text)]" onClick={() => setShowNotif(false)}>
+                            <i className="fa-solid fa-xmark"></i>
+                          </button>
+                        </div>
+                        {notifications.length === 0 && (
+                          <div className="text-sm text-[var(--mx-muted)]">ไม่มีการแจ้งเตือน</div>
+                        )}
+                        <div className="grid gap-2 max-h-72 overflow-y-auto">
+                          {notifications.slice(0, 10).map((n) => (
+                            <div key={n.id} className="rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]">
+                              <div className="flex items-start gap-2 text-sm">
+                                <i className={`fa-solid ${n.icon} mt-0.5 flex-shrink-0`} style={{ color: n.color }}></i>
+                                <span>{n.message}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {view === 'tasks' && state.tasks.length > 0 && (
+                    <button className="mx-btn mx-btn-soft !py-2" onClick={downloadCSV} title="Export CSV">
+                      <i className="fa-solid fa-file-csv mr-1"></i>CSV
+                    </button>
+                  )}
+                  {(state.loading || actionLoading) && (
+                    <span className="mx-badge mx-status-pending"><i className="fa-solid fa-rotate-right fa-spin"></i>Loading</span>
                   )}
                 </div>
-
-                <span className="mx-badge mx-status-process"><i className="fa-solid fa-user mr-1"></i>{user.role}</span>
-                <span className="mx-badge mx-status-completed"><i className="fa-solid fa-building-user mr-1"></i>{user.team}</span>
-                {(state.loading || actionLoading) && (
-                  <span className="mx-badge mx-status-pending"><i className="fa-solid fa-rotate-right fa-spin mr-1"></i>Loading</span>
-                )}
               </div>
             </div>
-            {state.error && <div className="mt-4 text-sm text-[#ffb7b7] font-bold">{state.error}</div>}
+
+            <div className="border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="flex items-center gap-3 text-sm text-[var(--mx-muted)]">
+                  <span className="w-9 h-9 rounded-lg mx-brand-mark grid place-items-center">
+                    <i className="fa-solid fa-calendar-check text-[var(--mx-accent)]"></i>
+                  </span>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.14em] font-extrabold">Current Scope</div>
+                    <div className="mt-0.5 text-[var(--mx-text)] font-bold">{activePeriodLabel}</div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {showFilterBar && (
+                    <>
+                      <select
+                        className="mx-select !w-[160px] !py-2 !text-sm"
+                        value={filterMonth}
+                        onChange={(e) => setFilterMonth(Number(e.target.value))}
+                      >
+                        <option value={0}>ทุกเดือน</option>
+                        {MONTH_NAMES.map((name, i) => (
+                          <option key={i + 1} value={i + 1}>{name}</option>
+                        ))}
+                      </select>
+                      <select
+                        className="mx-select !w-[116px] !py-2 !text-sm"
+                        value={filterYear}
+                        onChange={(e) => setFilterYear(Number(e.target.value))}
+                      >
+                        {availableYears.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            {state.error && <div className="px-5 pb-4 md:px-6 text-sm text-[#ffb7b7] font-bold">{state.error}</div>}
           </header>
+
+          {showDashboardCreate && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15, 23, 42, 0.56)' }}>
+              <div className="relative w-full max-w-3xl max-h-[92vh] overflow-y-auto">
+                <button
+                  className="mx-btn mx-btn-soft !p-0 absolute right-4 top-4 z-10 w-10 h-10 grid place-items-center"
+                  onClick={() => setShowDashboardCreate(false)}
+                  aria-label="Close create task popup"
+                  title="Close"
+                >
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+                <QuickCreateView
+                  user={user}
+                  people={peopleForAssign}
+                  onSaved={() => {
+                    reloadTasks();
+                    reloadDashboard();
+                    setShowDashboardCreate(false);
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
           {view === 'dashboard' && (
             <DashboardView
@@ -2108,7 +2563,7 @@ function App() {
               filterYear={filterYear}
               onAccept={handleAccept}
               onStatusChange={handleStatusChange}
-              onNavigate={setView}
+              onNavigate={handleNavigate}
             />
           )}
           {view === 'tasks' && (

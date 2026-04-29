@@ -11,99 +11,219 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root {
-      --mx-bg: #06101a;
-      --mx-panel: rgba(10, 21, 34, 0.84);
-      --mx-line: rgba(145, 177, 208, 0.14);
-      --mx-text: #f3f7fb;
-      --mx-muted: #96a9bc;
-      --mx-teal: #22c1a1;
-      --mx-blue: #4f7cff;
-      --mx-amber: #ffb84d;
-      --mx-green: #79efcc;
-      --mx-shadow: 0 28px 70px rgba(0, 0, 0, 0.35);
+      color-scheme: light;
+      --mx-bg: #f5f7fb;
+      --mx-bg-soft: #eef2f7;
+      --mx-panel: rgba(255, 255, 255, 0.96);
+      --mx-panel-strong: #ffffff;
+      --mx-surface: #f8fafc;
+      --mx-surface-hover: #f1f5f9;
+      --mx-line: rgba(15, 23, 42, 0.10);
+      --mx-line-strong: rgba(15, 23, 42, 0.16);
+      --mx-text: #0f172a;
+      --mx-muted: #64748b;
+      --mx-accent: #334155;
+      --mx-accent-2: #4f46e5;
+      --mx-blue: var(--mx-info);
+      --mx-teal: var(--mx-success);
+      --mx-green: var(--mx-success);
+      --mx-amber: var(--mx-warning);
+      --mx-success: #15803d;
+      --mx-info: #0369a1;
+      --mx-warning: #b45309;
+      --mx-danger: #be123c;
+      --mx-success-bg: rgba(22, 163, 74, 0.10);
+      --mx-info-bg: rgba(2, 132, 199, 0.10);
+      --mx-warning-bg: rgba(217, 119, 6, 0.12);
+      --mx-danger-bg: rgba(225, 29, 72, 0.10);
+      --mx-neutral-bg: rgba(100, 116, 139, 0.12);
+      --mx-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --mx-bg: #111827;
+      --mx-bg-soft: #0f172a;
+      --mx-panel: rgba(17, 24, 39, 0.94);
+      --mx-panel-strong: #111827;
+      --mx-surface: rgba(30, 41, 59, 0.72);
+      --mx-surface-hover: rgba(51, 65, 85, 0.82);
+      --mx-line: rgba(148, 163, 184, 0.18);
+      --mx-line-strong: rgba(148, 163, 184, 0.28);
+      --mx-text: #f8fafc;
+      --mx-muted: #a7b3c5;
+      --mx-accent: #e2e8f0;
+      --mx-accent-2: #a5b4fc;
+      --mx-blue: var(--mx-info);
+      --mx-teal: var(--mx-success);
+      --mx-green: var(--mx-success);
+      --mx-amber: var(--mx-warning);
+      --mx-success: #86efac;
+      --mx-info: #bae6fd;
+      --mx-warning: #fde68a;
+      --mx-danger: #fecdd3;
+      --mx-success-bg: rgba(34, 197, 94, 0.14);
+      --mx-info-bg: rgba(56, 189, 248, 0.14);
+      --mx-warning-bg: rgba(245, 158, 11, 0.15);
+      --mx-danger-bg: rgba(251, 113, 133, 0.14);
+      --mx-neutral-bg: rgba(148, 163, 184, 0.12);
+      --mx-shadow: 0 20px 48px rgba(2, 6, 23, 0.32);
     }
     * { box-sizing: border-box; }
     html, body, #root { min-height: 100%; }
     body {
       margin: 0;
       font-family: "Manrope", "IBM Plex Sans Thai", sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(79,124,255,0.16), transparent 24%),
-        radial-gradient(circle at right top, rgba(34,193,161,0.14), transparent 20%),
-        linear-gradient(145deg, #040b13 0%, #08111b 38%, #0b1624 100%);
+      background: linear-gradient(180deg, var(--mx-bg), var(--mx-bg-soft));
       color: var(--mx-text);
+      letter-spacing: 0;
     }
     body::before {
       content: "";
       position: fixed;
       inset: 0;
-      background-image:
-        linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
-      background-size: 64px 64px;
-      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.3), rgba(0,0,0,0));
+      background: linear-gradient(90deg, transparent, rgba(148,163,184,0.08), transparent);
+      height: 1px;
+      top: 0;
+      bottom: auto;
       pointer-events: none;
     }
     .mx-shell-card {
       background: var(--mx-panel);
       border: 1px solid var(--mx-line);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
+      border-radius: 8px !important;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
       box-shadow: var(--mx-shadow);
     }
     .mx-input, .mx-select, .mx-textarea {
       width: 100%;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 16px;
+      background: var(--mx-panel-strong);
+      border: 1px solid var(--mx-line-strong);
+      border-radius: 8px !important;
       color: var(--mx-text);
       font: inherit;
       padding: 12px 14px;
       outline: none;
+      transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+    .mx-input:focus, .mx-select:focus, .mx-textarea:focus {
+      border-color: color-mix(in srgb, var(--mx-accent-2) 64%, var(--mx-line-strong));
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--mx-accent-2) 16%, transparent);
+      background: var(--mx-panel-strong);
     }
     .mx-btn {
       border: 0;
-      border-radius: 16px;
+      border-radius: 8px !important;
       font: inherit;
       font-weight: 700;
       cursor: pointer;
       padding: 12px 16px;
+      transition: background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+    }
+    .mx-btn:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--mx-accent-2) 24%, transparent);
+      outline-offset: 2px;
     }
     .mx-btn-primary {
-      color: white;
-      background: linear-gradient(135deg, var(--mx-blue), var(--mx-teal));
-      box-shadow: 0 18px 36px rgba(34, 193, 161, 0.16);
+      color: #ffffff;
+      background: #334155;
+      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
     }
     .mx-btn-soft {
       color: var(--mx-text);
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.08);
+      background: var(--mx-panel-strong);
+      border: 1px solid var(--mx-line-strong);
+    }
+    .mx-btn-soft:hover {
+      background: var(--mx-surface-hover);
+      border-color: var(--mx-line-strong);
     }
     .mx-badge {
       display: inline-flex;
       align-items: center;
       gap: 8px;
       padding: 8px 12px;
-      border-radius: 999px;
+      border-radius: 8px !important;
       font-size: 12px;
       font-weight: 800;
-      border: 1px solid rgba(255,255,255,0.08);
+      border: 1px solid var(--mx-line-strong);
     }
-    .mx-status-completed { background: rgba(34,193,161,.14); color: #96f2dd; }
-    .mx-status-process { background: rgba(79,124,255,.14); color: #c4d2ff; }
-    .mx-status-pending { background: rgba(255,184,77,.14); color: #ffd59c; }
-    .mx-status-hold { background: rgba(255,107,107,.14); color: #ffb7b7; }
-    .mx-status-cancelled { background: rgba(255,255,255,.1); color: #d5dbe2; }
+    .mx-status-completed { background: var(--mx-success-bg); color: var(--mx-success); }
+    .mx-status-process { background: var(--mx-info-bg); color: var(--mx-info); }
+    .mx-status-pending { background: var(--mx-warning-bg); color: var(--mx-warning); }
+    .mx-status-hold { background: var(--mx-danger-bg); color: var(--mx-danger); }
+    .mx-status-cancelled { background: var(--mx-neutral-bg); color: var(--mx-muted); }
     .mx-grid-auto {
       display: grid;
-      gap: 18px;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
     }
     .mx-data-card {
-      border-radius: 20px;
-      padding: 20px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px !important;
+      padding: 18px;
+      background: var(--mx-surface);
+      border: 1px solid var(--mx-line);
+      transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+    }
+    .mx-data-card:hover {
+      background: var(--mx-surface-hover);
+      border-color: var(--mx-line-strong);
+    }
+    .mx-brand-mark {
+      background: var(--mx-panel-strong);
+      border: 1px solid var(--mx-line-strong);
+      color: var(--mx-accent);
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    }
+    .mx-brand-pill {
+      background: var(--mx-surface);
+      border: 1px solid var(--mx-line-strong);
+      color: var(--mx-accent);
+    }
+    .mx-nav-active {
+      background: var(--mx-surface-hover);
+      border: 1px solid var(--mx-line-strong);
+      box-shadow: inset 3px 0 0 var(--mx-accent-2);
+    }
+    .mx-muted-card {
+      background: var(--mx-surface);
+      border: 1px solid var(--mx-line);
+    }
+    .mx-note-btn {
+      color: var(--mx-info);
+      background: var(--mx-info-bg);
+      border: 1px solid color-mix(in srgb, var(--mx-info) 24%, transparent);
+    }
+    .mx-note-btn:hover { background: color-mix(in srgb, var(--mx-info-bg) 70%, var(--mx-surface-hover)); }
+    .mx-progress-track { background: var(--mx-neutral-bg); }
+    .mx-progress-fill { background: #64748b; }
+    .mx-action-success { background: var(--mx-success-bg); color: var(--mx-success); border-color: color-mix(in srgb, var(--mx-success) 24%, transparent); }
+    .mx-action-success:hover { background: color-mix(in srgb, var(--mx-success-bg) 70%, var(--mx-surface-hover)); }
+    .mx-action-warning { background: var(--mx-warning-bg); color: var(--mx-warning); border-color: color-mix(in srgb, var(--mx-warning) 24%, transparent); }
+    .mx-action-warning:hover { background: color-mix(in srgb, var(--mx-warning-bg) 70%, var(--mx-surface-hover)); }
+    .mx-action-danger { background: var(--mx-danger-bg); color: var(--mx-danger); border-color: color-mix(in srgb, var(--mx-danger) 24%, transparent); }
+    .mx-action-danger:hover { background: color-mix(in srgb, var(--mx-danger-bg) 70%, var(--mx-surface-hover)); }
+    .mx-action-info { background: var(--mx-info-bg); color: var(--mx-info); border-color: color-mix(in srgb, var(--mx-info) 24%, transparent); }
+    .mx-action-info:hover { background: color-mix(in srgb, var(--mx-info-bg) 70%, var(--mx-surface-hover)); }
+    .mx-action-muted { background: var(--mx-neutral-bg); color: var(--mx-accent-2); border-color: var(--mx-line-strong); }
+    .mx-action-muted:hover { background: var(--mx-surface-hover); }
+    h1, h2, h3, button, input, select, textarea {
+      letter-spacing: 0 !important;
+    }
+    button {
+      cursor: pointer;
+    }
+    @media (max-width: 767px) {
+      .mx-shell-card { box-shadow: 0 14px 32px rgba(2, 6, 23, 0.24); }
+      .mx-grid-auto { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
     }
   </style>
 </head>
