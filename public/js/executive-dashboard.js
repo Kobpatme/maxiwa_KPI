@@ -1,12 +1,24 @@
 const { useEffect, useMemo, useState } = React;
 
 const MONTH_NAMES = [
-  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const TAB_ITEMS = [
+  { id: 'overview', label: 'Overview', icon: 'fa-chart-line' },
+  { id: 'teams', label: 'Teams', icon: 'fa-people-group' },
+  { id: 'employees', label: 'Employees', icon: 'fa-id-badge' },
+  { id: 'kpi', label: 'KPI Analysis', icon: 'fa-bullseye' },
+  { id: 'weights', label: 'KPI Weights', icon: 'fa-scale-balanced' },
 ];
 
 function fmtPct(value) {
-  return value === null || value === undefined ? '-' : `${value}%`;
+  return value === null || value === undefined || Number.isNaN(value) ? '-' : `${value}%`;
+}
+
+function fmtNum(value) {
+  return Number(value || 0).toLocaleString();
 }
 
 function fmtDate(value) {
@@ -16,66 +28,61 @@ function fmtDate(value) {
   return d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+function normalizeStatus(task) {
+  return String(task?.status || '').trim().toLowerCase();
+}
+
+function isCompleted(task) {
+  return normalizeStatus(task) === 'completed';
+}
+
+function isCancelled(task) {
+  return normalizeStatus(task) === 'cancelled';
+}
+
+function isActive(task) {
+  return !isCompleted(task) && !isCancelled(task);
+}
+
+function isOnProcess(task) {
+  const status = normalizeStatus(task);
+  return status === 'on process' || status === 'on_process';
+}
+
 function taskWeight(task) {
   const raw = task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight ?? 1;
   const weight = typeof raw === 'string' ? Number.parseFloat(raw.replace('%', '').trim()) : Number(raw);
   return Number.isFinite(weight) && weight > 0 ? weight : 1;
 }
 
-function kpiKey(task) {
-  return String(task?.mainkpi ?? task?.mainKpi ?? task?.main ?? task?.subkpi ?? task?.sub ?? 'Other').trim() || 'Other';
+function mainKpi(task) {
+  return String(task?.mainkpi ?? task?.mainKpi ?? task?.main ?? 'Other').trim() || 'Other';
+}
+
+function subKpi(task) {
+  return String(task?.subkpi ?? task?.subKpi ?? task?.sub ?? task?.job ?? 'General').trim() || 'General';
+}
+
+function personName(task) {
+  return String(task?.name || task?.assignee || task?.owner || task?.empName || task?.empId || task?.empid || 'Unassigned').trim();
+}
+
+function teamName(task) {
+  return String(task?.team || 'Unassigned').trim();
 }
 
 function isCompletedOnTime(task) {
+  if (!isCompleted(task)) return false;
   const deadline = task?.deadline ? new Date(task.deadline) : null;
   const completedAt = task?.completiondate ? new Date(task.completiondate) : null;
   return Boolean(deadline && completedAt && !Number.isNaN(deadline.getTime()) && !Number.isNaN(completedAt.getTime()) && completedAt <= deadline);
 }
 
-function calcWeightedScores(tasks) {
-  const groups = {};
-  (tasks || []).forEach((task) => {
-    const key = kpiKey(task);
-    const weight = taskWeight(task);
-    const status = String(task?.status || '').toLowerCase();
-    if (!groups[key]) groups[key] = { weight, total: 0, completed: 0, onTime: 0 };
-    else if (groups[key].weight === 1 && weight !== 1) groups[key].weight = weight;
-    if (status === 'cancelled') return;
-    groups[key].total += 1;
-    if (status === 'completed') {
-      groups[key].completed += 1;
-      if (isCompletedOnTime(task)) groups[key].onTime += 1;
-    }
-  });
-
-  let totalWeight = 0;
-  let completedWeight = 0;
-  let slaWeight = 0;
-  let onTimeWeight = 0;
-  Object.values(groups).forEach((group) => {
-    const weight = taskWeight({ weight: group.weight });
-    if (group.total > 0) {
-      totalWeight += weight;
-      completedWeight += weight * (group.completed / group.total);
-    }
-    if (group.completed > 0) {
-      slaWeight += weight;
-      onTimeWeight += weight * (group.onTime / group.completed);
-    }
-  });
-
-  return {
-    sla: slaWeight > 0 ? Math.round((onTimeWeight / slaWeight) * 100) : null,
-    completion: totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100) : null,
-    totalWeight,
-    completedWeight,
-    slaWeight,
-    onTimeWeight,
-  };
-}
-
-function isActive(task) {
-  return !['completed', 'cancelled'].includes(String(task?.status || '').toLowerCase());
+function isCompletedLate(task) {
+  if (!isCompleted(task)) return false;
+  const deadline = task?.deadline ? new Date(task.deadline) : null;
+  const completedAt = task?.completiondate ? new Date(task.completiondate) : null;
+  return Boolean(deadline && completedAt && !Number.isNaN(deadline.getTime()) && !Number.isNaN(completedAt.getTime()) && completedAt > deadline);
 }
 
 function daysUntil(task) {
@@ -91,11 +98,17 @@ function daysUntil(task) {
 function extractJobCode(job) {
   if (!job) return '-';
   const match = String(job).match(/^([A-Za-z]+\d+_\d+)/);
-  return match ? match[1].toUpperCase() : String(job).slice(0, 22);
+  return match ? match[1].toUpperCase() : String(job).slice(0, 26);
+}
+
+function clampPercent(value) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.min(100, num));
 }
 
 function healthClass(value) {
-  if (value === null || value === undefined) return 'status-neutral';
+  if (value === null || value === undefined || Number.isNaN(value)) return 'status-neutral';
   if (value >= 90) return 'status-good';
   if (value >= 75) return 'status-info';
   if (value >= 60) return 'status-warn';
@@ -105,9 +118,9 @@ function healthClass(value) {
 function statusClass(status) {
   const raw = String(status || '').toLowerCase();
   if (raw === 'completed') return 'status-good';
-  if (raw === 'on process') return 'status-info';
+  if (raw === 'on process' || raw === 'on_process') return 'status-info';
   if (raw === 'pending') return 'status-warn';
-  if (raw === 'on hold') return 'status-bad';
+  if (raw === 'on hold' || raw === 'on_hold') return 'status-bad';
   return 'status-neutral';
 }
 
@@ -116,19 +129,6 @@ function riskBadge(days) {
   if (days < 0) return [`${Math.abs(days)}d late`, 'status-bad'];
   if (days <= 3) return [`${days}d left`, 'status-warn'];
   return [`${days}d left`, 'status-info'];
-}
-
-function clampPercent(value) {
-  const num = Number(value || 0);
-  if (!Number.isFinite(num)) return 0;
-  return Math.max(0, Math.min(100, num));
-}
-
-function getTaskMonth(task) {
-  const raw = task.completiondate || task.deadline || task.startdate || task.created_at || task.timestamp;
-  const d = raw ? new Date(raw) : null;
-  if (!d || Number.isNaN(d.getTime())) return null;
-  return d.getMonth();
 }
 
 function groupBy(items, getKey) {
@@ -141,23 +141,143 @@ function groupBy(items, getKey) {
   return map;
 }
 
-function calcGroupRows(map) {
-  return Object.entries(map).map(([name, items]) => {
-    const scores = calcWeightedScores(items);
-    const active = items.filter(isActive);
-    const overdue = active.filter((task) => {
-      const days = daysUntil(task);
-      return days !== null && days < 0;
-    }).length;
-    const risk = active.filter((task) => {
-      const days = daysUntil(task);
-      return days !== null && days >= 0 && days <= 3;
-    }).length;
-    const completed = items.filter((task) => String(task.status || '').toLowerCase() === 'completed').length;
-    const completion = scores.completion ?? (items.length ? Math.round((completed / items.length) * 100) : null);
-    const health = Math.round(((scores.sla ?? completion ?? 0) + (completion ?? scores.sla ?? 0)) / 2) - overdue * 5 - risk * 2;
-    return { name, items, total: items.length, active: active.length, completed, overdue, risk, sla: scores.sla, completion, health };
+function calcWeightedScores(tasks) {
+  const groups = {};
+  (tasks || []).forEach((task) => {
+    if (isCancelled(task)) return;
+    const key = mainKpi(task);
+    const weight = taskWeight(task);
+    if (!groups[key]) groups[key] = { weight, total: 0, completed: 0, onTime: 0 };
+    else groups[key].weight = Math.max(groups[key].weight, weight);
+    groups[key].total += 1;
+    if (isCompleted(task)) {
+      groups[key].completed += 1;
+      if (isCompletedOnTime(task)) groups[key].onTime += 1;
+    }
   });
+
+  let totalWeight = 0;
+  let completedWeight = 0;
+  let slaWeight = 0;
+  let onTimeWeight = 0;
+  Object.values(groups).forEach((group) => {
+    const weight = Math.max(1, Number(group.weight || 1));
+    if (group.total > 0) {
+      totalWeight += weight;
+      completedWeight += weight * (group.completed / group.total);
+    }
+    if (group.completed > 0) {
+      slaWeight += weight;
+      onTimeWeight += weight * (group.onTime / group.completed);
+    }
+  });
+
+  return {
+    sla: slaWeight > 0 ? Math.round((onTimeWeight / slaWeight) * 1000) / 10 : null,
+    completion: totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 1000) / 10 : null,
+    totalWeight,
+  };
+}
+
+function getTaskMonth(task) {
+  const raw = task.completiondate || task.deadline || task.startdate || task.created_at || task.timestamp;
+  const d = raw ? new Date(raw) : null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return d.getMonth();
+}
+
+function buildPortfolio(tasks) {
+  const active = tasks.filter(isActive);
+  const completed = tasks.filter(isCompleted);
+  const onProcess = tasks.filter(isOnProcess);
+  const overdue = active.filter((task) => {
+    const days = daysUntil(task);
+    return days !== null && days < 0;
+  });
+  const atRisk = active.filter((task) => {
+    const days = daysUntil(task);
+    return days !== null && days >= 0 && days <= 3;
+  });
+  const slaPass = tasks.filter(isCompletedOnTime);
+  const slaFail = tasks.filter(isCompletedLate);
+  const scores = calcWeightedScores(tasks);
+  const completion = scores.completion ?? (tasks.length ? Math.round((completed.length / tasks.length) * 1000) / 10 : null);
+  const weightedScore = completion !== null && scores.sla !== null
+    ? Math.round(((completion + scores.sla) / 2) * 10) / 10
+    : (completion ?? scores.sla);
+
+  return { active, completed, onProcess, overdue, atRisk, slaPass, slaFail, scores, completion, weightedScore };
+}
+
+function buildGroupRows(tasks, getKey) {
+  return Object.entries(groupBy(tasks, getKey)).map(([name, items]) => {
+    const portfolio = buildPortfolio(items);
+    const topKpiEntry = Object.entries(groupBy(items, mainKpi)).sort((a, b) => b[1].length - a[1].length)[0];
+    const health = Math.round(((portfolio.scores.sla ?? portfolio.completion ?? 0) + (portfolio.completion ?? portfolio.scores.sla ?? 0)) / 2)
+      - portfolio.overdue.length * 5
+      - portfolio.atRisk.length * 2;
+    return {
+      name,
+      items,
+      total: items.length,
+      active: portfolio.active.length,
+      completed: portfolio.completed.length,
+      onProcess: portfolio.onProcess.length,
+      backlog: Math.max(0, items.length - portfolio.completed.length),
+      overdue: portfolio.overdue.length,
+      risk: portfolio.atRisk.length,
+      slaPass: portfolio.slaPass.length,
+      slaFail: portfolio.slaFail.length,
+      sla: portfolio.scores.sla,
+      completion: portfolio.completion,
+      weightedScore: portfolio.weightedScore,
+      health,
+      topKpi: topKpiEntry ? topKpiEntry[0] : '-',
+      topKpiCount: topKpiEntry ? topKpiEntry[1].length : 0,
+    };
+  });
+}
+
+function buildKpiRows(tasks) {
+  return Object.entries(groupBy(tasks, mainKpi)).map(([name, items]) => {
+    const portfolio = buildPortfolio(items);
+    return {
+      name,
+      total: items.length,
+      active: portfolio.active.length,
+      completed: portfolio.completed.length,
+      onProcess: portfolio.onProcess.length,
+      weight: Math.max(...items.map(taskWeight), 1),
+      share: tasks.length ? Math.round((items.length / tasks.length) * 1000) / 10 : 0,
+      sla: portfolio.scores.sla,
+      completion: portfolio.completion,
+      slaPass: portfolio.slaPass.length,
+      slaFail: portfolio.slaFail.length,
+    };
+  }).sort((a, b) => b.total - a.total);
+}
+
+function buildKpiWeightRows(tasks) {
+  return Object.entries(groupBy(tasks, (task) => `${teamName(task)}|${mainKpi(task)}|${subKpi(task)}`)).map(([key, items]) => {
+    const [team, main, sub] = key.split('|');
+    const portfolio = buildPortfolio(items);
+    return {
+      team,
+      main,
+      sub,
+      weight: Math.max(...items.map(taskWeight), 1),
+      total: items.length,
+      completed: portfolio.completed.length,
+      pending: Math.max(0, items.length - portfolio.completed.length),
+      slaPass: portfolio.slaPass.length,
+      slaFail: portfolio.slaFail.length,
+      sla: portfolio.scores.sla,
+    };
+  }).sort((a, b) => a.team.localeCompare(b.team) || b.total - a.total);
+}
+
+function Shell({ children }) {
+  return <div className="max-w-[1760px] mx-auto p-4 md:p-7 grid gap-6">{children}</div>;
 }
 
 function Metric({ label, value, sub, icon, tone = 'status-info' }) {
@@ -181,23 +301,21 @@ function GaugeMetric({ label, value, sub, tone = 'var(--mx-indigo)' }) {
     <div className="mx-card p-5 flex items-center gap-5 min-h-[176px]">
       <svg width="112" height="112" viewBox="0 0 112 112" role="img" aria-label={`${label} ${fmtPct(value)}`}>
         <circle cx="56" cy="56" r="42" fill="none" stroke="rgba(100,116,139,0.16)" strokeWidth="12" />
-        <circle
-          cx="56"
-          cy="56"
-          r="42"
-          fill="none"
-          stroke={tone}
-          strokeWidth="12"
-          strokeLinecap="round"
-          strokeDasharray={`${dash} ${circumference - dash}`}
-          transform="rotate(-90 56 56)"
-        />
+        <circle cx="56" cy="56" r="42" fill="none" stroke={tone} strokeWidth="12" strokeLinecap="round" strokeDasharray={`${dash} ${circumference - dash}`} transform="rotate(-90 56 56)" />
         <text x="56" y="60" textAnchor="middle" fontSize="22" fontWeight="900" fill="var(--mx-text)">{fmtPct(value)}</text>
       </svg>
       <div className="min-w-0">
         <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">{label}</div>
         <div className="mt-2 text-sm text-[var(--mx-muted)] leading-6">{sub}</div>
       </div>
+    </div>
+  );
+}
+
+function HorizontalBar({ value, color = 'var(--mx-indigo)' }) {
+  return (
+    <div className="bar-track">
+      <div className="bar-fill" style={{ width: `${clampPercent(value)}%`, background: color }}></div>
     </div>
   );
 }
@@ -234,16 +352,397 @@ function LineChart({ months, series }) {
   );
 }
 
-function HorizontalBar({ value, color = 'var(--mx-indigo)' }) {
+function TabBar({ activeTab, setActiveTab }) {
   return (
-    <div className="bar-track">
-      <div className="bar-fill" style={{ width: `${clampPercent(value)}%`, background: color }}></div>
+    <nav className="tab-strip no-print">
+      {TAB_ITEMS.map((tab) => (
+        <button key={tab.id} className={`tab-button ${activeTab === tab.id ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
+          <i className={`fa-solid ${tab.icon}`}></i>
+          <span>{tab.label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function DataTable({ children, minWidth = 900 }) {
+  return (
+    <div className="table-shell overflow-x-auto">
+      <table className="w-full text-sm" style={{ minWidth }}>{children}</table>
     </div>
   );
 }
 
-function Shell({ children }) {
-  return <div className="max-w-[1760px] mx-auto p-4 md:p-7 grid gap-6">{children}</div>;
+function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue, monthlyTrend, periodLabel, user, empId, tasks }) {
+  const highestRisk = teamRows[0];
+  const strongestTeam = [...teamRows].sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
+  const insights = [
+    portfolio.overdue.length ? `${portfolio.overdue.length} overdue task(s) require executive attention.` : 'No overdue active tasks in the current scope.',
+    portfolio.atRisk.length ? `${portfolio.atRisk.length} task(s) are due within 3 days and may affect SLA confidence.` : 'Short-term delivery risk is currently contained.',
+    highestRisk ? `${highestRisk.team} carries the most visible operational pressure.` : 'No team pressure data is available yet.',
+    strongestTeam ? `${strongestTeam.team} is the current SLA benchmark at ${fmtPct(strongestTeam.sla)}.` : 'No SLA benchmark is available yet.',
+  ];
+
+  return (
+    <div className="grid gap-6">
+      <section className="mx-card p-5 md:p-7">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
+          <div>
+            <h2 className="section-title m-0">Executive Intelligence</h2>
+            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">{periodLabel} / {user?.name || empId || 'No employee selected'}</p>
+          </div>
+          <span className={`mx-badge ${healthClass(portfolio.weightedScore)}`}>Weighted Score {fmtPct(portfolio.weightedScore)}</span>
+        </div>
+        <div className="grid xl:grid-cols-[1.15fr_0.85fr] gap-4">
+          <div className="grid gap-3">
+            {insights.map((insight, index) => (
+              <div key={insight} className="insight-card p-5 flex items-start gap-4">
+                <span className="rank-chip">{index + 1}</span>
+                <div className="font-bold leading-6">{insight}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mx-soft p-5 md:p-6">
+            <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Decision Lens</div>
+            <div className="mt-4 grid gap-3 text-sm">
+              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Total portfolio</span><strong>{fmtNum(tasks.length)}</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Active workload</span><strong>{fmtNum(portfolio.active.length)}</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">SLA breach rate</span><strong>{tasks.length ? fmtPct(Math.round((portfolio.slaFail.length / Math.max(1, portfolio.completed.length)) * 1000) / 10) : '-'}</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Teams monitored</span><strong>{fmtNum(teamRows.length)}</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Presentation URL</span><strong>/dashboard?empId={empId || 'EMPID'}</strong></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="presentation-grid">
+        <section className="mx-card p-5 md:p-7">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+            <div>
+              <h2 className="section-title m-0">Execution Trend</h2>
+              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">SLA, completion, and risk rate across the selected period.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="mx-badge status-info">SLA</span>
+              <span className="mx-badge status-good">Completion</span>
+              <span className="mx-badge status-bad">Risk</span>
+            </div>
+          </div>
+          <div className="mt-5"><LineChart months={monthlyTrend.months} series={monthlyTrend.series} /></div>
+        </section>
+
+        <section className="mx-card p-5 md:p-7">
+          <h2 className="section-title m-0">Workload Mix</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Status distribution and top KPI exposure.</p>
+          <div className="grid gap-5">
+            {statusRows.map((row) => (
+              <div key={row.status}>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <span className={`mx-badge ${statusClass(row.status)}`}>{row.status}</span>
+                  <strong>{fmtNum(row.total)} / {row.pct}%</strong>
+                </div>
+                <HorizontalBar value={row.pct} color={statusClass(row.status) === 'status-good' ? 'var(--mx-success)' : statusClass(row.status) === 'status-bad' ? 'var(--mx-danger)' : 'var(--mx-info)'} />
+              </div>
+            ))}
+            <div className="grid gap-3">
+              {kpiRows.slice(0, 6).map((row, index) => (
+                <div key={row.name} className="mx-soft p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="font-extrabold leading-5 min-w-0 break-words"><span className="text-[var(--mx-brass)] mr-2">#{index + 1}</span>{row.name}</div>
+                    <span className="mx-badge status-neutral">{fmtNum(row.total)}</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-[var(--mx-muted)]">
+                    <span>SLA <strong className="text-[var(--mx-text)]">{fmtPct(row.sla)}</strong></span>
+                    <span>Done <strong className="text-[var(--mx-text)]">{fmtPct(row.completion)}</strong></span>
+                    <span>Share <strong className="text-[var(--mx-text)]">{fmtPct(row.share)}</strong></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div className="grid 2xl:grid-cols-[1.15fr_0.85fr] gap-5">
+        <section className="mx-card p-5 md:p-7">
+          <h2 className="section-title m-0">Unified SLA + KPI Control Board</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Team-level control view for SLA, completion, backlog, and risk.</p>
+          <div className="grid gap-4">
+            {teamRows.slice(0, 8).map((row) => (
+              <div key={row.team} className="control-row">
+                <div className="min-w-0">
+                  <div className="font-black truncate">{row.team}</div>
+                  <div className="mt-1 text-xs text-[var(--mx-muted)]">Top KPI: {row.topKpi}</div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs font-black mb-2"><span>SLA</span><span>{fmtPct(row.sla)}</span></div>
+                  <HorizontalBar value={row.sla} color="var(--mx-info)" />
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs font-black mb-2"><span>Completion</span><span>{fmtPct(row.completion)}</span></div>
+                  <HorizontalBar value={row.completion} color="var(--mx-success)" />
+                </div>
+                <div className="flex flex-wrap gap-2 justify-end">
+                  <span className={`mx-badge ${row.overdue ? 'status-bad' : row.risk ? 'status-warn' : 'status-good'}`}>{row.overdue} late / {row.risk} risk</span>
+                  <span className="mx-badge status-neutral">{fmtNum(row.backlog)} backlog</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mx-card p-5 md:p-7">
+          <h2 className="section-title m-0">Priority Watchlist</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Active work with the highest near-term SLA exposure.</p>
+          <div className="grid gap-3">
+            {criticalQueue.map(({ task, days, weight }) => {
+              const [label, klass] = riskBadge(days);
+              return (
+                <div key={task.id || `${task.job}-${task.deadline}`} className="insight-card p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-extrabold truncate">{extractJobCode(task.job)}</div>
+                      <div className="mt-1 text-sm text-[var(--mx-muted)] line-clamp-2">{task.job || '-'}</div>
+                    </div>
+                    <span className={`mx-badge ${klass}`}>{label}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="mx-badge status-neutral">{teamName(task)}</span>
+                    <span className="mx-badge status-info">weight {weight}</span>
+                    <span className="mx-badge status-neutral">deadline {fmtDate(task.deadline)}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {!criticalQueue.length && <div className="mx-soft p-5 text-center text-[var(--mx-muted)]">No critical active work in this scope.</div>}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function TeamsPanel({ teamRows }) {
+  return (
+    <div className="grid gap-6">
+      <div className="detail-grid">
+        {teamRows.slice(0, 8).map((row) => (
+          <div key={row.team} className="mx-card leader-card p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Team</div>
+                <h3 className="mt-2 mb-0 text-xl font-black truncate">{row.team}</h3>
+              </div>
+              <span className={`mx-badge ${healthClass(row.health)}`}>{row.health}</span>
+            </div>
+            <div className="mini-metric-grid mt-5">
+              <div><span>Total</span><strong>{fmtNum(row.total)}</strong></div>
+              <div><span>Done</span><strong>{fmtNum(row.completed)}</strong></div>
+              <div><span>Backlog</span><strong>{fmtNum(row.backlog)}</strong></div>
+              <div><span>SLA Fail</span><strong>{fmtNum(row.slaFail)}</strong></div>
+            </div>
+            <div className="mt-5 grid gap-3">
+              <div><div className="flex justify-between text-xs font-black mb-2"><span>W.SLA</span><span>{fmtPct(row.sla)}</span></div><HorizontalBar value={row.sla} color="var(--mx-info)" /></div>
+              <div><div className="flex justify-between text-xs font-black mb-2"><span>W.Completion</span><span>{fmtPct(row.completion)}</span></div><HorizontalBar value={row.completion} color="var(--mx-success)" /></div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <section className="mx-card p-5 md:p-7">
+        <h2 className="section-title m-0">Team SLA Summary</h2>
+        <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Detailed team matrix aligned with the SPDS executive dashboard structure.</p>
+        <DataTable minWidth={980}>
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
+              <th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">Completed</th><th className="p-4">Backlog</th><th className="p-4">On Process</th><th className="p-4">SLA Pass</th><th className="p-4">SLA Fail</th><th className="p-4">W.SLA</th><th className="p-4">W.Completion</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--mx-line)]">
+            {teamRows.map((row) => (
+              <tr key={row.team}>
+                <td className="p-4 font-black">{row.team}</td><td className="p-4">{fmtNum(row.total)}</td><td className="p-4">{fmtNum(row.completed)}</td><td className="p-4">{fmtNum(row.backlog)}</td><td className="p-4">{fmtNum(row.onProcess)}</td><td className="p-4">{fmtNum(row.slaPass)}</td><td className="p-4">{fmtNum(row.slaFail)}</td><td className="p-4 font-bold">{fmtPct(row.sla)}</td><td className="p-4 font-bold">{fmtPct(row.completion)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      </section>
+    </div>
+  );
+}
+
+function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilter, tasks }) {
+  const filtered = personTeamFilter === 'all' ? personRows : personRows.filter((row) => row.team === personTeamFilter);
+  return (
+    <div className="grid gap-6">
+      <section className="mx-card p-5 md:p-7">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+          <div>
+            <h2 className="section-title m-0">Employee Performance Deep Dive</h2>
+            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Filter by team, inspect workload, SLA, backlog, and top KPI ownership.</p>
+          </div>
+          <div className="filter-pills no-print">
+            <button className={`pill ${personTeamFilter === 'all' ? 'active' : ''}`} onClick={() => setPersonTeamFilter('all')}>All Teams</button>
+            {teams.map((team) => <button key={team} className={`pill ${personTeamFilter === team ? 'active' : ''}`} onClick={() => setPersonTeamFilter(team)}>{team}</button>)}
+          </div>
+        </div>
+      </section>
+
+      <div className="employee-grid">
+        {filtered.slice(0, 36).map((row, index) => (
+          <div key={row.name} className="mx-card employee-card p-5">
+            <div className="flex items-start gap-4">
+              <div className="avatar-ring">{row.person.charAt(0).toUpperCase()}</div>
+              <div className="min-w-0 flex-1">
+                <div className="font-black truncate">{row.person}</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <span className="mx-badge status-neutral">{row.team}</span>
+                  <span className={`mx-badge ${healthClass(row.sla)}`}>Rank {index + 1}</span>
+                </div>
+              </div>
+            </div>
+            <div className="mini-metric-grid mt-5">
+              <div><span>Total</span><strong>{fmtNum(row.total)}</strong></div>
+              <div><span>Done</span><strong>{fmtNum(row.completed)}</strong></div>
+              <div><span>On Process</span><strong>{fmtNum(row.onProcess)}</strong></div>
+              <div><span>SLA Fail</span><strong>{fmtNum(row.slaFail)}</strong></div>
+            </div>
+            <div className="mt-5 grid gap-3">
+              <div><div className="flex justify-between text-xs font-black mb-2"><span>W.SLA</span><span>{fmtPct(row.sla)}</span></div><HorizontalBar value={row.sla} color="var(--mx-info)" /></div>
+              <div><div className="flex justify-between text-xs font-black mb-2"><span>W.Completion</span><span>{fmtPct(row.completion)}</span></div><HorizontalBar value={row.completion} color="var(--mx-success)" /></div>
+            </div>
+            <div className="mt-5 mx-soft p-3 text-xs">
+              <div className="font-black">Top KPI</div>
+              <div className="mt-1 text-[var(--mx-muted)]">{row.topKpi} / {fmtNum(row.topKpiCount)} task(s)</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <section className="mx-card p-5 md:p-7">
+        <h2 className="section-title m-0">Employee Leaderboard Matrix</h2>
+        <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">{fmtNum(filtered.length)} people from {fmtNum(tasks.length)} task records.</p>
+        <DataTable minWidth={1040}>
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
+              <th className="p-4">Rank</th><th className="p-4">Name</th><th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">Completed</th><th className="p-4">SLA Pass</th><th className="p-4">SLA Fail</th><th className="p-4">W.SLA</th><th className="p-4">W.Completion</th><th className="p-4">Performance</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--mx-line)]">
+            {filtered.map((row, index) => (
+              <tr key={row.name}>
+                <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td>
+                <td className="p-4 font-black">{row.person}</td>
+                <td className="p-4"><span className="mx-badge status-neutral">{row.team}</span></td>
+                <td className="p-4">{fmtNum(row.total)}</td><td className="p-4">{fmtNum(row.completed)}</td><td className="p-4">{fmtNum(row.slaPass)}</td><td className="p-4">{fmtNum(row.slaFail)}</td><td className="p-4 font-bold">{fmtPct(row.sla)}</td><td className="p-4 font-bold">{fmtPct(row.completion)}</td>
+                <td className="p-4"><span className={`mx-badge ${healthClass(row.weightedScore)}`}>{row.weightedScore >= 90 ? 'Excellent' : row.weightedScore >= 75 ? 'Good' : row.weightedScore >= 60 ? 'Monitor' : 'Critical'}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      </section>
+    </div>
+  );
+}
+
+function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
+  const topPerformer = [...personRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
+  const bestTeam = [...teamRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
+  const avgTasks = personRows.length ? Math.round(personRows.reduce((sum, row) => sum + row.total, 0) / personRows.length) : 0;
+  return (
+    <div className="grid gap-6">
+      <div className="grid md:grid-cols-4 gap-5">
+        <Metric label="KPI Categories" value={fmtNum(kpiRows.length)} sub="Main KPI categories" icon="fa-bullseye" tone="status-info" />
+        <Metric label="Top Performer" value={topPerformer?.person || '-'} sub={topPerformer ? `W.SLA ${fmtPct(topPerformer.sla)}` : 'No scored person'} icon="fa-trophy" tone="status-good" />
+        <Metric label="Best SLA Team" value={bestTeam?.team || '-'} sub={bestTeam ? `W.SLA ${fmtPct(bestTeam.sla)}` : 'No scored team'} icon="fa-bolt" tone="status-warn" />
+        <Metric label="Avg Tasks/Person" value={fmtNum(avgTasks)} sub={`${fmtNum(personRows.length)} people`} icon="fa-users" tone="status-neutral" />
+      </div>
+
+      <div className="presentation-grid">
+        <section className="mx-card p-5 md:p-7">
+          <h2 className="section-title m-0">Top KPI Categories by Volume</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Portfolio share and execution quality by KPI group.</p>
+          <div className="grid gap-4">
+            {kpiRows.slice(0, 12).map((row) => (
+              <div key={row.name} className="mx-soft p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="font-black break-words">{row.name}</div>
+                  <span className="mx-badge status-neutral">{fmtPct(row.share)}</span>
+                </div>
+                <div className="mt-4"><HorizontalBar value={row.share} color="var(--mx-brass)" /></div>
+                <div className="mt-3 grid grid-cols-4 gap-2 text-xs text-[var(--mx-muted)]">
+                  <span>Total <strong className="text-[var(--mx-text)]">{fmtNum(row.total)}</strong></span>
+                  <span>W.SLA <strong className="text-[var(--mx-text)]">{fmtPct(row.sla)}</strong></span>
+                  <span>Done <strong className="text-[var(--mx-text)]">{fmtPct(row.completion)}</strong></span>
+                  <span>Fail <strong className="text-[var(--mx-text)]">{fmtNum(row.slaFail)}</strong></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mx-card p-5 md:p-7">
+          <h2 className="section-title m-0">Weighted SLA Performance by Employee</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Top 15 people by weighted SLA score.</p>
+          <div className="grid gap-4">
+            {[...personRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0)).slice(0, 15).map((row) => (
+              <div key={row.name}>
+                <div className="flex justify-between gap-3 mb-2 text-sm">
+                  <span className="font-black truncate">{row.person}</span>
+                  <span className={`font-black ${row.sla >= 95 ? 'text-[var(--mx-success)]' : row.sla >= 85 ? 'text-[var(--mx-warning)]' : 'text-[var(--mx-danger)]'}`}>{fmtPct(row.sla)}</span>
+                </div>
+                <HorizontalBar value={row.sla} color={row.sla >= 95 ? 'var(--mx-success)' : row.sla >= 85 ? 'var(--mx-warning)' : 'var(--mx-danger)'} />
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function KpiWeightsPanel({ kpiWeightRows, kpiSearch, setKpiSearch }) {
+  const search = kpiSearch.trim().toLowerCase();
+  const filtered = search
+    ? kpiWeightRows.filter((row) => [row.team, row.main, row.sub].join(' ').toLowerCase().includes(search))
+    : kpiWeightRows;
+  return (
+    <section className="mx-card p-5 md:p-7">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+        <div>
+          <h2 className="section-title m-0">KPI Configurations & Weights</h2>
+          <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Searchable KPI weight detail by team, main KPI, and sub KPI.</p>
+        </div>
+        <input className="mx-input max-w-[420px]" value={kpiSearch} onChange={(e) => setKpiSearch(e.target.value)} placeholder="Search team, main KPI, or sub KPI" />
+      </div>
+      <div className="mt-5">
+        <DataTable minWidth={1120}>
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
+              <th className="p-4">Team</th><th className="p-4">Main KPI</th><th className="p-4">Sub KPI</th><th className="p-4">Weight</th><th className="p-4">Total</th><th className="p-4">Completed</th><th className="p-4">Pending</th><th className="p-4">SLA Pass</th><th className="p-4">SLA Fail</th><th className="p-4">SLA %</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--mx-line)]">
+            {filtered.map((row) => (
+              <tr key={`${row.team}-${row.main}-${row.sub}`}>
+                <td className="p-4"><span className="mx-badge status-neutral">{row.team}</span></td>
+                <td className="p-4 font-black max-w-[280px]">{row.main}</td>
+                <td className="p-4 max-w-[360px]">{row.sub}</td>
+                <td className="p-4 font-bold">{row.weight}</td>
+                <td className="p-4">{fmtNum(row.total)}</td>
+                <td className="p-4">{fmtNum(row.completed)}</td>
+                <td className="p-4">{fmtNum(row.pending)}</td>
+                <td className="p-4">{fmtNum(row.slaPass)}</td>
+                <td className="p-4">{fmtNum(row.slaFail)}</td>
+                <td className="p-4 font-bold">{fmtPct(row.sla)}</td>
+              </tr>
+            ))}
+            {!filtered.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="10">No KPI weight records match this search.</td></tr>}
+          </tbody>
+        </DataTable>
+      </div>
+    </section>
+  );
 }
 
 function App() {
@@ -252,6 +751,9 @@ function App() {
   const [empId, setEmpId] = useState(initialEmpId);
   const [month, setMonth] = useState(params.has('month') ? Number(params.get('month')) : 0);
   const [year, setYear] = useState(Number(params.get('year') || new Date().getFullYear()));
+  const [activeTab, setActiveTab] = useState('overview');
+  const [personTeamFilter, setPersonTeamFilter] = useState('all');
+  const [kpiSearch, setKpiSearch] = useState('');
   const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [] });
 
   const years = useMemo(() => {
@@ -262,14 +764,14 @@ function App() {
   const load = async (nextEmpId = empId) => {
     const cleanEmpId = String(nextEmpId || '').trim().toUpperCase();
     if (!cleanEmpId) {
-      setState((prev) => ({ ...prev, error: 'กรุณาระบุ empId ใน URL หรือช่องด้านบน' }));
+      setState((prev) => ({ ...prev, error: 'Please provide empId in the URL or the input field.' }));
       return;
     }
     setState((prev) => ({ ...prev, loading: true, error: '' }));
     try {
       const initial = await API.getInitialData(cleanEmpId);
       if (initial?.error) throw new Error(initial.error);
-      if (!initial?.user) throw new Error('ไม่พบข้อมูลผู้ใช้งาน');
+      if (!initial?.user) throw new Error('User profile was not found.');
       const user = { ...initial.user, kpis: initial.kpis || [] };
       const monthParam = month === 0 ? null : month;
       let tasks = [];
@@ -288,7 +790,7 @@ function App() {
       url.searchParams.set('year', String(year));
       window.history.replaceState(null, '', url);
     } catch (error) {
-      setState((prev) => ({ ...prev, loading: false, error: error.message || 'โหลดข้อมูลไม่สำเร็จ' }));
+      setState((prev) => ({ ...prev, loading: false, error: error.message || 'Unable to load dashboard data.' }));
     }
   };
 
@@ -297,53 +799,27 @@ function App() {
   }, [month, year]);
 
   const tasks = state.tasks || [];
-  const activeTasks = tasks.filter(isActive);
-  const completedTasks = tasks.filter((task) => String(task.status || '').toLowerCase() === 'completed');
-  const overdueTasks = activeTasks.filter((task) => {
-    const days = daysUntil(task);
-    return days !== null && days < 0;
-  });
-  const atRiskTasks = activeTasks.filter((task) => {
-    const days = daysUntil(task);
-    return days !== null && days >= 0 && days <= 3;
-  });
-  const scores = calcWeightedScores(tasks);
-  const completion = scores.completion ?? (tasks.length ? Math.round((completedTasks.length / tasks.length) * 100) : null);
-  const sla = scores.sla;
-  const weightedScore = completion !== null && sla !== null ? Math.round((completion + sla) / 2) : (completion ?? sla);
+  const portfolio = useMemo(() => buildPortfolio(tasks), [tasks]);
   const periodLabel = `${month === 0 ? 'All Months' : MONTH_NAMES[month - 1]} ${year}`;
 
-  const teamRows = useMemo(() => calcGroupRows(groupBy(tasks, (task) => task.team || 'Unassigned'))
+  const teamRows = useMemo(() => buildGroupRows(tasks, teamName)
     .map((row) => ({ ...row, team: row.name }))
-    .sort((a, b) => (a.overdue - b.overdue) || (a.risk - b.risk) || (b.health - a.health)), [tasks]);
+    .sort((a, b) => (a.overdue - b.overdue) || (a.risk - b.risk) || (b.health - a.health) || b.total - a.total), [tasks]);
 
-  const personRows = useMemo(() => calcGroupRows(groupBy(tasks, (task) => {
-    const name = task.name || task.assignee || task.owner || task.empId || task.empid;
-    const team = task.team || '-';
-    return `${name || 'Unassigned'} · ${team}`;
-  })).sort((a, b) => (b.total - a.total) || (a.overdue - b.overdue) || (b.health - a.health)), [tasks]);
+  const personRows = useMemo(() => buildGroupRows(tasks, (task) => `${personName(task)}|${teamName(task)}`)
+    .map((row) => {
+      const [person, team] = row.name.split('|');
+      return { ...row, person, team };
+    })
+    .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total), [tasks]);
 
-  const statusRows = useMemo(() => {
-    const map = groupBy(tasks, (task) => task.status || 'Unknown');
-    return Object.entries(map).map(([status, items]) => ({ status, total: items.length, pct: tasks.length ? Math.round((items.length / tasks.length) * 100) : 0 }))
-      .sort((a, b) => b.total - a.total);
-  }, [tasks]);
+  const statusRows = useMemo(() => Object.entries(groupBy(tasks, (task) => task.status || 'Unknown'))
+    .map(([status, items]) => ({ status, total: items.length, pct: tasks.length ? Math.round((items.length / tasks.length) * 1000) / 10 : 0 }))
+    .sort((a, b) => b.total - a.total), [tasks]);
 
-  const kpiRows = useMemo(() => {
-    const map = groupBy(tasks, kpiKey);
-    return Object.entries(map).map(([name, items]) => {
-      const scores = calcWeightedScores(items);
-      const active = items.filter(isActive);
-      return {
-        name,
-        total: items.length,
-        active: active.length,
-        weight: Math.max(...items.map(taskWeight), 1),
-        sla: scores.sla,
-        completion: scores.completion,
-      };
-    }).sort((a, b) => b.total - a.total).slice(0, 8);
-  }, [tasks]);
+  const kpiRows = useMemo(() => buildKpiRows(tasks), [tasks]);
+  const kpiWeightRows = useMemo(() => buildKpiWeightRows(tasks), [tasks]);
+  const teams = useMemo(() => [...new Set(teamRows.map((row) => row.team))], [teamRows]);
 
   const monthlyTrend = useMemo(() => {
     const months = month === 0 ? Array.from({ length: 12 }, (_, i) => i) : [month - 1];
@@ -352,20 +828,15 @@ function App() {
     const risk = [];
     months.forEach((monthIndex) => {
       const monthTasks = tasks.filter((task) => getTaskMonth(task) === monthIndex);
-      const monthScores = calcWeightedScores(monthTasks);
-      const active = monthTasks.filter(isActive);
-      const riskCount = active.filter((task) => {
-        const days = daysUntil(task);
-        return days !== null && days <= 3;
-      }).length;
-      sla.push(monthTasks.length ? monthScores.sla : null);
-      trendCompletion.push(monthTasks.length ? (monthScores.completion ?? Math.round((monthTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed').length / monthTasks.length) * 100)) : null);
-      risk.push(monthTasks.length ? Math.round((riskCount / monthTasks.length) * 100) : null);
+      const monthPortfolio = buildPortfolio(monthTasks);
+      sla.push(monthTasks.length ? monthPortfolio.scores.sla : null);
+      trendCompletion.push(monthTasks.length ? monthPortfolio.completion : null);
+      risk.push(monthTasks.length ? Math.round(((monthPortfolio.overdue.length + monthPortfolio.atRisk.length) / monthTasks.length) * 1000) / 10 : null);
     });
     return { months, series: { sla, completion: trendCompletion, risk } };
   }, [tasks, month]);
 
-  const criticalQueue = useMemo(() => activeTasks
+  const criticalQueue = useMemo(() => portfolio.active
     .map((task) => ({ task, days: daysUntil(task), weight: taskWeight(task) }))
     .filter((item) => item.days !== null)
     .sort((a, b) => {
@@ -373,14 +844,7 @@ function App() {
       const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
       return (riskA - riskB) || (a.days - b.days) || (b.weight - a.weight);
     })
-    .slice(0, 10), [activeTasks]);
-
-  const insights = [];
-  if (overdueTasks.length) insights.push(`${overdueTasks.length} overdue task(s) require attention before the next SLA review.`);
-  if (atRiskTasks.length) insights.push(`${atRiskTasks.length} task(s) are due within 3 days and may affect the monthly SLA score.`);
-  if (teamRows[0]) insights.push(`${teamRows[0].team} is the current highest-risk team in this scope.`);
-  if (sla !== null) insights.push(`Weighted SLA is ${sla}% and weighted completion is ${completion ?? '-'}%.`);
-  if (!insights.length) insights.push('No critical SLA risk is visible in this scope.');
+    .slice(0, 12), [portfolio.active]);
 
   return (
     <Shell>
@@ -390,20 +854,20 @@ function App() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="mx-badge status-info"><i className="fa-solid fa-display"></i> Executive View</span>
               <span className="mx-badge status-neutral">MAXIWA KPI</span>
-              {state.user && <span className="mx-badge status-good">{state.user.role} · {state.user.team}</span>}
+              {state.user && <span className="mx-badge status-good">{state.user.role} / {state.user.team}</span>}
             </div>
             <h1 className="display-title mt-6 mb-0 break-words">
               <span className="block">Executive Performance</span>
               <span className="block">Command Center</span>
             </h1>
             <p className="mt-4 mb-0 max-w-[84ch] text-base md:text-[18px] leading-8 text-[var(--mx-muted)]">
-              A boardroom-ready readout for SLA exposure, KPI weight, team capacity, and individual performance depth.
+              Boardroom-ready SLA, KPI weight, team capacity, employee performance, and priority risk intelligence.
             </p>
           </div>
           <div className="no-print control-panel flex flex-wrap gap-2 xl:justify-end xl:max-w-[640px]">
             <input className="mx-input !w-36" value={empId} onChange={(e) => setEmpId(e.target.value.toUpperCase())} placeholder="empId" />
             <select className="mx-input !w-40" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-              <option value={0}>ทุกเดือน</option>
+              <option value={0}>All Months</option>
               {MONTH_NAMES.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
             </select>
             <select className="mx-input !w-28" value={year} onChange={(e) => setYear(Number(e.target.value))}>
@@ -421,212 +885,24 @@ function App() {
       <section className="mx-card hero-band p-5 md:p-8">
         <div className="presentation-grid items-stretch">
           <div className="grid md:grid-cols-2 gap-5">
-            <GaugeMetric label="Overall SLA" value={sla} sub="คะแนนตรงเวลาถ่วงน้ำหนักตาม KPI" tone="var(--mx-info)" />
-            <GaugeMetric label="Completion" value={completion} sub={`${completedTasks.length}/${tasks.length} งานเสร็จสมบูรณ์`} tone="var(--mx-success)" />
+            <GaugeMetric label="Overall SLA" value={portfolio.scores.sla} sub="Weighted on-time completion across KPI groups" tone="var(--mx-info)" />
+            <GaugeMetric label="Weighted Completion" value={portfolio.completion} sub={`${fmtNum(portfolio.completed.length)} of ${fmtNum(tasks.length)} tasks completed`} tone="var(--mx-success)" />
           </div>
           <div className="grid sm:grid-cols-3 gap-5">
-            <Metric label="Overdue" value={overdueTasks.length} sub="งาน active ที่เกินกำหนด" icon="fa-triangle-exclamation" tone={overdueTasks.length ? 'status-bad' : 'status-good'} />
-            <Metric label="At Risk" value={atRiskTasks.length} sub="ครบกำหนดใน 3 วัน" icon="fa-clock" tone={atRiskTasks.length ? 'status-warn' : 'status-good'} />
-            <Metric label="Weighted Score" value={fmtPct(weightedScore)} sub="SLA + Completion" icon="fa-ranking-star" tone={healthClass(weightedScore)} />
+            <Metric label="Total Tasks" value={fmtNum(tasks.length)} sub={periodLabel} icon="fa-clipboard-list" tone="status-neutral" />
+            <Metric label="Overdue" value={fmtNum(portfolio.overdue.length)} sub="Active tasks past deadline" icon="fa-triangle-exclamation" tone={portfolio.overdue.length ? 'status-bad' : 'status-good'} />
+            <Metric label="At Risk" value={fmtNum(portfolio.atRisk.length)} sub="Due within 3 days" icon="fa-clock" tone={portfolio.atRisk.length ? 'status-warn' : 'status-good'} />
           </div>
         </div>
       </section>
 
-      <section className="mx-card p-5 md:p-7">
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
-          <div>
-            <h2 className="section-title m-0">Management Summary</h2>
-            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">{periodLabel} · {state.user?.name || empId || 'No employee selected'}</p>
-          </div>
-          <span className="mx-badge status-neutral">Updated {new Date().toLocaleString('th-TH')}</span>
-        </div>
-        <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-4">
-          <div className="grid gap-3">
-            {insights.map((insight, index) => (
-              <div key={insight} className="insight-card p-5 flex items-start gap-4">
-                <span className="rank-chip">{index + 1}</span>
-                <div className="font-bold leading-6">{insight}</div>
-              </div>
-            ))}
-          </div>
-          <div className="mx-soft p-5 md:p-6">
-            <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Decision Lens</div>
-            <div className="mt-4 grid gap-3 text-sm">
-              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Scope</span><strong>{periodLabel}</strong></div>
-              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Active workload</span><strong>{activeTasks.length}</strong></div>
-              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Teams monitored</span><strong>{teamRows.length}</strong></div>
-              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Presentation URL</span><strong>/dashboard?empId={empId || 'EMPID'}</strong></div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      <div className="presentation-grid">
-        <section className="mx-card p-5 md:p-7">
-          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-            <div>
-              <h2 className="section-title m-0">Monthly Performance Trend</h2>
-              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">เส้นแนวโน้ม SLA, completion และ risk rate ตามเดือนของงานใน scope นี้</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="mx-badge status-info">SLA</span>
-              <span className="mx-badge status-good">Completion</span>
-              <span className="mx-badge status-bad">Risk</span>
-            </div>
-          </div>
-          <div className="mt-5">
-            <LineChart months={monthlyTrend.months} series={monthlyTrend.series} />
-          </div>
-        </section>
-
-        <section className="mx-card p-5 md:p-7">
-          <h2 className="section-title m-0">Workload Mix</h2>
-          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">ภาพรวมสถานะงานและกลุ่ม KPI ที่กิน workload สูงสุด</p>
-          <div className="grid gap-5">
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black mb-3">Status Distribution</div>
-              <div className="grid gap-3">
-                {statusRows.map((row) => (
-                  <div key={row.status}>
-                    <div className="flex items-center justify-between gap-3 mb-2">
-                      <span className={`mx-badge ${statusClass(row.status)}`}>{row.status}</span>
-                      <strong>{row.total} · {row.pct}%</strong>
-                    </div>
-                    <HorizontalBar value={row.pct} color={row.status === 'Completed' ? 'var(--mx-success)' : row.status === 'On Hold' ? 'var(--mx-danger)' : row.status === 'Pending' ? 'var(--mx-warning)' : 'var(--mx-info)'} />
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black mb-3">Top KPI Groups</div>
-              <div className="grid gap-3">
-                {kpiRows.map((row, index) => (
-                  <div key={row.name} className="mx-soft p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="font-extrabold leading-5 min-w-0 break-words"><span className="text-[var(--mx-brass)] mr-2">#{index + 1}</span>{row.name}</div>
-                      <span className="mx-badge status-neutral">{row.total}</span>
-                    </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-[var(--mx-muted)]">
-                      <span>SLA <strong className="text-[var(--mx-text)]">{fmtPct(row.sla)}</strong></span>
-                      <span>Done <strong className="text-[var(--mx-text)]">{fmtPct(row.completion)}</strong></span>
-                      <span>Weight <strong className="text-[var(--mx-text)]">{row.weight}</strong></span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <div className="grid 2xl:grid-cols-[1.15fr_0.85fr] gap-5">
-        <section className="mx-card p-5 md:p-7">
-          <h2 className="section-title m-0">Team Performance Matrix</h2>
-          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">เจาะลึกรายทีม เรียงตาม overdue, risk และ weighted health</p>
-          <div className="table-shell overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-                  <th className="pb-3">Team</th>
-                  <th className="pb-3">Tasks</th>
-                  <th className="pb-3">SLA</th>
-                  <th className="pb-3">Completion</th>
-                  <th className="pb-3">Risk</th>
-                  <th className="pb-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--mx-line)]">
-                {teamRows.map((row) => (
-                  <tr key={row.team}>
-                    <td className="py-4 font-extrabold">{row.team}</td>
-                    <td className="py-4">{row.total}</td>
-                    <td className="py-4 font-bold">{fmtPct(row.sla)}</td>
-                    <td className="py-4 font-bold">{fmtPct(row.completion)}</td>
-                    <td className="py-4"><span className={`mx-badge ${row.overdue ? 'status-bad' : row.risk ? 'status-warn' : 'status-good'}`}>{row.overdue} overdue / {row.risk} risk</span></td>
-                    <td className="py-4"><span className={`mx-badge ${healthClass(row.health)}`}>{row.health >= 90 ? 'Healthy' : row.health >= 75 ? 'Watch' : row.health >= 60 ? 'Pressure' : 'Critical'}</span></td>
-                  </tr>
-                ))}
-                {!teamRows.length && <tr><td className="py-8 text-center text-[var(--mx-muted)]" colSpan="6">No team data in this scope.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="mx-card p-5 md:p-7">
-          <h2 className="section-title m-0">Critical Work Queue</h2>
-          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">งานที่มีความเสี่ยงกระทบ SLA/KPI สูงสุดใน scope นี้</p>
-          <div className="grid gap-3">
-            {criticalQueue.map(({ task, days, weight }) => {
-              const [label, klass] = riskBadge(days);
-              return (
-                <div key={task.id || `${task.job}-${task.deadline}`} className="insight-card p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-extrabold truncate">{extractJobCode(task.job)}</div>
-                      <div className="mt-1 text-sm text-[var(--mx-muted)] line-clamp-2">{task.job || '-'}</div>
-                    </div>
-                    <span className={`mx-badge ${klass}`}>{label}</span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="mx-badge status-neutral">{task.team || '-'}</span>
-                    <span className="mx-badge status-info">weight {weight}</span>
-                    <span className="mx-badge status-neutral">deadline {fmtDate(task.deadline)}</span>
-                  </div>
-                </div>
-              );
-            })}
-            {!criticalQueue.length && <div className="mx-soft p-5 text-center text-[var(--mx-muted)]">No critical active work in this scope.</div>}
-          </div>
-        </section>
-      </div>
-
-      <section className="mx-card p-5 md:p-7">
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-          <div>
-            <h2 className="section-title m-0">Individual Performance Deep Dive</h2>
-            <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">รายละเอียดรายบุคคลจาก workload, SLA, completion และงานเสี่ยง</p>
-          </div>
-          <span className="mx-badge status-neutral">{personRows.length} people</span>
-        </div>
-        <div className="table-shell overflow-x-auto">
-          <table className="w-full min-w-[920px] text-sm">
-            <thead>
-              <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-                <th className="pb-3">Person</th>
-                <th className="pb-3">Tasks</th>
-                <th className="pb-3">Active</th>
-                <th className="pb-3">SLA</th>
-                <th className="pb-3">Completion</th>
-                <th className="pb-3">Risk</th>
-                <th className="pb-3">Health</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--mx-line)]">
-              {personRows.slice(0, 24).map((row) => (
-                <tr key={row.name}>
-                  <td className="py-4 font-extrabold max-w-[280px]">
-                    <div className="truncate">{row.name}</div>
-                  </td>
-                  <td className="py-4">
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold w-10">{row.total}</span>
-                      <div className="w-28"><HorizontalBar value={tasks.length ? Math.round((row.total / tasks.length) * 100) : 0} /></div>
-                    </div>
-                  </td>
-                  <td className="py-4">{row.active}</td>
-                  <td className="py-4 font-bold">{fmtPct(row.sla)}</td>
-                  <td className="py-4 font-bold">{fmtPct(row.completion)}</td>
-                  <td className="py-4">
-                    <span className={`mx-badge ${row.overdue ? 'status-bad' : row.risk ? 'status-warn' : 'status-good'}`}>{row.overdue} overdue / {row.risk} risk</span>
-                  </td>
-                  <td className="py-4"><span className={`mx-badge ${healthClass(row.health)}`}>{row.health}</span></td>
-                </tr>
-              ))}
-              {!personRows.length && <tr><td className="py-8 text-center text-[var(--mx-muted)]" colSpan="7">No individual data in this scope.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {activeTab === 'overview' && <OverviewPanel portfolio={portfolio} teamRows={teamRows} kpiRows={kpiRows} statusRows={statusRows} criticalQueue={criticalQueue} monthlyTrend={monthlyTrend} periodLabel={periodLabel} user={state.user} empId={empId} tasks={tasks} />}
+      {activeTab === 'teams' && <TeamsPanel teamRows={teamRows} />}
+      {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} />}
+      {activeTab === 'kpi' && <KpiAnalysisPanel kpiRows={kpiRows} personRows={personRows} teamRows={teamRows} />}
+      {activeTab === 'weights' && <KpiWeightsPanel kpiWeightRows={kpiWeightRows} kpiSearch={kpiSearch} setKpiSearch={setKpiSearch} />}
     </Shell>
   );
 }
