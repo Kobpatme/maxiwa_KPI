@@ -54,9 +54,20 @@ for (const htmlFile of ["index.html", "maxiwa.html", "dashboard.html"]) {
       .replace(
         '<script type="text/babel" src="./js/executive-dashboard.js"></script>',
         '<script src="./js/executive-dashboard.js"></script>'
+      )
+      .replace(
+        '<script type="text/babel" src="/js/executive-dashboard.js"></script>',
+        '<script src="/js/executive-dashboard.js"></script>'
       ),
     "utf8"
   );
+}
+
+const dashboardHtml = await readFile(path.join(distDir, "dashboard.html"), "utf8");
+for (const cleanRoute of ["dashboard", "executive"]) {
+  const routeDir = path.join(distDir, cleanRoute);
+  await mkdir(routeDir, { recursive: true });
+  await writeFile(path.join(routeDir, "index.html"), dashboardHtml, "utf8");
 }
 
 console.log(`Built MAXIWA KPI to dist with API base: ${apiBase}`);
