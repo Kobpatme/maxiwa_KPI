@@ -1,7 +1,13 @@
 const { useEffect, useMemo, useState, useCallback } = React;
 
 const SESSION_KEY = 'maxiwa-kpi-session';
+const SESSION_ID_KEY = 'maxiwa-kpi-session-id';
+const SESSION_LOCK_KEY = 'maxiwa-kpi-active-session';
+const SESSION_LOCK_TTL = 45000;
 const THEME_KEY = 'maxiwa-kpi-theme';
+const RUNTIME_SESSION_ID = (typeof crypto !== 'undefined' && crypto.randomUUID)
+  ? crypto.randomUUID()
+  : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const MONTH_NAMES = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
@@ -85,6 +91,68 @@ function formatDate(value, withTime = false) {
 
 function parseJsonSafe(value, fallback = null) {
   try { return JSON.parse(value); } catch { return fallback; }
+}
+
+function safeSessionGet(key) {
+  try { return sessionStorage.getItem(key); } catch { return null; }
+}
+
+function safeSessionSet(key, value) {
+  try { sessionStorage.setItem(key, value); } catch {}
+}
+
+function safeSessionRemove(key) {
+  try { sessionStorage.removeItem(key); } catch {}
+}
+
+function safeLocalGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function safeLocalSet(key, value) {
+  try { localStorage.setItem(key, value); } catch {}
+}
+
+function safeLocalRemove(key) {
+  try { localStorage.removeItem(key); } catch {}
+}
+
+function getBrowserSessionId() {
+  safeSessionSet(SESSION_ID_KEY, RUNTIME_SESSION_ID);
+  return RUNTIME_SESSION_ID;
+}
+
+function getActiveSessionLock() {
+  const lock = parseJsonSafe(safeLocalGet(SESSION_LOCK_KEY), null);
+  if (!lock?.empId || !lock?.sessionId || !lock?.expiresAt) return null;
+  if (Number(lock.expiresAt) <= Date.now()) {
+    safeLocalRemove(SESSION_LOCK_KEY);
+    return null;
+  }
+  return lock;
+}
+
+function writeActiveSessionLock(user) {
+  if (!user?.empId && !user?.empid) return;
+  safeLocalSet(SESSION_LOCK_KEY, JSON.stringify({
+    empId: String(user.empId || user.empid).trim(),
+    name: user.name || '',
+    sessionId: getBrowserSessionId(),
+    updatedAt: Date.now(),
+    expiresAt: Date.now() + SESSION_LOCK_TTL,
+  }));
+}
+
+function clearActiveSessionLock() {
+  const lock = getActiveSessionLock();
+  if (!lock || lock.sessionId === getBrowserSessionId()) safeLocalRemove(SESSION_LOCK_KEY);
+}
+
+function isLoginLocked(empId) {
+  const lock = getActiveSessionLock();
+  if (!lock) return false;
+  return String(lock.empId).toLowerCase() === String(empId || '').trim().toLowerCase()
+    && lock.sessionId !== getBrowserSessionId();
 }
 
 function getStatusClass(status) {
@@ -2206,10 +2274,13 @@ function AdminStudio({ user, adminData, onRefresh }) {
 
 // ─── App ───────────────────────────────────────────────────────────────────────
 function App() {
-  const [user, setUser] = useState(() => parseJsonSafe(localStorage.getItem(SESSION_KEY), null));
-  const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light');
+  const [user, setUser] = useState(() => {
+    safeLocalRemove(SESSION_KEY);
+    return parseJsonSafe(safeSessionGet(SESSION_KEY), null);
+  });
+  const [theme, setTheme] = useState(() => safeLocalGet(THEME_KEY) || 'light');
   const [view, setView] = useState(() => {
-    const saved = parseJsonSafe(localStorage.getItem(SESSION_KEY), null);
+    const saved = parseJsonSafe(safeSessionGet(SESSION_KEY), null);
     return ROLE_HOME[saved?.role] || 'dashboard';
   });
   const [loginLoading, setLoginLoading] = useState(false);
@@ -2225,7 +2296,7 @@ function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem(THEME_KEY, theme);
+    safeLocalSet(THEME_KEY, theme);
   }, [theme]);
 
   const toggleTheme = () => setTheme((current) => current === 'dark' ? 'light' : 'dark');
@@ -2280,19 +2351,53 @@ function App() {
   }, [state.tasks]);
 
   useEffect(() => {
-    if (!user) return;
-    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    if (!user) {
+      safeSessionRemove(SESSION_KEY);
+      return;
+    }
+    const empId = user.empId || user.empid;
+    if (isLoginLocked(empId)) {
+      safeSessionRemove(SESSION_KEY);
+      setUser(null);
+      setView('dashboard');
+      setLoginError('บัญชีนี้กำลังเข้าสู่ระบบอยู่ กรุณาออกจากระบบจากหน้าต่างเดิมก่อน หรือรอให้ session หมดอายุ');
+      return;
+    }
+    safeSessionSet(SESSION_KEY, JSON.stringify(user));
+    writeActiveSessionLock(user);
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    if (isLoginLocked(user.empId || user.empid)) return undefined;
+    writeActiveSessionLock(user);
+    const timer = setInterval(() => writeActiveSessionLock(user), 15000);
+    const handleBeforeUnload = () => clearActiveSessionLock();
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
   }, [user]);
 
   const handleLogin = async (empId) => {
-    if (!empId?.trim()) { setLoginError('กรุณาระบุรหัสพนักงาน'); return; }
+    const cleanEmpId = empId?.trim();
+    if (!cleanEmpId) { setLoginError('กรุณาระบุรหัสพนักงาน'); return; }
+    if (isLoginLocked(cleanEmpId)) {
+      setLoginError('บัญชีนี้กำลังเข้าสู่ระบบอยู่ กรุณาออกจากระบบจากหน้าต่างเดิมก่อน หรือรอให้ session หมดอายุ');
+      return;
+    }
     setLoginLoading(true);
     setLoginError('');
     try {
-      const res = await API.getInitialData(empId.trim());
+      const res = await API.getInitialData(cleanEmpId);
       if (res?.error) throw new Error(res.error);
       if (!res?.user) throw new Error('ไม่พบข้อมูลผู้ใช้งาน');
       const nextUser = { ...res.user, kpis: res.kpis || [] };
+      if (isLoginLocked(nextUser.empId || nextUser.empid || cleanEmpId)) {
+        throw new Error('บัญชีนี้กำลังเข้าสู่ระบบอยู่ กรุณาออกจากระบบจากหน้าต่างเดิมก่อน หรือรอให้ session หมดอายุ');
+      }
+      writeActiveSessionLock(nextUser);
       setUser(nextUser);
       setView(ROLE_HOME[nextUser.role] || 'dashboard');
     } catch (e) {
@@ -2303,7 +2408,8 @@ function App() {
   };
 
   const logout = () => {
-    localStorage.removeItem(SESSION_KEY);
+    clearActiveSessionLock();
+    safeSessionRemove(SESSION_KEY);
     setUser(null);
     setView('dashboard');
     setLoginError('');

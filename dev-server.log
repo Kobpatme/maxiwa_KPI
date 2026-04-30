@@ -17,20 +17,17 @@ Your Worker has access to the following bindings:
 Binding                                                                   Resource                  Mode
 env.CF_PAGES ("1")                                                        Environment Variable      local
 env.CF_PAGES_BRANCH ("main")                                              Environment Variable      local
-env.CF_PAGES_COMMIT_SHA ("700541e0052d3e0c54ac2e8ba4549cdf528a0...")      Environment Variable      local
-env.CF_PAGES_URL ("https://700541e.maxiwa-kpi.pages.dev")                 Environment Variable      local
+env.CF_PAGES_COMMIT_SHA ("48d89343321d8b717336ae1a27e395814e620...")      Environment Variable      local
+env.CF_PAGES_URL ("https://48d8934.maxiwa-kpi.pages.dev")                 Environment Variable      local
 
 ⎔ Starting local server...
 [wrangler:info] Ready on http://127.0.0.1:8788
-_headers modified. Re-evaluating...
-✨ Parsed 0 valid redirect rules.
-✨ Parsed 1 valid header rule.
-_headers modified. Re-evaluating...
-✨ Parsed 0 valid redirect rules.
-✨ Parsed 1 valid header rule.
-_headers modified. Re-evaluating...
-✨ Parsed 0 valid redirect rules.
-✨ Parsed 1 valid header rule.
-_headers modified. Re-evaluating...
-✨ Parsed 0 valid redirect rules.
-✨ Parsed 1 valid header rule.
+[wrangler:info] GET / 200 OK (19ms)
+[wrangler:info] GET /config.js 200 OK (9ms)
+[wrangler:info] GET /js/api.js 200 OK (17ms)
+[wrangler:info] GET /js/maxiwa.js 200 OK (29ms)
+[wrangler:info] GET / 200 OK (19ms)
+[wrangler:info] GET /config.js 200 OK (9ms)
+[wrangler:info] GET /js/api.js 200 OK (13ms)
+[wrangler:info] GET /js/maxiwa.js 200 OK (21ms)
+[wrangler:info] GET /favicon.ico 200 OK (11ms)

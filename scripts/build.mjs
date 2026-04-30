@@ -1,6 +1,7 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as esbuild from "esbuild";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -19,5 +20,31 @@ const nextConfig = configTemplate.replace(
   `window.API_BASE = window.API_BASE || ${JSON.stringify(apiBase)};`
 );
 await writeFile(configPath, nextConfig, "utf8");
+
+await esbuild.build({
+  entryPoints: [path.join(publicDir, "js", "maxiwa.js")],
+  outfile: path.join(distDir, "js", "maxiwa.js"),
+  bundle: false,
+  format: "iife",
+  globalName: "MaxiwaKpiApp",
+  jsxFactory: "React.createElement",
+  jsxFragment: "React.Fragment",
+  loader: { ".js": "jsx" },
+  target: ["es2019"],
+  logLevel: "silent",
+});
+
+for (const htmlFile of ["index.html", "maxiwa.html"]) {
+  const htmlPath = path.join(distDir, htmlFile);
+  const html = await readFile(htmlPath, "utf8");
+  await writeFile(
+    htmlPath,
+    html.replace(
+      '<script type="text/babel" src="./js/maxiwa.js"></script>',
+      '<script src="./js/maxiwa.js"></script>'
+    ),
+    "utf8"
+  );
+}
 
 console.log(`Built MAXIWA KPI to dist with API base: ${apiBase}`);
