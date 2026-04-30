@@ -21,28 +21,40 @@ const nextConfig = configTemplate.replace(
 );
 await writeFile(configPath, nextConfig, "utf8");
 
-await esbuild.build({
-  entryPoints: [path.join(publicDir, "js", "maxiwa.js")],
-  outfile: path.join(distDir, "js", "maxiwa.js"),
-  bundle: false,
-  format: "iife",
-  globalName: "MaxiwaKpiApp",
-  jsxFactory: "React.createElement",
-  jsxFragment: "React.Fragment",
-  loader: { ".js": "jsx" },
-  target: ["es2019"],
-  logLevel: "silent",
-});
+const jsxBuilds = [
+  ["maxiwa.js", "MaxiwaKpiApp"],
+  ["executive-dashboard.js", "MaxiwaExecutiveDashboard"],
+];
 
-for (const htmlFile of ["index.html", "maxiwa.html"]) {
+for (const [fileName, globalName] of jsxBuilds) {
+  await esbuild.build({
+    entryPoints: [path.join(publicDir, "js", fileName)],
+    outfile: path.join(distDir, "js", fileName),
+    bundle: false,
+    format: "iife",
+    globalName,
+    jsxFactory: "React.createElement",
+    jsxFragment: "React.Fragment",
+    loader: { ".js": "jsx" },
+    target: ["es2019"],
+    logLevel: "silent",
+  });
+}
+
+for (const htmlFile of ["index.html", "maxiwa.html", "dashboard.html"]) {
   const htmlPath = path.join(distDir, htmlFile);
   const html = await readFile(htmlPath, "utf8");
   await writeFile(
     htmlPath,
-    html.replace(
-      '<script type="text/babel" src="./js/maxiwa.js"></script>',
-      '<script src="./js/maxiwa.js"></script>'
-    ),
+    html
+      .replace(
+        '<script type="text/babel" src="./js/maxiwa.js"></script>',
+        '<script src="./js/maxiwa.js"></script>'
+      )
+      .replace(
+        '<script type="text/babel" src="./js/executive-dashboard.js"></script>',
+        '<script src="./js/executive-dashboard.js"></script>'
+      ),
     "utf8"
   );
 }

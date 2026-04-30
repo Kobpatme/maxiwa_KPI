@@ -35,7 +35,7 @@ var MaxiwaKpiApp = (() => {
       { id: "tracker", label: "Job Tracker", icon: "fa-diagram-project" }
     ],
     Manager: [
-      { id: "dashboard", label: "Executive Dashboard", icon: "fa-chart-line" },
+      { id: "dashboard", label: "Operations Dashboard", icon: "fa-chart-line" },
       { id: "tasks", label: "Task Center", icon: "fa-list-check" },
       { id: "assign", label: "Assign Task", icon: "fa-user-plus" },
       { id: "people", label: "People", icon: "fa-users-viewfinder" },
@@ -559,6 +559,7 @@ var MaxiwaKpiApp = (() => {
     }, [user]);
     useEffect(() => {
       if (!user) return;
+      if (view === "executive") loadDashboard();
       if (view === "dashboard") loadDashboard();
       if (view === "tasks") loadTasks();
       if (view === "people") loadPeople();
@@ -568,6 +569,7 @@ var MaxiwaKpiApp = (() => {
     useEffect(() => {
       if (!user || !window.subscribeToRealtime) return;
       window.subscribeToRealtime("tasks", () => {
+        if (view === "executive") loadDashboard();
         if (view === "dashboard") loadDashboard();
         if (view === "tasks") loadTasks();
       });
@@ -586,6 +588,96 @@ var MaxiwaKpiApp = (() => {
       reloadPeople: loadPeople,
       reloadAdmin: loadAdmin
     };
+  }
+  function getExecutiveTasks(data) {
+    if (!data) return [];
+    if (Array.isArray(data.tasks)) return data.tasks;
+    if (Array.isArray(data.summary) && data.summary.some((item) => item.job || item.status || item.deadline)) return data.summary;
+    return [];
+  }
+  function isActiveTask(task) {
+    return !["completed", "cancelled"].includes(String((task == null ? void 0 : task.status) || "").toLowerCase());
+  }
+  function getDaysUntilDeadline(task) {
+    if (!(task == null ? void 0 : task.deadline)) return null;
+    const deadline = new Date(task.deadline);
+    if (Number.isNaN(deadline.getTime())) return null;
+    const today = /* @__PURE__ */ new Date();
+    today.setHours(0, 0, 0, 0);
+    deadline.setHours(0, 0, 0, 0);
+    return Math.ceil((deadline - today) / 864e5);
+  }
+  function getExecutiveHealthClass(value) {
+    if (value === null || value === void 0) return "mx-status-cancelled";
+    if (value >= 90) return "mx-status-completed";
+    if (value >= 75) return "mx-status-process";
+    if (value >= 60) return "mx-status-pending";
+    return "mx-status-hold";
+  }
+  function ExecutiveView({ data, filterMonth, filterYear, onNavigate }) {
+    var _a;
+    if (!data) {
+      return /* @__PURE__ */ React.createElement(Panel, { title: "Executive View", subtitle: "Preparing executive summary..." }, /* @__PURE__ */ React.createElement("div", { className: "text-[var(--mx-muted)]" }, "Loading..."));
+    }
+    const tasks = getExecutiveTasks(data);
+    const activeTasks = tasks.filter(isActiveTask);
+    const completedTasks = tasks.filter((task) => String(task.status || "").toLowerCase() === "completed");
+    const overdueTasks = activeTasks.filter((task) => {
+      const days = getDaysUntilDeadline(task);
+      return days !== null && days < 0;
+    });
+    const atRiskTasks = activeTasks.filter((task) => {
+      const days = getDaysUntilDeadline(task);
+      return days !== null && days >= 0 && days <= 3;
+    });
+    const scores = calcTaskWeightedScores(tasks);
+    const completion = (_a = scores.completion) != null ? _a : tasks.length ? Math.round(completedTasks.length / tasks.length * 100) : null;
+    const sla = scores.sla;
+    const periodLabel = `${filterMonth === 0 ? "All Months" : MONTH_NAMES[filterMonth - 1]} ${filterYear}`;
+    const weightedScore = completion !== null && sla !== null ? Math.round((completion + sla) / 2) : completion != null ? completion : sla;
+    const teamMap = {};
+    tasks.forEach((task) => {
+      const team = task.team || "Unassigned";
+      if (!teamMap[team]) teamMap[team] = [];
+      teamMap[team].push(task);
+    });
+    const teamRows = Object.entries(teamMap).map(([team, teamTasks]) => {
+      var _a2, _b, _c, _d;
+      const teamScores = calcTaskWeightedScores(teamTasks);
+      const active = teamTasks.filter(isActiveTask);
+      const overdue = active.filter((task) => {
+        const days = getDaysUntilDeadline(task);
+        return days !== null && days < 0;
+      }).length;
+      const atRisk = active.filter((task) => {
+        const days = getDaysUntilDeadline(task);
+        return days !== null && days >= 0 && days <= 3;
+      }).length;
+      const teamCompletion = (_a2 = teamScores.completion) != null ? _a2 : teamTasks.length ? Math.round(teamTasks.filter((task) => String(task.status || "").toLowerCase() === "completed").length / teamTasks.length * 100) : null;
+      const health = Math.round((((_c = (_b = teamScores.sla) != null ? _b : teamCompletion) != null ? _c : 0) + ((_d = teamCompletion != null ? teamCompletion : teamScores.sla) != null ? _d : 0)) / 2) - overdue * 5 - atRisk * 2;
+      return { team, total: teamTasks.length, active: active.length, overdue, atRisk, sla: teamScores.sla, completion: teamCompletion, health };
+    }).sort((a, b) => a.overdue - b.overdue || a.atRisk - b.atRisk || b.health - a.health);
+    const criticalQueue = activeTasks.map((task) => ({ task, days: getDaysUntilDeadline(task), weight: getTaskWeight(task) })).filter((item) => item.days !== null).sort((a, b) => {
+      const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;
+      const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
+      return riskA - riskB || a.days - b.days || b.weight - a.weight;
+    }).slice(0, 8);
+    const insights = [];
+    if (overdueTasks.length > 0) insights.push(`${overdueTasks.length} overdue task(s) need executive attention before status review.`);
+    if (atRiskTasks.length > 0) insights.push(`${atRiskTasks.length} task(s) are due within 3 days and may affect SLA.`);
+    if (teamRows[0]) insights.push(`${teamRows[0].team} is the highest risk team in the current scope.`);
+    if (sla !== null) insights.push(`Current weighted SLA is ${sla}%, with completion at ${completion != null ? completion : "-"}%.`);
+    if (insights.length === 0) insights.push("No critical SLA risk is visible in the current scope.");
+    const maxTeamTotal = Math.max(...teamRows.map((row) => row.total), 1);
+    return /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 2xl:grid-cols-5 gap-4" }, /* @__PURE__ */ React.createElement(MetricCard, { label: "Overall SLA", value: formatScorePercent(sla), sub: "Weighted on-time performance", icon: "fa-stopwatch", accent: "var(--mx-info)" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "Completion", value: formatScorePercent(completion), sub: `${completedTasks.length}/${tasks.length} task(s) completed`, icon: "fa-circle-check", accent: "var(--mx-success)" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "Overdue", value: overdueTasks.length, sub: "Active tasks past deadline", icon: "fa-triangle-exclamation", accent: "var(--mx-danger)" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "At Risk", value: atRiskTasks.length, sub: "Due within 3 days", icon: "fa-clock", accent: "var(--mx-warning)" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "Weighted Score", value: formatScorePercent(weightedScore), sub: "SLA and completion blend", icon: "fa-ranking-star", accent: "var(--mx-accent-2)" })), /* @__PURE__ */ React.createElement(
+      Panel,
+      {
+        title: "Management Summary",
+        subtitle: `Executive readout for ${periodLabel}`,
+        actions: /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: () => window.print() }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-print mr-2" }), "Presentation")
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-[1.15fr_0.85fr] gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, insights.slice(0, 5).map((insight, index) => /* @__PURE__ */ React.createElement("div", { key: insight, className: "mx-data-card flex items-start gap-3" }, /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge flex-shrink-0", index === 0 && overdueTasks.length > 0 ? "mx-status-hold" : "mx-status-process") }, index + 1), /* @__PURE__ */ React.createElement("div", { className: "font-bold leading-6" }, insight)))), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-5" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black" }, "Decision Lens"), /* @__PURE__ */ React.createElement("div", { className: "mt-4 grid gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-sm text-[var(--mx-muted)]" }, "Scope"), /* @__PURE__ */ React.createElement("span", { className: "font-extrabold" }, periodLabel)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-sm text-[var(--mx-muted)]" }, "Active workload"), /* @__PURE__ */ React.createElement("span", { className: "font-extrabold" }, activeTasks.length)), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-sm text-[var(--mx-muted)]" }, "Teams monitored"), /* @__PURE__ */ React.createElement("span", { className: "font-extrabold" }, teamRows.length)), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary mt-2", onClick: () => onNavigate("tasks") }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-list-check mr-2" }), "Open Task Center"))))
+    ), /* @__PURE__ */ React.createElement("div", { className: "grid 2xl:grid-cols-[1.1fr_0.9fr] gap-5" }, /* @__PURE__ */ React.createElement(Panel, { title: "Team Performance Matrix", subtitle: "Ranked by overdue, near-deadline risk, and weighted health" }, /* @__PURE__ */ React.createElement("div", { className: "overflow-x-auto" }, /* @__PURE__ */ React.createElement("table", { className: "w-full min-w-[760px] text-sm" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { className: "text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("th", { className: "pb-3" }, "Team"), /* @__PURE__ */ React.createElement("th", { className: "pb-3" }, "Workload"), /* @__PURE__ */ React.createElement("th", { className: "pb-3" }, "SLA"), /* @__PURE__ */ React.createElement("th", { className: "pb-3" }, "Completion"), /* @__PURE__ */ React.createElement("th", { className: "pb-3" }, "Risk"), /* @__PURE__ */ React.createElement("th", { className: "pb-3" }, "Status"))), /* @__PURE__ */ React.createElement("tbody", { className: "divide-y divide-[var(--mx-line)]" }, teamRows.map((row) => /* @__PURE__ */ React.createElement("tr", { key: row.team }, /* @__PURE__ */ React.createElement("td", { className: "py-4 font-extrabold" }, row.team), /* @__PURE__ */ React.createElement("td", { className: "py-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "w-28 h-2 rounded-full mx-progress-track overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full mx-progress-fill", style: { width: `${Math.max(6, row.total / maxTeamTotal * 100)}%` } })), /* @__PURE__ */ React.createElement("span", null, row.total))), /* @__PURE__ */ React.createElement("td", { className: "py-4 font-bold" }, formatScorePercent(row.sla)), /* @__PURE__ */ React.createElement("td", { className: "py-4 font-bold" }, formatScorePercent(row.completion)), /* @__PURE__ */ React.createElement("td", { className: "py-4" }, /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", row.overdue > 0 ? "mx-status-hold" : row.atRisk > 0 ? "mx-status-pending" : "mx-status-completed") }, row.overdue, " overdue / ", row.atRisk, " risk")), /* @__PURE__ */ React.createElement("td", { className: "py-4" }, /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getExecutiveHealthClass(row.health)) }, row.health >= 90 ? "Healthy" : row.health >= 75 ? "Watch" : row.health >= 60 ? "Pressure" : "Critical")))), teamRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { className: "py-8 text-center text-[var(--mx-muted)]", colSpan: "6" }, "No team data in this scope.")))))), /* @__PURE__ */ React.createElement(Panel, { title: "Critical Work Queue", subtitle: "Highest SLA and KPI exposure" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, criticalQueue.map(({ task, days, weight }) => /* @__PURE__ */ React.createElement("div", { key: task.id || `${task.job}-${task.deadline}`, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "font-extrabold truncate" }, extractJobCode(task.job)), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)] line-clamp-2" }, task.job || "-")), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge flex-shrink-0", days < 0 ? "mx-status-hold" : days <= 3 ? "mx-status-pending" : "mx-status-process") }, days < 0 ? `${Math.abs(days)}d late` : `${days}d left`)), /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, task.team || "-"), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, "weight ", formatWeight(weight)), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status || "-")))), criticalQueue.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "mx-data-card text-center text-[var(--mx-muted)]" }, "No critical active work in this scope.")))));
   }
   function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatusChange, onNavigate }) {
     if (!data) {
@@ -1503,15 +1595,22 @@ var MaxiwaKpiApp = (() => {
       }
       setView(nextView);
     };
+    const openExecutiveView = () => {
+      const executiveUrl = new URL("/dashboard", window.location.origin);
+      executiveUrl.searchParams.set("empId", user.empId || user.empid || "");
+      executiveUrl.searchParams.set("month", String(filterMonth));
+      executiveUrl.searchParams.set("year", String(filterYear));
+      window.open(executiveUrl.toString(), "_blank", "noopener,noreferrer");
+    };
     if (!user) {
       return /* @__PURE__ */ React.createElement(LoginScreenPro, { onLogin: handleLogin, loading: loginLoading, error: loginError, theme, onToggleTheme: toggleTheme });
     }
-    const showFilterBar = ["dashboard", "tasks"].includes(view);
+    const showFilterBar = ["executive", "dashboard", "tasks"].includes(view);
     const peopleForAssign = ((_a = state.people) == null ? void 0 : _a.length) ? state.people : ((_b = state.admin) == null ? void 0 : _b.staff) || [];
-    const pageTitle = view === "dashboard" ? user.role === "Manager" ? "Executive Dashboard" : user.role === "Lead" ? "Team Command Center" : user.role === "Admin" ? "System Control Center" : "My Work Dashboard" : view === "tasks" ? "Task Center" : view === "create" ? "Create Task" : view === "assign" ? "Assignment Center" : view === "people" ? "People Overview" : view === "tracker" ? "Job Tracker" : view === "admin" ? "Admin Studio" : "MAXIWA KPI";
-    const pageSubtitle = view === "dashboard" ? "KPI, SLA, \u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07 \u0E41\u0E25\u0E30\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E1C\u0E25\u0E07\u0E32\u0E19\u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32\u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01" : view === "tasks" ? "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19 \u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E2A\u0E16\u0E32\u0E19\u0E30 \u0E41\u0E25\u0E30\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A SLA" : view === "tracker" ? "\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E41\u0E25\u0E30\u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19\u0E08\u0E32\u0E01\u0E23\u0E2B\u0E31\u0E2A\u0E07\u0E32\u0E19" : view === "admin" ? "\u0E15\u0E31\u0E49\u0E07\u0E04\u0E48\u0E32\u0E17\u0E35\u0E21 KPI \u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14 \u0E41\u0E25\u0E30\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E23\u0E30\u0E1A\u0E1A" : "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19\u0E41\u0E25\u0E30\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E17\u0E35\u0E48\u0E40\u0E01\u0E35\u0E48\u0E22\u0E27\u0E02\u0E49\u0E2D\u0E07\u0E01\u0E31\u0E1A\u0E1A\u0E17\u0E1A\u0E32\u0E17\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13";
+    const pageTitle = view === "executive" ? "Executive View" : view === "dashboard" ? user.role === "Manager" ? "Executive Dashboard" : user.role === "Lead" ? "Team Command Center" : user.role === "Admin" ? "System Control Center" : "My Work Dashboard" : view === "tasks" ? "Task Center" : view === "create" ? "Create Task" : view === "assign" ? "Assignment Center" : view === "people" ? "People Overview" : view === "tracker" ? "Job Tracker" : view === "admin" ? "Admin Studio" : "MAXIWA KPI";
+    const pageSubtitle = view === "executive" ? "Board-ready view for SLA risk, weighted KPI health, team performance, and critical work." : view === "dashboard" ? "KPI, SLA, \u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07 \u0E41\u0E25\u0E30\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E1C\u0E25\u0E07\u0E32\u0E19\u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32\u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01" : view === "tasks" ? "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19 \u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E2A\u0E16\u0E32\u0E19\u0E30 \u0E41\u0E25\u0E30\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A SLA" : view === "tracker" ? "\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E41\u0E25\u0E30\u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19\u0E08\u0E32\u0E01\u0E23\u0E2B\u0E31\u0E2A\u0E07\u0E32\u0E19" : view === "admin" ? "\u0E15\u0E31\u0E49\u0E07\u0E04\u0E48\u0E32\u0E17\u0E35\u0E21 KPI \u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14 \u0E41\u0E25\u0E30\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E23\u0E30\u0E1A\u0E1A" : "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19\u0E41\u0E25\u0E30\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E17\u0E35\u0E48\u0E40\u0E01\u0E35\u0E48\u0E22\u0E27\u0E02\u0E49\u0E2D\u0E07\u0E01\u0E31\u0E1A\u0E1A\u0E17\u0E1A\u0E32\u0E17\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13";
     const activePeriodLabel = showFilterBar ? `${filterMonth === 0 ? "\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19" : MONTH_NAMES[filterMonth - 1]} ${filterYear}` : user.team;
-    return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen p-4 md:p-6" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[1640px] mx-auto grid xl:grid-cols-[320px_1fr] gap-5 items-start" }, /* @__PURE__ */ React.createElement(Sidebar, { user, view, setView, onLogout: logout, notifCount: notifications.length }), /* @__PURE__ */ React.createElement("main", { className: "grid content-start gap-5" }, /* @__PURE__ */ React.createElement("header", { className: "mx-shell-card overflow-visible" }, /* @__PURE__ */ React.createElement("div", { className: "px-5 py-5 md:px-6 md:py-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "mx-brand-pill inline-flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-[0.16em]" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-gauge-high" }), " MAXIWA KPI"), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-user" }), user.role), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-completed" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-building-user" }), user.team)), /* @__PURE__ */ React.createElement("h1", { className: "mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal" }, pageTitle), /* @__PURE__ */ React.createElement("p", { className: "mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]" }, pageSubtitle)), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center xl:justify-end gap-2" }, /* @__PURE__ */ React.createElement(ThemeToggle, { theme, onToggle: toggleTheme }), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3 relative", onClick: () => setShowNotif((v) => !v), title: "Notifications", "aria-label": "Notifications" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-bell" }), notifications.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center" }, notifications.length > 9 ? "9+" : notifications.length)), showNotif && /* @__PURE__ */ React.createElement("div", { className: "absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold mb-3 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("span", null, "\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ React.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", onClick: () => setShowNotif(false) }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-xmark" }))), notifications.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ React.createElement("div", { className: "grid gap-2 max-h-72 overflow-y-auto" }, notifications.slice(0, 10).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, className: "rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-2 text-sm" }, /* @__PURE__ */ React.createElement("i", { className: `fa-solid ${n.icon} mt-0.5 flex-shrink-0`, style: { color: n.color } }), /* @__PURE__ */ React.createElement("span", null, n.message))))))), view === "tasks" && state.tasks.length > 0 && /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: downloadCSV, title: "Export CSV" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-file-csv mr-1" }), "CSV"), (state.loading || actionLoading) && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-pending" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-rotate-right fa-spin" }), "Loading")))), /* @__PURE__ */ React.createElement("div", { className: "border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("span", { className: "w-9 h-9 rounded-lg mx-brand-mark grid place-items-center" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-calendar-check text-[var(--mx-accent)]" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-[0.14em] font-extrabold" }, "Current Scope"), /* @__PURE__ */ React.createElement("div", { className: "mt-0.5 text-[var(--mx-text)] font-bold" }, activePeriodLabel))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, showFilterBar && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen p-4 md:p-6" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[1640px] mx-auto grid xl:grid-cols-[320px_1fr] gap-5 items-start" }, /* @__PURE__ */ React.createElement(Sidebar, { user, view, setView, onLogout: logout, notifCount: notifications.length }), /* @__PURE__ */ React.createElement("main", { className: "grid content-start gap-5" }, /* @__PURE__ */ React.createElement("header", { className: "mx-shell-card overflow-visible" }, /* @__PURE__ */ React.createElement("div", { className: "px-5 py-5 md:px-6 md:py-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "mx-brand-pill inline-flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-[0.16em]" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-gauge-high" }), " MAXIWA KPI"), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-user" }), user.role), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-completed" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-building-user" }), user.team)), /* @__PURE__ */ React.createElement("h1", { className: "mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal" }, pageTitle), /* @__PURE__ */ React.createElement("p", { className: "mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]" }, pageSubtitle)), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center xl:justify-end gap-2" }, ["Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2", onClick: openExecutiveView, title: "Open Executive View" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-display" }), /* @__PURE__ */ React.createElement("span", null, "Executive View")), /* @__PURE__ */ React.createElement(ThemeToggle, { theme, onToggle: toggleTheme }), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3 relative", onClick: () => setShowNotif((v) => !v), title: "Notifications", "aria-label": "Notifications" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-bell" }), notifications.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center" }, notifications.length > 9 ? "9+" : notifications.length)), showNotif && /* @__PURE__ */ React.createElement("div", { className: "absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold mb-3 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("span", null, "\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ React.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", onClick: () => setShowNotif(false) }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-xmark" }))), notifications.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ React.createElement("div", { className: "grid gap-2 max-h-72 overflow-y-auto" }, notifications.slice(0, 10).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, className: "rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-2 text-sm" }, /* @__PURE__ */ React.createElement("i", { className: `fa-solid ${n.icon} mt-0.5 flex-shrink-0`, style: { color: n.color } }), /* @__PURE__ */ React.createElement("span", null, n.message))))))), view === "tasks" && state.tasks.length > 0 && /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: downloadCSV, title: "Export CSV" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-file-csv mr-1" }), "CSV"), (state.loading || actionLoading) && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-pending" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-rotate-right fa-spin" }), "Loading")))), /* @__PURE__ */ React.createElement("div", { className: "border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("span", { className: "w-9 h-9 rounded-lg mx-brand-mark grid place-items-center" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-calendar-check text-[var(--mx-accent)]" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-[0.14em] font-extrabold" }, "Current Scope"), /* @__PURE__ */ React.createElement("div", { className: "mt-0.5 text-[var(--mx-text)] font-bold" }, activePeriodLabel))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, showFilterBar && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "select",
       {
         className: "mx-select !w-[160px] !py-2 !text-sm",
@@ -1548,7 +1647,15 @@ var MaxiwaKpiApp = (() => {
           setShowDashboardCreate(false);
         }
       }
-    ))), view === "dashboard" && /* @__PURE__ */ React.createElement(
+    ))), view === "executive" && /* @__PURE__ */ React.createElement(
+      ExecutiveView,
+      {
+        data: state.dashboard,
+        filterMonth,
+        filterYear,
+        onNavigate: handleNavigate
+      }
+    ), view === "dashboard" && /* @__PURE__ */ React.createElement(
       DashboardView,
       {
         user,

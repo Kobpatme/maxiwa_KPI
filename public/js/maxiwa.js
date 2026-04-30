@@ -28,7 +28,7 @@ const NAV_BY_ROLE = {
     { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project' },
   ],
   Manager: [
-    { id: 'dashboard', label: 'Executive Dashboard', icon: 'fa-chart-line' },
+    { id: 'dashboard', label: 'Operations Dashboard', icon: 'fa-chart-line' },
     { id: 'tasks', label: 'Task Center', icon: 'fa-list-check' },
     { id: 'assign', label: 'Assign Task', icon: 'fa-user-plus' },
     { id: 'people', label: 'People', icon: 'fa-users-viewfinder' },
@@ -853,6 +853,7 @@ function useAppData(user, view) {
 
   useEffect(() => {
     if (!user) return;
+    if (view === 'executive') loadDashboard();
     if (view === 'dashboard') loadDashboard();
     if (view === 'tasks') loadTasks();
     if (view === 'people') loadPeople();
@@ -864,6 +865,7 @@ function useAppData(user, view) {
   useEffect(() => {
     if (!user || !window.subscribeToRealtime) return;
     window.subscribeToRealtime('tasks', () => {
+      if (view === 'executive') loadDashboard();
       if (view === 'dashboard') loadDashboard();
       if (view === 'tasks') loadTasks();
     });
@@ -878,6 +880,229 @@ function useAppData(user, view) {
 }
 
 // ─── Dashboard View ─────────────────────────────────────────────────────────────
+function getExecutiveTasks(data) {
+  if (!data) return [];
+  if (Array.isArray(data.tasks)) return data.tasks;
+  if (Array.isArray(data.summary) && data.summary.some((item) => item.job || item.status || item.deadline)) return data.summary;
+  return [];
+}
+
+function isActiveTask(task) {
+  return !['completed', 'cancelled'].includes(String(task?.status || '').toLowerCase());
+}
+
+function getDaysUntilDeadline(task) {
+  if (!task?.deadline) return null;
+  const deadline = new Date(task.deadline);
+  if (Number.isNaN(deadline.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  deadline.setHours(0, 0, 0, 0);
+  return Math.ceil((deadline - today) / 86400000);
+}
+
+function getExecutiveHealthClass(value) {
+  if (value === null || value === undefined) return 'mx-status-cancelled';
+  if (value >= 90) return 'mx-status-completed';
+  if (value >= 75) return 'mx-status-process';
+  if (value >= 60) return 'mx-status-pending';
+  return 'mx-status-hold';
+}
+
+function ExecutiveView({ data, filterMonth, filterYear, onNavigate }) {
+  if (!data) {
+    return (
+      <Panel title="Executive View" subtitle="Preparing executive summary...">
+        <div className="text-[var(--mx-muted)]">Loading...</div>
+      </Panel>
+    );
+  }
+
+  const tasks = getExecutiveTasks(data);
+  const activeTasks = tasks.filter(isActiveTask);
+  const completedTasks = tasks.filter((task) => String(task.status || '').toLowerCase() === 'completed');
+  const overdueTasks = activeTasks.filter((task) => {
+    const days = getDaysUntilDeadline(task);
+    return days !== null && days < 0;
+  });
+  const atRiskTasks = activeTasks.filter((task) => {
+    const days = getDaysUntilDeadline(task);
+    return days !== null && days >= 0 && days <= 3;
+  });
+  const scores = calcTaskWeightedScores(tasks);
+  const completion = scores.completion ?? (tasks.length ? Math.round((completedTasks.length / tasks.length) * 100) : null);
+  const sla = scores.sla;
+  const periodLabel = `${filterMonth === 0 ? 'All Months' : MONTH_NAMES[filterMonth - 1]} ${filterYear}`;
+  const weightedScore = completion !== null && sla !== null ? Math.round((completion + sla) / 2) : (completion ?? sla);
+
+  const teamMap = {};
+  tasks.forEach((task) => {
+    const team = task.team || 'Unassigned';
+    if (!teamMap[team]) teamMap[team] = [];
+    teamMap[team].push(task);
+  });
+  const teamRows = Object.entries(teamMap).map(([team, teamTasks]) => {
+    const teamScores = calcTaskWeightedScores(teamTasks);
+    const active = teamTasks.filter(isActiveTask);
+    const overdue = active.filter((task) => {
+      const days = getDaysUntilDeadline(task);
+      return days !== null && days < 0;
+    }).length;
+    const atRisk = active.filter((task) => {
+      const days = getDaysUntilDeadline(task);
+      return days !== null && days >= 0 && days <= 3;
+    }).length;
+    const teamCompletion = teamScores.completion ?? (teamTasks.length ? Math.round((teamTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed').length / teamTasks.length) * 100) : null);
+    const health = Math.round(((teamScores.sla ?? teamCompletion ?? 0) + (teamCompletion ?? teamScores.sla ?? 0)) / 2) - overdue * 5 - atRisk * 2;
+    return { team, total: teamTasks.length, active: active.length, overdue, atRisk, sla: teamScores.sla, completion: teamCompletion, health };
+  }).sort((a, b) => (a.overdue - b.overdue) || (a.atRisk - b.atRisk) || (b.health - a.health));
+
+  const criticalQueue = activeTasks
+    .map((task) => ({ task, days: getDaysUntilDeadline(task), weight: getTaskWeight(task) }))
+    .filter((item) => item.days !== null)
+    .sort((a, b) => {
+      const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;
+      const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
+      return (riskA - riskB) || (a.days - b.days) || (b.weight - a.weight);
+    })
+    .slice(0, 8);
+
+  const insights = [];
+  if (overdueTasks.length > 0) insights.push(`${overdueTasks.length} overdue task(s) need executive attention before status review.`);
+  if (atRiskTasks.length > 0) insights.push(`${atRiskTasks.length} task(s) are due within 3 days and may affect SLA.`);
+  if (teamRows[0]) insights.push(`${teamRows[0].team} is the highest risk team in the current scope.`);
+  if (sla !== null) insights.push(`Current weighted SLA is ${sla}%, with completion at ${completion ?? '-'}%.`);
+  if (insights.length === 0) insights.push('No critical SLA risk is visible in the current scope.');
+
+  const maxTeamTotal = Math.max(...teamRows.map((row) => row.total), 1);
+
+  return (
+    <div className="grid gap-5">
+      <div className="grid md:grid-cols-2 2xl:grid-cols-5 gap-4">
+        <MetricCard label="Overall SLA" value={formatScorePercent(sla)} sub="Weighted on-time performance" icon="fa-stopwatch" accent="var(--mx-info)" />
+        <MetricCard label="Completion" value={formatScorePercent(completion)} sub={`${completedTasks.length}/${tasks.length} task(s) completed`} icon="fa-circle-check" accent="var(--mx-success)" />
+        <MetricCard label="Overdue" value={overdueTasks.length} sub="Active tasks past deadline" icon="fa-triangle-exclamation" accent="var(--mx-danger)" />
+        <MetricCard label="At Risk" value={atRiskTasks.length} sub="Due within 3 days" icon="fa-clock" accent="var(--mx-warning)" />
+        <MetricCard label="Weighted Score" value={formatScorePercent(weightedScore)} sub="SLA and completion blend" icon="fa-ranking-star" accent="var(--mx-accent-2)" />
+      </div>
+
+      <Panel
+        title="Management Summary"
+        subtitle={`Executive readout for ${periodLabel}`}
+        actions={<button className="mx-btn mx-btn-soft !py-2" onClick={() => window.print()}><i className="fa-solid fa-print mr-2"></i>Presentation</button>}
+      >
+        <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-4">
+          <div className="grid gap-3">
+            {insights.slice(0, 5).map((insight, index) => (
+              <div key={insight} className="mx-data-card flex items-start gap-3">
+                <span className={cn('mx-badge flex-shrink-0', index === 0 && overdueTasks.length > 0 ? 'mx-status-hold' : 'mx-status-process')}>
+                  {index + 1}
+                </span>
+                <div className="font-bold leading-6">{insight}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mx-muted-card rounded-lg p-5">
+            <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Decision Lens</div>
+            <div className="mt-4 grid gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-[var(--mx-muted)]">Scope</span>
+                <span className="font-extrabold">{periodLabel}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-[var(--mx-muted)]">Active workload</span>
+                <span className="font-extrabold">{activeTasks.length}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-[var(--mx-muted)]">Teams monitored</span>
+                <span className="font-extrabold">{teamRows.length}</span>
+              </div>
+              <button className="mx-btn mx-btn-primary mt-2" onClick={() => onNavigate('tasks')}>
+                <i className="fa-solid fa-list-check mr-2"></i>Open Task Center
+              </button>
+            </div>
+          </div>
+        </div>
+      </Panel>
+
+      <div className="grid 2xl:grid-cols-[1.1fr_0.9fr] gap-5">
+        <Panel title="Team Performance Matrix" subtitle="Ranked by overdue, near-deadline risk, and weighted health">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
+                  <th className="pb-3">Team</th>
+                  <th className="pb-3">Workload</th>
+                  <th className="pb-3">SLA</th>
+                  <th className="pb-3">Completion</th>
+                  <th className="pb-3">Risk</th>
+                  <th className="pb-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--mx-line)]">
+                {teamRows.map((row) => (
+                  <tr key={row.team}>
+                    <td className="py-4 font-extrabold">{row.team}</td>
+                    <td className="py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-28 h-2 rounded-full mx-progress-track overflow-hidden">
+                          <div className="h-full mx-progress-fill" style={{ width: `${Math.max(6, (row.total / maxTeamTotal) * 100)}%` }}></div>
+                        </div>
+                        <span>{row.total}</span>
+                      </div>
+                    </td>
+                    <td className="py-4 font-bold">{formatScorePercent(row.sla)}</td>
+                    <td className="py-4 font-bold">{formatScorePercent(row.completion)}</td>
+                    <td className="py-4">
+                      <span className={cn('mx-badge', row.overdue > 0 ? 'mx-status-hold' : row.atRisk > 0 ? 'mx-status-pending' : 'mx-status-completed')}>
+                        {row.overdue} overdue / {row.atRisk} risk
+                      </span>
+                    </td>
+                    <td className="py-4">
+                      <span className={cn('mx-badge', getExecutiveHealthClass(row.health))}>
+                        {row.health >= 90 ? 'Healthy' : row.health >= 75 ? 'Watch' : row.health >= 60 ? 'Pressure' : 'Critical'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {teamRows.length === 0 && (
+                  <tr><td className="py-8 text-center text-[var(--mx-muted)]" colSpan="6">No team data in this scope.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+
+        <Panel title="Critical Work Queue" subtitle="Highest SLA and KPI exposure">
+          <div className="grid gap-3">
+            {criticalQueue.map(({ task, days, weight }) => (
+              <div key={task.id || `${task.job}-${task.deadline}`} className="mx-data-card">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-extrabold truncate">{extractJobCode(task.job)}</div>
+                    <div className="mt-1 text-sm text-[var(--mx-muted)] line-clamp-2">{task.job || '-'}</div>
+                  </div>
+                  <span className={cn('mx-badge flex-shrink-0', days < 0 ? 'mx-status-hold' : days <= 3 ? 'mx-status-pending' : 'mx-status-process')}>
+                    {days < 0 ? `${Math.abs(days)}d late` : `${days}d left`}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="mx-badge mx-status-cancelled">{task.team || '-'}</span>
+                  <span className="mx-badge mx-status-process">weight {formatWeight(weight)}</span>
+                  <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status || '-'}</span>
+                </div>
+              </div>
+            ))}
+            {criticalQueue.length === 0 && (
+              <div className="mx-data-card text-center text-[var(--mx-muted)]">No critical active work in this scope.</div>
+            )}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
 function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatusChange, onNavigate }) {
   if (!data) {
     return (
@@ -2497,14 +2722,23 @@ function App() {
     setView(nextView);
   };
 
+  const openExecutiveView = () => {
+    const executiveUrl = new URL('/dashboard', window.location.origin);
+    executiveUrl.searchParams.set('empId', user.empId || user.empid || '');
+    executiveUrl.searchParams.set('month', String(filterMonth));
+    executiveUrl.searchParams.set('year', String(filterYear));
+    window.open(executiveUrl.toString(), '_blank', 'noopener,noreferrer');
+  };
+
   if (!user) {
     return <LoginScreenPro onLogin={handleLogin} loading={loginLoading} error={loginError} theme={theme} onToggleTheme={toggleTheme} />;
   }
 
-  const showFilterBar = ['dashboard', 'tasks'].includes(view);
+  const showFilterBar = ['executive', 'dashboard', 'tasks'].includes(view);
   const peopleForAssign = state.people?.length ? state.people : state.admin?.staff || [];
   const pageTitle =
-    view === 'dashboard'
+    view === 'executive' ? 'Executive View'
+      : view === 'dashboard'
       ? (user.role === 'Manager' ? 'Executive Dashboard' : user.role === 'Lead' ? 'Team Command Center' : user.role === 'Admin' ? 'System Control Center' : 'My Work Dashboard')
       : view === 'tasks' ? 'Task Center'
       : view === 'create' ? 'Create Task'
@@ -2514,6 +2748,8 @@ function App() {
       : view === 'admin' ? 'Admin Studio'
       : 'MAXIWA KPI';
   const pageSubtitle =
+    view === 'executive' ? 'Board-ready view for SLA risk, weighted KPI health, team performance, and critical work.'
+      :
     view === 'dashboard' ? 'KPI, SLA, งานค้าง และภาพรวมผลงานในช่วงเวลาที่เลือก'
       : view === 'tasks' ? 'จัดการรายการงาน ติดตามสถานะ และตรวจสอบ SLA'
       : view === 'tracker' ? 'ค้นหาและติดตามประวัติงานจากรหัสงาน'
@@ -2549,6 +2785,12 @@ function App() {
                 </div>
 
                 <div className="flex flex-wrap items-center xl:justify-end gap-2">
+                  {['Manager', 'Admin'].includes(user.role) && (
+                    <button className="mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2" onClick={openExecutiveView} title="Open Executive View">
+                      <i className="fa-solid fa-display"></i>
+                      <span>Executive View</span>
+                    </button>
+                  )}
                   <ThemeToggle theme={theme} onToggle={toggleTheme} />
                   <div className="relative">
                     <button className="mx-btn mx-btn-soft !py-2 !px-3 relative" onClick={() => setShowNotif((v) => !v)} title="Notifications" aria-label="Notifications">
@@ -2661,6 +2903,14 @@ function App() {
             </div>
           )}
 
+          {view === 'executive' && (
+            <ExecutiveView
+              data={state.dashboard}
+              filterMonth={filterMonth}
+              filterYear={filterYear}
+              onNavigate={handleNavigate}
+            />
+          )}
           {view === 'dashboard' && (
             <DashboardView
               user={user}
