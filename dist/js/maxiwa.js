@@ -22,33 +22,36 @@ var MaxiwaKpiApp = (() => {
   ];
   const NAV_BY_ROLE = {
     Staff: [
-      { id: "dashboard", label: "My Dashboard", icon: "fa-chart-line" },
-      { id: "tasks", label: "My Tasks", icon: "fa-list-check" },
-      { id: "create", label: "Create Task", icon: "fa-square-plus" },
-      { id: "tracker", label: "Job Tracker", icon: "fa-diagram-project" }
+      { id: "dashboard", label: "My Dashboard", icon: "fa-chart-line", group: "\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E09\u0E31\u0E19" },
+      { id: "tasks", label: "My Tasks", icon: "fa-list-check", group: "\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E09\u0E31\u0E19" },
+      { id: "create", label: "Create Task", icon: "fa-square-plus", group: "\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E09\u0E31\u0E19" },
+      { id: "tracker", label: "Job Tracker", icon: "fa-diagram-project", group: "\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E21\u0E37\u0E2D" }
     ],
     Lead: [
-      { id: "dashboard", label: "Team Command", icon: "fa-chart-line" },
-      { id: "tasks", label: "Team Tasks", icon: "fa-list-check" },
-      { id: "assign", label: "Assign Task", icon: "fa-user-plus" },
-      { id: "people", label: "Team People", icon: "fa-users" },
-      { id: "tracker", label: "Job Tracker", icon: "fa-diagram-project" }
+      { id: "my-dashboard", label: "My Dashboard", icon: "fa-chart-line", group: "\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E09\u0E31\u0E19" },
+      { id: "my-tasks", label: "My Tasks", icon: "fa-list-check", group: "\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E09\u0E31\u0E19" },
+      { id: "create", label: "Create Task", icon: "fa-square-plus", group: "\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E09\u0E31\u0E19" },
+      { id: "dashboard", label: "Team Command", icon: "fa-people-roof", group: "\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E17\u0E35\u0E21" },
+      { id: "tasks", label: "Team Tasks", icon: "fa-list-check", group: "\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E17\u0E35\u0E21" },
+      { id: "assign", label: "Assign Task", icon: "fa-user-plus", group: "\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E17\u0E35\u0E21" },
+      { id: "people", label: "Team People", icon: "fa-users", group: "\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E17\u0E35\u0E21" },
+      { id: "tracker", label: "Job Tracker", icon: "fa-diagram-project", group: "\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E21\u0E37\u0E2D" }
     ],
     Manager: [
-      { id: "dashboard", label: "Operations Dashboard", icon: "fa-chart-line" },
-      { id: "tasks", label: "Task Center", icon: "fa-list-check" },
-      { id: "assign", label: "Assign Task", icon: "fa-user-plus" },
-      { id: "people", label: "People", icon: "fa-users-viewfinder" },
-      { id: "tracker", label: "Job Tracker", icon: "fa-diagram-project" },
-      { id: "admin", label: "System Control", icon: "fa-shield-halved" }
+      { id: "dashboard", label: "Operations Dashboard", icon: "fa-chart-line", group: "\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E2D\u0E07\u0E04\u0E4C\u0E01\u0E23" },
+      { id: "tasks", label: "Task Center", icon: "fa-list-check", group: "\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E2D\u0E07\u0E04\u0E4C\u0E01\u0E23" },
+      { id: "assign", label: "Assign Task", icon: "fa-user-plus", group: "\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E2D\u0E07\u0E04\u0E4C\u0E01\u0E23" },
+      { id: "people", label: "People", icon: "fa-users-viewfinder", group: "\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E2D\u0E07\u0E04\u0E4C\u0E01\u0E23" },
+      { id: "tracker", label: "Job Tracker", icon: "fa-diagram-project", group: "\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E21\u0E37\u0E2D" },
+      { id: "admin", label: "System Control", icon: "fa-shield-halved", group: "\u0E23\u0E30\u0E1A\u0E1A" }
     ],
     Admin: [
-      { id: "dashboard", label: "System Dashboard", icon: "fa-chart-line" },
-      { id: "admin", label: "System Control", icon: "fa-shield-halved" },
-      { id: "tracker", label: "Job Tracker", icon: "fa-diagram-project" }
+      { id: "dashboard", label: "System Dashboard", icon: "fa-chart-line", group: "\u0E23\u0E30\u0E1A\u0E1A" },
+      { id: "admin", label: "System Control", icon: "fa-shield-halved", group: "\u0E23\u0E30\u0E1A\u0E1A" },
+      { id: "tracker", label: "Job Tracker", icon: "fa-diagram-project", group: "\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E21\u0E37\u0E2D" }
     ]
   };
-  const ROLE_HOME = { Staff: "dashboard", Lead: "dashboard", Manager: "dashboard", Admin: "dashboard" };
+  const ROLE_HOME = { Staff: "dashboard", Lead: "my-dashboard", Manager: "dashboard", Admin: "dashboard" };
   function cn(...values) {
     return values.filter(Boolean).join(" ");
   }
@@ -432,10 +435,13 @@ var MaxiwaKpiApp = (() => {
     useEffect(() => {
       if (view === "admin") setExpanded(true);
     }, [view]);
-    return /* @__PURE__ */ React.createElement("aside", { className: "mx-shell-card rounded-[28px] p-5 md:p-6 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-4 mb-7" }, /* @__PURE__ */ React.createElement("div", { className: "mx-brand-mark w-14 h-14 rounded-lg grid place-items-center text-xl font-black" }, "M"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-xl font-extrabold tracking-[0.02em]" }, "MAXIWA KPI"), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "Executive Performance System"))), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-4" }, /* @__PURE__ */ React.createElement(UserAvatar, { user, size: "xl" }), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black" }, "Signed In"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 font-extrabold text-base truncate" }, user == null ? void 0 : user.name), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)] truncate" }, user == null ? void 0 : user.role, " \u2022 ", user == null ? void 0 : user.team))), /* @__PURE__ */ React.createElement("div", { className: "mt-4 flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, (user == null ? void 0 : user.role) || "-"), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Emp ID: ", user == null ? void 0 : user.empId))), /* @__PURE__ */ React.createElement("div", { className: "mt-6 text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black" }, "Navigation"), /* @__PURE__ */ React.createElement("div", { className: "mt-3 grid gap-2" }, navItems.map((item) => {
+    return /* @__PURE__ */ React.createElement("aside", { className: "mx-shell-card rounded-[28px] p-5 md:p-6 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-4 mb-7" }, /* @__PURE__ */ React.createElement("div", { className: "mx-brand-mark w-14 h-14 rounded-lg grid place-items-center text-xl font-black" }, "M"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-xl font-extrabold tracking-[0.02em]" }, "MAXIWA KPI"), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "Executive Performance System"))), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-4" }, /* @__PURE__ */ React.createElement(UserAvatar, { user, size: "xl" }), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black" }, "Signed In"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 font-extrabold text-base truncate" }, user == null ? void 0 : user.name), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)] truncate" }, user == null ? void 0 : user.role, " \u2022 ", user == null ? void 0 : user.team))), /* @__PURE__ */ React.createElement("div", { className: "mt-4 flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, (user == null ? void 0 : user.role) || "-"), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Emp ID: ", user == null ? void 0 : user.empId))), /* @__PURE__ */ React.createElement("div", { className: "mt-6 text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black" }, "Navigation"), /* @__PURE__ */ React.createElement("div", { className: "mt-3 grid gap-2" }, navItems.map((item, index) => {
+      var _a;
       const isSystemControl = item.id === "admin";
+      const showGroup = item.group && item.group !== ((_a = navItems[index - 1]) == null ? void 0 : _a.group);
+      const groupLabel = showGroup ? /* @__PURE__ */ React.createElement("div", { className: "pt-3 first:pt-0 text-[10px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black" }, item.group) : null;
       if (isSystemControl) {
-        return /* @__PURE__ */ React.createElement("div", { key: item.id, className: "grid gap-2" }, /* @__PURE__ */ React.createElement(
+        return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.id }, groupLabel, /* @__PURE__ */ React.createElement("div", { className: "grid gap-2" }, /* @__PURE__ */ React.createElement(
           "button",
           {
             onClick: () => {
@@ -465,12 +471,11 @@ var MaxiwaKpiApp = (() => {
           },
           /* @__PURE__ */ React.createElement("i", { className: `fa-solid ${section.icon} w-4 text-center text-[var(--mx-accent-2)]` }),
           /* @__PURE__ */ React.createElement("span", { className: "truncate" }, section.label)
-        ))));
+        )))));
       }
-      return /* @__PURE__ */ React.createElement(
+      return /* @__PURE__ */ React.createElement(React.Fragment, { key: item.id }, groupLabel, /* @__PURE__ */ React.createElement(
         "button",
         {
-          key: item.id,
           onClick: () => setView(item.id),
           className: cn(
             "mx-btn text-left flex items-center gap-3 px-4 py-4 rounded-[18px]",
@@ -479,8 +484,8 @@ var MaxiwaKpiApp = (() => {
         },
         /* @__PURE__ */ React.createElement("i", { className: `fa-solid ${item.icon} w-5 text-center text-[var(--mx-accent-2)]` }),
         /* @__PURE__ */ React.createElement("span", null, item.label),
-        item.id === "tasks" && notifCount > 0 && /* @__PURE__ */ React.createElement("span", { className: "ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-black" }, notifCount)
-      );
+        ["tasks", "my-tasks"].includes(item.id) && notifCount > 0 && /* @__PURE__ */ React.createElement("span", { className: "ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-black" }, notifCount)
+      ));
     })), /* @__PURE__ */ React.createElement("button", { onClick: onLogout, className: "mx-btn mx-btn-soft w-full mt-6" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-right-from-bracket mr-2" }), "\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A"));
   }
   function LoginScreenPro({ onLogin, loading, error, theme, onToggleTheme }) {
@@ -519,7 +524,7 @@ var MaxiwaKpiApp = (() => {
       safeSet({ loading: true, error: "" });
       const monthParam = filterMonth === 0 ? null : filterMonth;
       try {
-        if (user.role === "Staff") {
+        if (user.role === "Staff" || view === "my-dashboard") {
           const res = await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
           safeSet({ dashboard: { tasks: res.tasks || res || [] }, loading: false });
           return;
@@ -551,13 +556,13 @@ var MaxiwaKpiApp = (() => {
       } catch (e) {
         safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14 dashboard \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
       }
-    }, [user, filterMonth, filterYear]);
+    }, [user, view, filterMonth, filterYear]);
     const loadTasks = useCallback(async () => {
       if (!user) return;
       safeSet({ loading: true, error: "" });
       const monthParam = filterMonth === 0 ? null : filterMonth;
       try {
-        if (user.role === "Staff") {
+        if (user.role === "Staff" || view === "my-tasks") {
           const res2 = await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
           safeSet({ tasks: res2.tasks || res2 || [], loading: false });
           return;
@@ -568,7 +573,7 @@ var MaxiwaKpiApp = (() => {
       } catch (e) {
         safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14 tasks \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
       }
-    }, [user, filterMonth, filterYear]);
+    }, [user, view, filterMonth, filterYear]);
     const loadPeople = useCallback(async () => {
       if (!user) return;
       safeSet({ loading: true, error: "" });
@@ -610,8 +615,8 @@ var MaxiwaKpiApp = (() => {
     useEffect(() => {
       if (!user) return;
       if (view === "executive") loadDashboard();
-      if (view === "dashboard") loadDashboard();
-      if (view === "tasks") loadTasks();
+      if (["dashboard", "my-dashboard"].includes(view)) loadDashboard();
+      if (["tasks", "my-tasks"].includes(view)) loadTasks();
       if (view === "people") loadPeople();
       if (view === "assign") loadPeople();
       if (view === "admin") loadAdmin();
@@ -620,8 +625,8 @@ var MaxiwaKpiApp = (() => {
       if (!user || !window.subscribeToRealtime) return;
       window.subscribeToRealtime("tasks", () => {
         if (view === "executive") loadDashboard();
-        if (view === "dashboard") loadDashboard();
-        if (view === "tasks") loadTasks();
+        if (["dashboard", "my-dashboard"].includes(view)) loadDashboard();
+        if (["tasks", "my-tasks"].includes(view)) loadTasks();
       });
       return () => {
         if (window.unsubscribeFromRealtime) window.unsubscribeFromRealtime("tasks");
@@ -1161,29 +1166,29 @@ var MaxiwaKpiApp = (() => {
     const upd = (k, v) => onChange({ ...ed, [k]: v });
     return /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2 rounded-[18px] p-4 bg-[rgba(251,191,36,0.06)] border border-[rgba(251,191,36,0.25)]" }, /* @__PURE__ */ React.createElement("p", { className: "text-xs font-extrabold text-[var(--mx-warning)] uppercase tracking-widest mb-3 flex items-center gap-2" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-list" }), "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E40\u0E15\u0E34\u0E21"), /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, isCoord && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E2D\u0E32\u0E04\u0E32\u0E23", value: ed.building || "", onChange: (e) => upd("building", e.target.value) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E25\u0E39\u0E01\u0E04\u0E49\u0E32", value: ed.client || "", onChange: (e) => upd("client", e.target.value) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E40\u0E2B\u0E21\u0E32", value: ed.contractor || "", onChange: (e) => upd("contractor", e.target.value) })), isNotify && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E0A\u0E37\u0E48\u0E2D\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E40\u0E2B\u0E21\u0E32", value: ed.contractorName || "", onChange: (e) => upd("contractorName", e.target.value) }), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: ed.contractorType || "", onChange: (e) => upd("contractorType", e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01 TYPE"), ["B1", "C1", "C2", "E1"].map((t) => /* @__PURE__ */ React.createElement("option", { key: t, value: t }, t)))), isSAP && !hideSsr && /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "SSR Number", value: ed.ssrNumber || "", onChange: (e) => upd("ssrNumber", e.target.value) }), isOWF && /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "OSP Number", value: ed.ospNumber || "", onChange: (e) => upd("ospNumber", e.target.value) })));
   }
-  function QuickCreateView({ user, people, onSaved }) {
+  function QuickCreateView({ user, people, onSaved, mode = "auto" }) {
     var _a;
-    const isStaff = user.role === "Staff";
+    const isPersonalTask = user.role === "Staff" || mode === "personal";
     const teamKpis = useMemo(() => {
       const kpis = (user == null ? void 0 : user.kpis) || [];
-      if (isStaff) return kpis.filter((k) => !k.team || k.team === user.team);
+      if (isPersonalTask) return kpis.filter((k) => !k.team || k.team === user.team);
       return kpis;
-    }, [user, isStaff]);
+    }, [user, isPersonalTask]);
     const [loadedStaffKpis, setLoadedStaffKpis] = useState([]);
     useEffect(() => {
-      if (!isStaff) return;
+      if (!isPersonalTask) return;
       API.getKPIsByTeam(user.team).then((res) => {
         if (res && res.kpis && res.kpis.length > 0) setLoadedStaffKpis(res.kpis);
       }).catch(() => {
       });
-    }, [user.team, isStaff]);
+    }, [user.team, isPersonalTask]);
     const [form, setForm] = useState({
       job: "",
       note: "",
       subkpi: "",
       mainkpi: "",
       deadline: "",
-      assignedToName: isStaff ? user.name : "",
+      assignedToName: isPersonalTask ? user.name : "",
       assignedToTeam: (user == null ? void 0 : user.team) || "",
       assignedToEmpId: "",
       extra_data: {}
@@ -1193,7 +1198,7 @@ var MaxiwaKpiApp = (() => {
     const [saving, setSaving] = useState(false);
     const [saveResult, setSaveResult] = useState("");
     useEffect(() => {
-      if (isStaff) return;
+      if (isPersonalTask) return;
       if (!form.assignedToEmpId) {
         setAssigneeKpis([]);
         return;
@@ -1202,8 +1207,8 @@ var MaxiwaKpiApp = (() => {
       if (!person) return;
       setForm((prev) => ({ ...prev, assignedToName: person.name, assignedToTeam: person.team, subkpi: "", mainkpi: "", deadline: "", extra_data: {} }));
       API.getKPIsByTeam(person.team).then((res) => setAssigneeKpis(res.kpis || [])).catch(() => setAssigneeKpis([]));
-    }, [form.assignedToEmpId, isStaff, people]);
-    const activeKpis = isStaff ? loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis : assigneeKpis;
+    }, [form.assignedToEmpId, isPersonalTask, people]);
+    const activeKpis = isPersonalTask ? loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis : assigneeKpis;
     const handleSubKpiChange = async (subkpi) => {
       if (!subkpi) {
         setForm((p) => ({ ...p, subkpi: "", mainkpi: "", deadline: "", extra_data: {} }));
@@ -1213,7 +1218,7 @@ var MaxiwaKpiApp = (() => {
       setForm((p) => ({ ...p, subkpi, mainkpi: (kpi == null ? void 0 : kpi.main) || "", extra_data: {} }));
       setLoadingDeadline(true);
       try {
-        const targetTeam = isStaff ? user.team : form.assignedToTeam;
+        const targetTeam = isPersonalTask ? user.team : form.assignedToTeam;
         const res = await API.calculateDeadlinePreview({
           team: targetTeam,
           subkpi,
@@ -1229,12 +1234,12 @@ var MaxiwaKpiApp = (() => {
     const handleSave = async () => {
       if (!form.job.trim()) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E30\u0E1A\u0E38 job");
       if (!form.subkpi.trim()) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01 Sub KPI");
-      if (!isStaff && !form.assignedToName.trim()) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A");
+      if (!isPersonalTask && !form.assignedToName.trim()) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A");
       setSaving(true);
       setSaveResult("");
       try {
         let res;
-        if (isStaff) {
+        if (isPersonalTask) {
           res = await API.saveNewTask({
             name: user.name,
             team: user.team,
@@ -1266,7 +1271,7 @@ var MaxiwaKpiApp = (() => {
           subkpi: "",
           mainkpi: "",
           deadline: "",
-          assignedToName: isStaff ? user.name : "",
+          assignedToName: isPersonalTask ? user.name : "",
           assignedToTeam: user.team,
           assignedToEmpId: "",
           extra_data: {}
@@ -1282,11 +1287,11 @@ var MaxiwaKpiApp = (() => {
     return /* @__PURE__ */ React.createElement(
       Panel,
       {
-        title: isStaff ? "Create Personal Task" : "Assign Task",
-        subtitle: isStaff ? "\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07\u0E08\u0E32\u0E01 shell \u0E43\u0E2B\u0E21\u0E48" : "\u0E21\u0E2D\u0E1A\u0E2B\u0E21\u0E32\u0E22\u0E07\u0E32\u0E19\u0E44\u0E14\u0E49\u0E04\u0E23\u0E31\u0E49\u0E07\u0E25\u0E30\u0E2B\u0E25\u0E32\u0E22 Job (\u0E41\u0E15\u0E48\u0E25\u0E30\u0E1A\u0E23\u0E23\u0E17\u0E31\u0E14 = 1 \u0E07\u0E32\u0E19)"
+        title: isPersonalTask ? "Create Personal Task" : "Assign Task",
+        subtitle: isPersonalTask ? "\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07\u0E08\u0E32\u0E01 shell \u0E43\u0E2B\u0E21\u0E48" : "\u0E21\u0E2D\u0E1A\u0E2B\u0E21\u0E32\u0E22\u0E07\u0E32\u0E19\u0E44\u0E14\u0E49\u0E04\u0E23\u0E31\u0E49\u0E07\u0E25\u0E30\u0E2B\u0E25\u0E32\u0E22 Job (\u0E41\u0E15\u0E48\u0E25\u0E30\u0E1A\u0E23\u0E23\u0E17\u0E31\u0E14 = 1 \u0E07\u0E32\u0E19)"
       },
       saveResult && /* @__PURE__ */ React.createElement("div", { className: "mb-4 rounded-[14px] p-3 mx-status-completed text-sm font-bold" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check-circle mr-2" }), saveResult),
-      /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 gap-4" }, isStaff && /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]" }, "SSR Number"), /* @__PURE__ */ React.createElement(
+      /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 gap-4" }, isPersonalTask && /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]" }, "SSR Number"), /* @__PURE__ */ React.createElement(
         "input",
         {
           className: "mx-input",
@@ -1294,15 +1299,15 @@ var MaxiwaKpiApp = (() => {
           value: ((_a = form.extra_data) == null ? void 0 : _a.ssrNumber) || "",
           onChange: (e) => setForm((p) => ({ ...p, extra_data: { ...p.extra_data || {}, ssrNumber: e.target.value } }))
         }
-      )), /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Job / \u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E07\u0E32\u0E19", !isStaff && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-xs text-[var(--mx-muted)] font-normal" }, "(\u0E41\u0E15\u0E48\u0E25\u0E30\u0E1A\u0E23\u0E23\u0E17\u0E31\u0E14 = 1 \u0E07\u0E32\u0E19)")), /* @__PURE__ */ React.createElement(
+      )), /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Job / \u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E07\u0E32\u0E19", !isPersonalTask && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-xs text-[var(--mx-muted)] font-normal" }, "(\u0E41\u0E15\u0E48\u0E25\u0E30\u0E1A\u0E23\u0E23\u0E17\u0E31\u0E14 = 1 \u0E07\u0E32\u0E19)")), /* @__PURE__ */ React.createElement(
         "textarea",
         {
           className: "mx-textarea min-h-[110px]",
           value: form.job,
           onChange: (e) => setForm((p) => ({ ...p, job: e.target.value })),
-          placeholder: isStaff ? "\u0E23\u0E30\u0E1A\u0E38 job \u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E07\u0E32\u0E19" : "Job 1\nJob 2\nJob 3 (\u0E41\u0E15\u0E48\u0E25\u0E30\u0E1A\u0E23\u0E23\u0E17\u0E31\u0E14\u0E08\u0E30\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E40\u0E1B\u0E47\u0E19 1 \u0E07\u0E32\u0E19)"
+          placeholder: isPersonalTask ? "\u0E23\u0E30\u0E1A\u0E38 job \u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E07\u0E32\u0E19" : "Job 1\nJob 2\nJob 3 (\u0E41\u0E15\u0E48\u0E25\u0E30\u0E1A\u0E23\u0E23\u0E17\u0E31\u0E14\u0E08\u0E30\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E40\u0E1B\u0E47\u0E19 1 \u0E07\u0E32\u0E19)"
         }
-      )), !isStaff && /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A"), /* @__PURE__ */ React.createElement(
+      )), !isPersonalTask && /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A"), /* @__PURE__ */ React.createElement(
         "select",
         {
           className: "mx-select",
@@ -1317,7 +1322,7 @@ var MaxiwaKpiApp = (() => {
           className: "mx-input",
           value: form.subkpi,
           onChange: (e) => setForm((p) => ({ ...p, subkpi: e.target.value })),
-          placeholder: isStaff ? "Sub KPI" : "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A\u0E01\u0E48\u0E2D\u0E19"
+          placeholder: isPersonalTask ? "Sub KPI" : "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A\u0E01\u0E48\u0E2D\u0E19"
         }
       )), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Main KPI"), /* @__PURE__ */ React.createElement(
         "input",
@@ -1333,7 +1338,7 @@ var MaxiwaKpiApp = (() => {
           subkpi: form.subkpi,
           extraData: form.extra_data,
           onChange: (ed) => setForm((p) => ({ ...p, extra_data: ed })),
-          hideSsr: isStaff
+          hideSsr: isPersonalTask
         }
       ), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Deadline (\u0E04\u0E33\u0E19\u0E27\u0E13\u0E08\u0E32\u0E01 SLA)"), /* @__PURE__ */ React.createElement(
         "input",
@@ -1343,7 +1348,7 @@ var MaxiwaKpiApp = (() => {
           readOnly: true,
           placeholder: loadingDeadline ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E04\u0E33\u0E19\u0E27\u0E13..." : "\u0E01\u0E23\u0E2D\u0E01\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E40\u0E25\u0E37\u0E2D\u0E01 Sub KPI"
         }
-      )), isStaff && /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Note (optional)"), /* @__PURE__ */ React.createElement(
+      )), isPersonalTask && /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Note (optional)"), /* @__PURE__ */ React.createElement(
         "textarea",
         {
           className: "mx-textarea min-h-[80px]",
@@ -1352,7 +1357,7 @@ var MaxiwaKpiApp = (() => {
           placeholder: "\u0E2B\u0E21\u0E32\u0E22\u0E40\u0E2B\u0E15\u0E38\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E40\u0E15\u0E34\u0E21"
         }
       ))),
-      /* @__PURE__ */ React.createElement("div", { className: "mt-5" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary", disabled: saving, onClick: handleSave }, saving ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : isStaff ? "Create Task" : "Assign Task"))
+      /* @__PURE__ */ React.createElement("div", { className: "mt-5" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary", disabled: saving, onClick: handleSave }, saving ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : isPersonalTask ? "Create Task" : "Assign Task"))
     );
   }
   function PeopleView({ user, people, onRefresh }) {
@@ -1483,7 +1488,7 @@ var MaxiwaKpiApp = (() => {
     const KpiControls = () => /* @__PURE__ */ React.createElement(Panel, { title: "\u0E01\u0E0E KPI/SLA", subtitle: "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E08\u0E33\u0E19\u0E27\u0E19\u0E27\u0E31\u0E19 SLA \u0E41\u0E25\u0E30\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01 KPI \u0E17\u0E35\u0E48\u0E43\u0E0A\u0E49\u0E04\u0E33\u0E19\u0E27\u0E13\u0E04\u0E30\u0E41\u0E19\u0E19" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Main KPI", /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "Main KPI", value: kpiForm.main, onChange: (e) => setKpiForm((p) => ({ ...p, main: e.target.value })) })), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Sub KPI", /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "Sub KPI", value: kpiForm.sub, onChange: (e) => setKpiForm((p) => ({ ...p, sub: e.target.value })) })), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Team", /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: kpiForm.team, onChange: (e) => setKpiForm((p) => ({ ...p, team: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E35\u0E21"), teams.map((team) => /* @__PURE__ */ React.createElement("option", { key: team.id || team.name, value: team.name }, team.name)))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "SLA Days", /* @__PURE__ */ React.createElement("input", { className: "mx-input", type: "number", min: "1", placeholder: "1", value: kpiForm.days, onChange: (e) => setKpiForm((p) => ({ ...p, days: e.target.value })) })), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Weight", /* @__PURE__ */ React.createElement("input", { className: "mx-input", type: "number", min: "1", step: "0.1", placeholder: "1", value: kpiForm.main_weight, onChange: (e) => setKpiForm((p) => ({ ...p, main_weight: e.target.value })) })))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3 mt-3" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary w-full", onClick: saveKpi, disabled: saving === "kpi" }, saving === "kpi" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 KPI"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft w-full", onClick: () => setKpiForm({ main: "", sub: "", team: "", days: 1, main_weight: 1 }) }, "\u0E25\u0E49\u0E32\u0E07\u0E1F\u0E2D\u0E23\u0E4C\u0E21"))), /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, filteredKpis.slice(0, 80).map((kpi) => /* @__PURE__ */ React.createElement("div", { key: kpi.id || `${kpi.team}-${kpi.main}-${kpi.sub}`, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, kpi.main, " / ", kpi.sub), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, kpi.team, " / ", kpi.days, " day(s) / weight ", kpi.main_weight)), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => editKpi(kpi) }, "\u0E41\u0E01\u0E49\u0E44\u0E02"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => removeKpi(kpi.id), disabled: !kpi.id }, "\u0E25\u0E1A"))))))));
     const CalendarControls = () => /* @__PURE__ */ React.createElement(Panel, { title: "\u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 SLA", subtitle: "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14\u0E17\u0E35\u0E48\u0E21\u0E35\u0E1C\u0E25\u0E15\u0E48\u0E2D\u0E01\u0E32\u0E23\u0E04\u0E33\u0E19\u0E27\u0E13\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E2A\u0E48\u0E07" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-[180px_1fr_150px] gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", type: "date", value: holidayForm.holiday_date, onChange: (e) => setHolidayForm((p) => ({ ...p, holiday_date: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E0A\u0E37\u0E48\u0E2D\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14", value: holidayForm.name, onChange: (e) => setHolidayForm((p) => ({ ...p, name: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary", onClick: saveHoliday, disabled: saving === "holiday" }, saving === "holiday" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01"))), /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, filteredHolidays.slice(0, 80).map((holiday) => /* @__PURE__ */ React.createElement("div", { key: holiday.id || holiday.holiday_date, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, holiday.name), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, holiday.holiday_date, " / ", holiday.is_active ? "Active" : "Inactive")), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => editHoliday(holiday) }, "\u0E41\u0E01\u0E49\u0E44\u0E02"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => removeHoliday(holiday.id), disabled: !holiday.id }, "\u0E25\u0E1A"))))))));
     const MaintenancePanel = () => /* @__PURE__ */ React.createElement(Panel, { title: "\u0E14\u0E39\u0E41\u0E25\u0E23\u0E30\u0E1A\u0E1A", subtitle: "\u0E2A\u0E31\u0E48\u0E07\u0E07\u0E32\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E1C\u0E48\u0E32\u0E19\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E21\u0E37\u0E2D\u0E17\u0E35\u0E48\u0E04\u0E27\u0E1A\u0E04\u0E38\u0E21\u0E44\u0E14\u0E49 \u0E42\u0E14\u0E22\u0E44\u0E21\u0E48\u0E41\u0E15\u0E30\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E2B\u0E25\u0E31\u0E07\u0E1A\u0E49\u0E32\u0E19\u0E42\u0E14\u0E22\u0E15\u0E23\u0E07" }, /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold" }, "\u0E04\u0E33\u0E19\u0E27\u0E13\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E2A\u0E48\u0E07\u0E43\u0E2B\u0E21\u0E48"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, "\u0E43\u0E0A\u0E49\u0E2B\u0E25\u0E31\u0E07\u0E08\u0E32\u0E01\u0E1B\u0E23\u0E31\u0E1A\u0E01\u0E0E KPI \u0E2B\u0E23\u0E37\u0E2D\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14 \u0E01\u0E32\u0E23\u0E17\u0E33\u0E07\u0E32\u0E19\u0E08\u0E30\u0E1C\u0E48\u0E32\u0E19 API \u0E41\u0E25\u0E30\u0E04\u0E27\u0E23\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E22\u0E49\u0E2D\u0E19\u0E2B\u0E25\u0E31\u0E07\u0E44\u0E14\u0E49\u0E08\u0E32\u0E01 audit log"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary mt-4", onClick: recalc, disabled: saving === "recalc" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-rotate mr-2" }), saving === "recalc" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E17\u0E33\u0E07\u0E32\u0E19..." : "\u0E04\u0E33\u0E19\u0E27\u0E13\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E2A\u0E48\u0E07\u0E43\u0E2B\u0E21\u0E48")), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold" }, "\u0E19\u0E42\u0E22\u0E1A\u0E32\u0E22\u0E01\u0E32\u0E23\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 grid gap-2 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("div", null, "\u0E2B\u0E49\u0E32\u0E21\u0E41\u0E01\u0E49\u0E44\u0E02\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E42\u0E14\u0E22\u0E15\u0E23\u0E07"), /* @__PURE__ */ React.createElement("div", null, "\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02 master data \u0E15\u0E49\u0E2D\u0E07\u0E1C\u0E48\u0E32\u0E19 System Control \u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19"), /* @__PURE__ */ React.createElement("div", null, "\u0E17\u0E38\u0E01 action \u0E04\u0E27\u0E23\u0E1C\u0E48\u0E32\u0E19 API validation \u0E41\u0E25\u0E30\u0E21\u0E35 audit log \u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E44\u0E14\u0E49")))));
-    const AuditPanel = () => /* @__PURE__ */ React.createElement(Panel, { title: "\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02", subtitle: "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E01\u0E32\u0E23\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E41\u0E1B\u0E25\u0E07\u0E02\u0E2D\u0E07\u0E23\u0E30\u0E1A\u0E1A\u0E42\u0E14\u0E22\u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E02\u0E49\u0E32 backend" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, logs.slice(0, 80).map((log) => /* @__PURE__ */ React.createElement("div", { key: log.id || `${log.action}-${log.timestamp}`, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-sm" }, log.action || "Activity"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, log.details || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, log.by_user || "-", " / ", formatDate(log.timestamp, true))))));
+    const AuditPanel = () => /* @__PURE__ */ React.createElement(Panel, { title: "\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02", subtitle: "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E01\u0E32\u0E23\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E41\u0E1B\u0E25\u0E07\u0E02\u0E2D\u0E07\u0E23\u0E30\u0E1A\u0E1A\u0E42\u0E14\u0E22\u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E02\u0E49\u0E32 backend" }, /* @__PURE__ */ React.createElement("div", { className: "admin-audit-scroll grid gap-3" }, logs.slice(0, 80).map((log) => /* @__PURE__ */ React.createElement("div", { key: log.id || `${log.action}-${log.timestamp}`, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-sm" }, log.action || "Activity"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, log.details || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, log.by_user || "-", " / ", formatDate(log.timestamp, true))))));
     return /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement(
       Panel,
       {
@@ -1494,7 +1499,7 @@ var MaxiwaKpiApp = (() => {
         ]
       },
       /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-[1fr_360px] gap-4 lg:items-center" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold" }, "\u0E01\u0E15\u0E34\u0E01\u0E32\u0E04\u0E27\u0E1A\u0E04\u0E38\u0E21\u0E23\u0E30\u0E1A\u0E1A"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, "\u0E2B\u0E49\u0E32\u0E21\u0E41\u0E01\u0E49\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E42\u0E14\u0E22\u0E15\u0E23\u0E07 \u0E01\u0E32\u0E23\u0E41\u0E01\u0E49 master data, \u0E01\u0E0E SLA, \u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 \u0E41\u0E25\u0E30\u0E07\u0E32\u0E19\u0E14\u0E39\u0E41\u0E25\u0E23\u0E30\u0E1A\u0E1A\u0E15\u0E49\u0E2D\u0E07\u0E1C\u0E48\u0E32\u0E19 System Control \u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19")), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E43\u0E19\u0E2B\u0E21\u0E27\u0E14\u0E19\u0E35\u0E49...", value: adminSearch, onChange: (e) => setAdminSearch(e.target.value) }))
-    ), adminSection === "overview" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "mx-grid-auto" }, /* @__PURE__ */ React.createElement(MetricCard, { label: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49", value: staff.length, sub: "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E17\u0E35\u0E48\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A", icon: "fa-users" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "\u0E17\u0E35\u0E21", value: teams.length, sub: "\u0E01\u0E25\u0E38\u0E48\u0E21\u0E07\u0E32\u0E19\u0E1B\u0E0F\u0E34\u0E1A\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23", icon: "fa-people-group", accent: "var(--mx-teal)" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "\u0E01\u0E0E KPI/SLA", value: kpis.length, sub: "\u0E27\u0E31\u0E19 SLA \u0E41\u0E25\u0E30\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E04\u0E30\u0E41\u0E19\u0E19", icon: "fa-scale-balanced", accent: "var(--mx-indigo)" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14", value: holidays.length, sub: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E43\u0E19\u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 SLA", icon: "fa-calendar-days", accent: "var(--mx-amber)" })), /* @__PURE__ */ React.createElement("div", { className: "grid xl:grid-cols-2 gap-5" }, /* @__PURE__ */ React.createElement(MaintenancePanel, null), /* @__PURE__ */ React.createElement(AuditPanel, null))), adminSection === "users" && /* @__PURE__ */ React.createElement("div", { className: "grid xl:grid-cols-[0.85fr_1.15fr] gap-5" }, /* @__PURE__ */ React.createElement(UserEditor, null), /* @__PURE__ */ React.createElement(UsersList, null)), adminSection === "teams" && /* @__PURE__ */ React.createElement(TeamControls, null), adminSection === "kpi" && /* @__PURE__ */ React.createElement(KpiControls, null), adminSection === "calendar" && /* @__PURE__ */ React.createElement(CalendarControls, null), adminSection === "maintenance" && /* @__PURE__ */ React.createElement(MaintenancePanel, null), adminSection === "audit" && /* @__PURE__ */ React.createElement(AuditPanel, null));
+    ), adminSection === "overview" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "mx-grid-auto" }, /* @__PURE__ */ React.createElement(MetricCard, { label: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49", value: staff.length, sub: "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E17\u0E35\u0E48\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A", icon: "fa-users" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "\u0E17\u0E35\u0E21", value: teams.length, sub: "\u0E01\u0E25\u0E38\u0E48\u0E21\u0E07\u0E32\u0E19\u0E1B\u0E0F\u0E34\u0E1A\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23", icon: "fa-people-group", accent: "var(--mx-teal)" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "\u0E01\u0E0E KPI/SLA", value: kpis.length, sub: "\u0E27\u0E31\u0E19 SLA \u0E41\u0E25\u0E30\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E04\u0E30\u0E41\u0E19\u0E19", icon: "fa-scale-balanced", accent: "var(--mx-indigo)" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14", value: holidays.length, sub: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E43\u0E19\u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 SLA", icon: "fa-calendar-days", accent: "var(--mx-amber)" })), /* @__PURE__ */ React.createElement("div", { className: "grid xl:grid-cols-2 gap-5 items-start" }, /* @__PURE__ */ React.createElement(MaintenancePanel, null), /* @__PURE__ */ React.createElement(AuditPanel, null))), adminSection === "users" && /* @__PURE__ */ React.createElement("div", { className: "grid xl:grid-cols-[0.85fr_1.15fr] gap-5" }, /* @__PURE__ */ React.createElement(UserEditor, null), /* @__PURE__ */ React.createElement(UsersList, null)), adminSection === "teams" && /* @__PURE__ */ React.createElement(TeamControls, null), adminSection === "kpi" && /* @__PURE__ */ React.createElement(KpiControls, null), adminSection === "calendar" && /* @__PURE__ */ React.createElement(CalendarControls, null), adminSection === "maintenance" && /* @__PURE__ */ React.createElement(MaintenancePanel, null), adminSection === "audit" && /* @__PURE__ */ React.createElement(AuditPanel, null));
   }
   function App() {
     var _a, _b;
@@ -1716,7 +1721,7 @@ var MaxiwaKpiApp = (() => {
       URL.revokeObjectURL(url);
     };
     const handleNavigate = (nextView) => {
-      if (nextView === "create" && view === "dashboard" && user.role === "Staff") {
+      if (nextView === "create" && ["dashboard", "my-dashboard"].includes(view) && ["Staff", "Lead"].includes(user.role)) {
         setShowDashboardCreate(true);
         return;
       }
@@ -1732,10 +1737,11 @@ var MaxiwaKpiApp = (() => {
     if (!user) {
       return /* @__PURE__ */ React.createElement(LoginScreenPro, { onLogin: handleLogin, loading: loginLoading, error: loginError, theme, onToggleTheme: toggleTheme });
     }
-    const showFilterBar = ["executive", "dashboard", "tasks"].includes(view);
+    const showFilterBar = ["executive", "dashboard", "tasks", "my-dashboard", "my-tasks"].includes(view);
     const peopleForAssign = ((_a = state.people) == null ? void 0 : _a.length) ? state.people : ((_b = state.admin) == null ? void 0 : _b.staff) || [];
-    const pageTitle = view === "executive" ? "Executive View" : view === "dashboard" ? user.role === "Manager" ? "Executive Dashboard" : user.role === "Lead" ? "Team Command Center" : user.role === "Admin" ? "System Control Center" : "My Work Dashboard" : view === "tasks" ? "Task Center" : view === "create" ? "Create Task" : view === "assign" ? "Assignment Center" : view === "people" ? "People Overview" : view === "tracker" ? "Job Tracker" : view === "admin" ? "\u0E04\u0E27\u0E1A\u0E04\u0E38\u0E21\u0E23\u0E30\u0E1A\u0E1A" : "MAXIWA KPI";
-    const pageSubtitle = view === "executive" ? "Board-ready view for SLA risk, weighted KPI health, team performance, and critical work." : view === "dashboard" ? "KPI, SLA, \u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07 \u0E41\u0E25\u0E30\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E1C\u0E25\u0E07\u0E32\u0E19\u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32\u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01" : view === "tasks" ? "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19 \u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E2A\u0E16\u0E32\u0E19\u0E30 \u0E41\u0E25\u0E30\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A SLA" : view === "tracker" ? "\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E41\u0E25\u0E30\u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19\u0E08\u0E32\u0E01\u0E23\u0E2B\u0E31\u0E2A\u0E07\u0E32\u0E19" : view === "admin" ? "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 \u0E17\u0E35\u0E21 KPI/SLA \u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14 \u0E07\u0E32\u0E19\u0E14\u0E39\u0E41\u0E25\u0E23\u0E30\u0E1A\u0E1A \u0E41\u0E25\u0E30 audit log \u0E1C\u0E48\u0E32\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E40\u0E14\u0E35\u0E22\u0E27" : "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19\u0E41\u0E25\u0E30\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E17\u0E35\u0E48\u0E40\u0E01\u0E35\u0E48\u0E22\u0E27\u0E02\u0E49\u0E2D\u0E07\u0E01\u0E31\u0E1A\u0E1A\u0E17\u0E1A\u0E32\u0E17\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13";
+    const personalWorkUser = user.role === "Lead" ? { ...user, role: "Staff" } : user;
+    const pageTitle = view === "executive" ? "Executive View" : view === "my-dashboard" ? "My Dashboard" : view === "my-tasks" ? "My Tasks" : view === "dashboard" ? user.role === "Manager" ? "Executive Dashboard" : user.role === "Lead" ? "Team Command Center" : user.role === "Admin" ? "System Control Center" : "My Work Dashboard" : view === "tasks" ? "Task Center" : view === "create" ? "Create Task" : view === "assign" ? "Assignment Center" : view === "people" ? "People Overview" : view === "tracker" ? "Job Tracker" : view === "admin" ? "\u0E04\u0E27\u0E1A\u0E04\u0E38\u0E21\u0E23\u0E30\u0E1A\u0E1A" : "MAXIWA KPI";
+    const pageSubtitle = view === "executive" ? "Board-ready view for SLA risk, weighted KPI health, team performance, and critical work." : view === "my-dashboard" ? "\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A Lead \u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19 Staff: KPI, SLA, \u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07 \u0E41\u0E25\u0E30 action \u0E1B\u0E23\u0E30\u0E08\u0E33\u0E27\u0E31\u0E19" : view === "my-tasks" ? "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07 \u0E1E\u0E23\u0E49\u0E2D\u0E21 action \u0E41\u0E1A\u0E1A\u0E1C\u0E39\u0E49\u0E1B\u0E0F\u0E34\u0E1A\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19" : view === "dashboard" ? "KPI, SLA, \u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07 \u0E41\u0E25\u0E30\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E1C\u0E25\u0E07\u0E32\u0E19\u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32\u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01" : view === "tasks" ? "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19 \u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E2A\u0E16\u0E32\u0E19\u0E30 \u0E41\u0E25\u0E30\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A SLA" : view === "tracker" ? "\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E41\u0E25\u0E30\u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19\u0E08\u0E32\u0E01\u0E23\u0E2B\u0E31\u0E2A\u0E07\u0E32\u0E19" : view === "admin" ? "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 \u0E17\u0E35\u0E21 KPI/SLA \u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14 \u0E07\u0E32\u0E19\u0E14\u0E39\u0E41\u0E25\u0E23\u0E30\u0E1A\u0E1A \u0E41\u0E25\u0E30 audit log \u0E1C\u0E48\u0E32\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E40\u0E14\u0E35\u0E22\u0E27" : "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19\u0E41\u0E25\u0E30\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E17\u0E35\u0E48\u0E40\u0E01\u0E35\u0E48\u0E22\u0E27\u0E02\u0E49\u0E2D\u0E07\u0E01\u0E31\u0E1A\u0E1A\u0E17\u0E1A\u0E32\u0E17\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13";
     const activePeriodLabel = showFilterBar ? `${filterMonth === 0 ? "\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19" : MONTH_NAMES[filterMonth - 1]} ${filterYear}` : user.team;
     return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen p-4 md:p-6" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[1640px] mx-auto grid xl:grid-cols-[320px_1fr] gap-5 items-start" }, /* @__PURE__ */ React.createElement(
       Sidebar,
@@ -1748,7 +1754,7 @@ var MaxiwaKpiApp = (() => {
         adminSection,
         setAdminSection
       }
-    ), /* @__PURE__ */ React.createElement("main", { className: "grid content-start gap-5" }, /* @__PURE__ */ React.createElement("header", { className: "mx-shell-card overflow-visible" }, /* @__PURE__ */ React.createElement("div", { className: "px-5 py-5 md:px-6 md:py-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "mx-brand-pill inline-flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-[0.16em]" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-gauge-high" }), " MAXIWA KPI"), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-user" }), user.role), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-completed" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-building-user" }), user.team)), /* @__PURE__ */ React.createElement("h1", { className: "mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal" }, pageTitle), /* @__PURE__ */ React.createElement("p", { className: "mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]" }, pageSubtitle)), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center xl:justify-end gap-2" }, ["Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2", onClick: openExecutiveView, title: "Open Executive View" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-display" }), /* @__PURE__ */ React.createElement("span", null, "Executive View")), /* @__PURE__ */ React.createElement(ThemeToggle, { theme, onToggle: toggleTheme }), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3 relative", onClick: () => setShowNotif((v) => !v), title: "Notifications", "aria-label": "Notifications" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-bell" }), notifications.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center" }, notifications.length > 9 ? "9+" : notifications.length)), showNotif && /* @__PURE__ */ React.createElement("div", { className: "absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold mb-3 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("span", null, "\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ React.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", onClick: () => setShowNotif(false) }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-xmark" }))), notifications.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ React.createElement("div", { className: "grid gap-2 max-h-72 overflow-y-auto" }, notifications.slice(0, 10).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, className: "rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-2 text-sm" }, /* @__PURE__ */ React.createElement("i", { className: `fa-solid ${n.icon} mt-0.5 flex-shrink-0`, style: { color: n.color } }), /* @__PURE__ */ React.createElement("span", null, n.message))))))), view === "tasks" && state.tasks.length > 0 && /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: downloadCSV, title: "Export CSV" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-file-csv mr-1" }), "CSV"), (state.loading || actionLoading) && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-pending" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-rotate-right fa-spin" }), "Loading")))), /* @__PURE__ */ React.createElement("div", { className: "border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("span", { className: "w-9 h-9 rounded-lg mx-brand-mark grid place-items-center" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-calendar-check text-[var(--mx-accent)]" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-[0.14em] font-extrabold" }, "Current Scope"), /* @__PURE__ */ React.createElement("div", { className: "mt-0.5 text-[var(--mx-text)] font-bold" }, activePeriodLabel))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, showFilterBar && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("main", { className: "grid content-start gap-5" }, /* @__PURE__ */ React.createElement("header", { className: "mx-shell-card overflow-visible" }, /* @__PURE__ */ React.createElement("div", { className: "px-5 py-5 md:px-6 md:py-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "mx-brand-pill inline-flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-[0.16em]" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-gauge-high" }), " MAXIWA KPI"), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-user" }), user.role), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-completed" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-building-user" }), user.team)), /* @__PURE__ */ React.createElement("h1", { className: "mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal" }, pageTitle), /* @__PURE__ */ React.createElement("p", { className: "mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]" }, pageSubtitle)), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center xl:justify-end gap-2" }, ["Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2", onClick: openExecutiveView, title: "Open Executive View" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-display" }), /* @__PURE__ */ React.createElement("span", null, "Executive View")), /* @__PURE__ */ React.createElement(ThemeToggle, { theme, onToggle: toggleTheme }), /* @__PURE__ */ React.createElement("div", { className: "relative" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3 relative", onClick: () => setShowNotif((v) => !v), title: "Notifications", "aria-label": "Notifications" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-bell" }), notifications.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center" }, notifications.length > 9 ? "9+" : notifications.length)), showNotif && /* @__PURE__ */ React.createElement("div", { className: "absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold mb-3 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("span", null, "\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ React.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", onClick: () => setShowNotif(false) }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-xmark" }))), notifications.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ React.createElement("div", { className: "grid gap-2 max-h-72 overflow-y-auto" }, notifications.slice(0, 10).map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, className: "rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-2 text-sm" }, /* @__PURE__ */ React.createElement("i", { className: `fa-solid ${n.icon} mt-0.5 flex-shrink-0`, style: { color: n.color } }), /* @__PURE__ */ React.createElement("span", null, n.message))))))), ["tasks", "my-tasks"].includes(view) && state.tasks.length > 0 && /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: downloadCSV, title: "Export CSV" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-file-csv mr-1" }), "CSV"), (state.loading || actionLoading) && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-pending" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-rotate-right fa-spin" }), "Loading")))), /* @__PURE__ */ React.createElement("div", { className: "border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("span", { className: "w-9 h-9 rounded-lg mx-brand-mark grid place-items-center" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-calendar-check text-[var(--mx-accent)]" })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[11px] uppercase tracking-[0.14em] font-extrabold" }, "Current Scope"), /* @__PURE__ */ React.createElement("div", { className: "mt-0.5 text-[var(--mx-text)] font-bold" }, activePeriodLabel))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, showFilterBar && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "select",
       {
         className: "mx-select !w-[160px] !py-2 !text-sm",
@@ -1779,6 +1785,7 @@ var MaxiwaKpiApp = (() => {
       {
         user,
         people: peopleForAssign,
+        mode: "personal",
         onSaved: () => {
           reloadTasks();
           reloadDashboard();
@@ -1804,6 +1811,17 @@ var MaxiwaKpiApp = (() => {
         onStatusChange: handleStatusChange,
         onNavigate: handleNavigate
       }
+    ), view === "my-dashboard" && /* @__PURE__ */ React.createElement(
+      DashboardView,
+      {
+        user: personalWorkUser,
+        data: state.dashboard,
+        filterMonth,
+        filterYear,
+        onAccept: handleAccept,
+        onStatusChange: handleStatusChange,
+        onNavigate: handleNavigate
+      }
     ), view === "tasks" && /* @__PURE__ */ React.createElement(
       TaskCenterView,
       {
@@ -1814,10 +1832,20 @@ var MaxiwaKpiApp = (() => {
         onDelete: handleDelete,
         onRefresh: reloadTasks
       }
-    ), view === "create" && /* @__PURE__ */ React.createElement(QuickCreateView, { user, people: peopleForAssign, onSaved: () => {
+    ), view === "my-tasks" && /* @__PURE__ */ React.createElement(
+      TaskCenterView,
+      {
+        user: personalWorkUser,
+        tasks: state.tasks,
+        onAccept: handleAccept,
+        onStatusChange: handleStatusChange,
+        onDelete: handleDelete,
+        onRefresh: reloadTasks
+      }
+    ), view === "create" && /* @__PURE__ */ React.createElement(QuickCreateView, { user, people: peopleForAssign, mode: "personal", onSaved: () => {
       reloadTasks();
       reloadDashboard();
-    } }), view === "assign" && /* @__PURE__ */ React.createElement(QuickCreateView, { user, people: peopleForAssign, onSaved: () => {
+    } }), view === "assign" && /* @__PURE__ */ React.createElement(QuickCreateView, { user, people: peopleForAssign, mode: "assign", onSaved: () => {
       reloadTasks();
       reloadDashboard();
       reloadPeople();

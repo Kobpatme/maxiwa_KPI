@@ -15,34 +15,37 @@ const MONTH_NAMES = [
 
 const NAV_BY_ROLE = {
   Staff: [
-    { id: 'dashboard', label: 'My Dashboard', icon: 'fa-chart-line' },
-    { id: 'tasks', label: 'My Tasks', icon: 'fa-list-check' },
-    { id: 'create', label: 'Create Task', icon: 'fa-square-plus' },
-    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project' },
+    { id: 'dashboard', label: 'My Dashboard', icon: 'fa-chart-line', group: 'งานของฉัน' },
+    { id: 'tasks', label: 'My Tasks', icon: 'fa-list-check', group: 'งานของฉัน' },
+    { id: 'create', label: 'Create Task', icon: 'fa-square-plus', group: 'งานของฉัน' },
+    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
   ],
   Lead: [
-    { id: 'dashboard', label: 'Team Command', icon: 'fa-chart-line' },
-    { id: 'tasks', label: 'Team Tasks', icon: 'fa-list-check' },
-    { id: 'assign', label: 'Assign Task', icon: 'fa-user-plus' },
-    { id: 'people', label: 'Team People', icon: 'fa-users' },
-    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project' },
+    { id: 'my-dashboard', label: 'My Dashboard', icon: 'fa-chart-line', group: 'งานของฉัน' },
+    { id: 'my-tasks', label: 'My Tasks', icon: 'fa-list-check', group: 'งานของฉัน' },
+    { id: 'create', label: 'Create Task', icon: 'fa-square-plus', group: 'งานของฉัน' },
+    { id: 'dashboard', label: 'Team Command', icon: 'fa-people-roof', group: 'บริหารทีม' },
+    { id: 'tasks', label: 'Team Tasks', icon: 'fa-list-check', group: 'บริหารทีม' },
+    { id: 'assign', label: 'Assign Task', icon: 'fa-user-plus', group: 'บริหารทีม' },
+    { id: 'people', label: 'Team People', icon: 'fa-users', group: 'บริหารทีม' },
+    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
   ],
   Manager: [
-    { id: 'dashboard', label: 'Operations Dashboard', icon: 'fa-chart-line' },
-    { id: 'tasks', label: 'Task Center', icon: 'fa-list-check' },
-    { id: 'assign', label: 'Assign Task', icon: 'fa-user-plus' },
-    { id: 'people', label: 'People', icon: 'fa-users-viewfinder' },
-    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project' },
-    { id: 'admin', label: 'System Control', icon: 'fa-shield-halved' },
+    { id: 'dashboard', label: 'Operations Dashboard', icon: 'fa-chart-line', group: 'บริหารองค์กร' },
+    { id: 'tasks', label: 'Task Center', icon: 'fa-list-check', group: 'บริหารองค์กร' },
+    { id: 'assign', label: 'Assign Task', icon: 'fa-user-plus', group: 'บริหารองค์กร' },
+    { id: 'people', label: 'People', icon: 'fa-users-viewfinder', group: 'บริหารองค์กร' },
+    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
+    { id: 'admin', label: 'System Control', icon: 'fa-shield-halved', group: 'ระบบ' },
   ],
   Admin: [
-    { id: 'dashboard', label: 'System Dashboard', icon: 'fa-chart-line' },
-    { id: 'admin', label: 'System Control', icon: 'fa-shield-halved' },
-    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project' },
+    { id: 'dashboard', label: 'System Dashboard', icon: 'fa-chart-line', group: 'ระบบ' },
+    { id: 'admin', label: 'System Control', icon: 'fa-shield-halved', group: 'ระบบ' },
+    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
   ],
 };
 
-const ROLE_HOME = { Staff: 'dashboard', Lead: 'dashboard', Manager: 'dashboard', Admin: 'dashboard' };
+const ROLE_HOME = { Staff: 'dashboard', Lead: 'my-dashboard', Manager: 'dashboard', Admin: 'dashboard' };
 
 function cn(...values) {
   return values.filter(Boolean).join(' ');
@@ -580,69 +583,80 @@ function Sidebar({ user, view, setView, onLogout, notifCount = 0, adminSection =
 
       <div className="mt-6 text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Navigation</div>
       <div className="mt-3 grid gap-2">
-        {navItems.map((item) => {
+        {navItems.map((item, index) => {
           const isSystemControl = item.id === 'admin';
+          const showGroup = item.group && item.group !== navItems[index - 1]?.group;
+          const groupLabel = showGroup ? (
+            <div className="pt-3 first:pt-0 text-[10px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">
+              {item.group}
+            </div>
+          ) : null;
           if (isSystemControl) {
             return (
-              <div key={item.id} className="grid gap-2">
-                <button
-                  onClick={() => {
-                    setExpanded((current) => !current);
-                    setView('admin');
-                  }}
-                  className={cn(
-                    'mx-btn text-left flex items-center gap-3 px-4 py-4 rounded-[18px]',
-                    view === item.id ? 'mx-nav-active' : 'bg-transparent border border-transparent'
+              <React.Fragment key={item.id}>
+                {groupLabel}
+                <div className="grid gap-2">
+                  <button
+                    onClick={() => {
+                      setExpanded((current) => !current);
+                      setView('admin');
+                    }}
+                    className={cn(
+                      'mx-btn text-left flex items-center gap-3 px-4 py-4 rounded-[18px]',
+                      view === item.id ? 'mx-nav-active' : 'bg-transparent border border-transparent'
+                    )}
+                  >
+                    <i className={`fa-solid ${item.icon} w-5 text-center text-[var(--mx-accent-2)]`}></i>
+                    <span className="flex-1">{item.label}</span>
+                    <i className={cn('fa-solid fa-chevron-right text-xs transition-transform', expanded ? 'rotate-90' : '')}></i>
+                  </button>
+                  {expanded && (
+                    <div className="ml-4 pl-3 border-l border-[var(--mx-line)] grid gap-1">
+                      {SYSTEM_CONTROL_SECTIONS.map((section) => (
+                        <button
+                          key={section.id}
+                          onClick={() => {
+                            setView('admin');
+                            setAdminSection(section.id);
+                          }}
+                          className={cn(
+                            'mx-btn text-left flex items-center gap-3 px-3 py-3 rounded-[14px] text-sm',
+                            view === 'admin' && adminSection === section.id
+                              ? 'mx-nav-active'
+                              : 'bg-transparent border border-transparent'
+                          )}
+                        >
+                          <i className={`fa-solid ${section.icon} w-4 text-center text-[var(--mx-accent-2)]`}></i>
+                          <span className="truncate">{section.label}</span>
+                        </button>
+                      ))}
+                    </div>
                   )}
-                >
-                  <i className={`fa-solid ${item.icon} w-5 text-center text-[var(--mx-accent-2)]`}></i>
-                  <span className="flex-1">{item.label}</span>
-                  <i className={cn('fa-solid fa-chevron-right text-xs transition-transform', expanded ? 'rotate-90' : '')}></i>
-                </button>
-                {expanded && (
-                  <div className="ml-4 pl-3 border-l border-[var(--mx-line)] grid gap-1">
-                    {SYSTEM_CONTROL_SECTIONS.map((section) => (
-                      <button
-                        key={section.id}
-                        onClick={() => {
-                          setView('admin');
-                          setAdminSection(section.id);
-                        }}
-                        className={cn(
-                          'mx-btn text-left flex items-center gap-3 px-3 py-3 rounded-[14px] text-sm',
-                          view === 'admin' && adminSection === section.id
-                            ? 'mx-nav-active'
-                            : 'bg-transparent border border-transparent'
-                        )}
-                      >
-                        <i className={`fa-solid ${section.icon} w-4 text-center text-[var(--mx-accent-2)]`}></i>
-                        <span className="truncate">{section.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                </div>
+              </React.Fragment>
             );
           }
           return (
-            <button
-              key={item.id}
-              onClick={() => setView(item.id)}
-              className={cn(
-                'mx-btn text-left flex items-center gap-3 px-4 py-4 rounded-[18px]',
-                view === item.id
-                  ? 'mx-nav-active'
-                  : 'bg-transparent border border-transparent'
-              )}
-            >
-              <i className={`fa-solid ${item.icon} w-5 text-center text-[var(--mx-accent-2)]`}></i>
-              <span>{item.label}</span>
-              {item.id === 'tasks' && notifCount > 0 && (
-                <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-black">
-                  {notifCount}
-                </span>
-              )}
-            </button>
+            <React.Fragment key={item.id}>
+              {groupLabel}
+              <button
+                onClick={() => setView(item.id)}
+                className={cn(
+                  'mx-btn text-left flex items-center gap-3 px-4 py-4 rounded-[18px]',
+                  view === item.id
+                    ? 'mx-nav-active'
+                    : 'bg-transparent border border-transparent'
+                )}
+              >
+                <i className={`fa-solid ${item.icon} w-5 text-center text-[var(--mx-accent-2)]`}></i>
+                <span>{item.label}</span>
+                {['tasks', 'my-tasks'].includes(item.id) && notifCount > 0 && (
+                  <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-black">
+                    {notifCount}
+                  </span>
+                )}
+              </button>
+            </React.Fragment>
           );
         })}
       </div>
@@ -820,7 +834,7 @@ function useAppData(user, view) {
     safeSet({ loading: true, error: '' });
     const monthParam = filterMonth === 0 ? null : filterMonth;
     try {
-      if (user.role === 'Staff') {
+      if (user.role === 'Staff' || view === 'my-dashboard') {
         const res = await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
         safeSet({ dashboard: { tasks: res.tasks || res || [] }, loading: false });
         return;
@@ -852,14 +866,14 @@ function useAppData(user, view) {
     } catch (e) {
       safeSet({ loading: false, error: e.message || 'โหลด dashboard ไม่สำเร็จ' });
     }
-  }, [user, filterMonth, filterYear]);
+  }, [user, view, filterMonth, filterYear]);
 
   const loadTasks = useCallback(async () => {
     if (!user) return;
     safeSet({ loading: true, error: '' });
     const monthParam = filterMonth === 0 ? null : filterMonth;
     try {
-      if (user.role === 'Staff') {
+      if (user.role === 'Staff' || view === 'my-tasks') {
         const res = await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
         safeSet({ tasks: res.tasks || res || [], loading: false });
         return;
@@ -870,7 +884,7 @@ function useAppData(user, view) {
     } catch (e) {
       safeSet({ loading: false, error: e.message || 'โหลด tasks ไม่สำเร็จ' });
     }
-  }, [user, filterMonth, filterYear]);
+  }, [user, view, filterMonth, filterYear]);
 
   const loadPeople = useCallback(async () => {
     if (!user) return;
@@ -915,8 +929,8 @@ function useAppData(user, view) {
   useEffect(() => {
     if (!user) return;
     if (view === 'executive') loadDashboard();
-    if (view === 'dashboard') loadDashboard();
-    if (view === 'tasks') loadTasks();
+    if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard();
+    if (['tasks', 'my-tasks'].includes(view)) loadTasks();
     if (view === 'people') loadPeople();
     if (view === 'assign') loadPeople();
     if (view === 'admin') loadAdmin();
@@ -927,8 +941,8 @@ function useAppData(user, view) {
     if (!user || !window.subscribeToRealtime) return;
     window.subscribeToRealtime('tasks', () => {
       if (view === 'executive') loadDashboard();
-      if (view === 'dashboard') loadDashboard();
-      if (view === 'tasks') loadTasks();
+      if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard();
+      if (['tasks', 'my-tasks'].includes(view)) loadTasks();
     });
     return () => { if (window.unsubscribeFromRealtime) window.unsubscribeFromRealtime('tasks'); };
   }, [user, view]);
@@ -2062,27 +2076,27 @@ function ExtraDataFields({ subkpi, extraData, onChange, hideSsr = false }) {
 }
 
 // ─── Quick Create / Assign Task ────────────────────────────────────────────────
-function QuickCreateView({ user, people, onSaved }) {
-  const isStaff = user.role === 'Staff';
+function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
+  const isPersonalTask = user.role === 'Staff' || mode === 'personal';
 
-  // KPIs: filter by user's team for Staff, all for Lead/Manager
+  // KPIs: filter by user's team for personal tasks, assignee team for assignment.
   const teamKpis = useMemo(() => {
     const kpis = user?.kpis || [];
-    if (isStaff) return kpis.filter((k) => !k.team || k.team === user.team);
+    if (isPersonalTask) return kpis.filter((k) => !k.team || k.team === user.team);
     return kpis;
-  }, [user, isStaff]);
+  }, [user, isPersonalTask]);
 
   const [loadedStaffKpis, setLoadedStaffKpis] = useState([]);
   useEffect(() => {
-    if (!isStaff) return;
+    if (!isPersonalTask) return;
     API.getKPIsByTeam(user.team).then((res) => {
       if (res && res.kpis && res.kpis.length > 0) setLoadedStaffKpis(res.kpis);
     }).catch(() => {});
-  }, [user.team, isStaff]);
+  }, [user.team, isPersonalTask]);
 
   const [form, setForm] = useState({
     job: '', note: '', subkpi: '', mainkpi: '', deadline: '',
-    assignedToName: isStaff ? user.name : '',
+    assignedToName: isPersonalTask ? user.name : '',
     assignedToTeam: user?.team || '',
     assignedToEmpId: '',
     extra_data: {},
@@ -2094,7 +2108,7 @@ function QuickCreateView({ user, people, onSaved }) {
 
   // For Lead/Manager: when assignee changes, load their team's KPIs
   useEffect(() => {
-    if (isStaff) return;
+    if (isPersonalTask) return;
     if (!form.assignedToEmpId) { setAssigneeKpis([]); return; }
     const person = (people || []).find((p) => p.empId === form.assignedToEmpId);
     if (!person) return;
@@ -2102,9 +2116,9 @@ function QuickCreateView({ user, people, onSaved }) {
     API.getKPIsByTeam(person.team)
       .then((res) => setAssigneeKpis(res.kpis || []))
       .catch(() => setAssigneeKpis([]));
-  }, [form.assignedToEmpId, isStaff, people]);
+  }, [form.assignedToEmpId, isPersonalTask, people]);
 
-  const activeKpis = isStaff ? (loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis) : assigneeKpis;
+  const activeKpis = isPersonalTask ? (loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis) : assigneeKpis;
 
   const handleSubKpiChange = async (subkpi) => {
     if (!subkpi) {
@@ -2116,7 +2130,7 @@ function QuickCreateView({ user, people, onSaved }) {
 
     setLoadingDeadline(true);
     try {
-      const targetTeam = isStaff ? user.team : form.assignedToTeam;
+      const targetTeam = isPersonalTask ? user.team : form.assignedToTeam;
       const res = await API.calculateDeadlinePreview({
         team: targetTeam,
         subkpi,
@@ -2132,12 +2146,12 @@ function QuickCreateView({ user, people, onSaved }) {
   const handleSave = async () => {
     if (!form.job.trim()) return alert('กรุณาระบุ job');
     if (!form.subkpi.trim()) return alert('กรุณาเลือก Sub KPI');
-    if (!isStaff && !form.assignedToName.trim()) return alert('กรุณาเลือกผู้รับผิดชอบ');
+    if (!isPersonalTask && !form.assignedToName.trim()) return alert('กรุณาเลือกผู้รับผิดชอบ');
     setSaving(true);
     setSaveResult('');
     try {
       let res;
-      if (isStaff) {
+      if (isPersonalTask) {
         res = await API.saveNewTask({
           name: user.name, team: user.team, empId: user.empId,
           job: form.job, subkpi: form.subkpi, mainkpi: form.mainkpi,
@@ -2160,7 +2174,7 @@ function QuickCreateView({ user, people, onSaved }) {
       setSaveResult(msg);
       setForm({
         job: '', note: '', subkpi: '', mainkpi: '', deadline: '',
-        assignedToName: isStaff ? user.name : '',
+        assignedToName: isPersonalTask ? user.name : '',
         assignedToTeam: user.team,
         assignedToEmpId: '',
         extra_data: {},
@@ -2176,8 +2190,8 @@ function QuickCreateView({ user, people, onSaved }) {
 
   return (
     <Panel
-      title={isStaff ? 'Create Personal Task' : 'Assign Task'}
-      subtitle={isStaff ? 'สร้างงานของตัวเองจาก shell ใหม่' : 'มอบหมายงานได้ครั้งละหลาย Job (แต่ละบรรทัด = 1 งาน)'}
+      title={isPersonalTask ? 'Create Personal Task' : 'Assign Task'}
+      subtitle={isPersonalTask ? 'สร้างงานของตัวเองจาก shell ใหม่' : 'มอบหมายงานได้ครั้งละหลาย Job (แต่ละบรรทัด = 1 งาน)'}
     >
       {saveResult && (
         <div className="mb-4 rounded-[14px] p-3 mx-status-completed text-sm font-bold">
@@ -2185,7 +2199,7 @@ function QuickCreateView({ user, people, onSaved }) {
         </div>
       )}
       <div className="grid md:grid-cols-2 gap-4">
-        {isStaff && (
+        {isPersonalTask && (
           <div className="md:col-span-2">
             <label className="block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]">SSR Number</label>
             <input
@@ -2200,17 +2214,17 @@ function QuickCreateView({ user, people, onSaved }) {
         <div className="md:col-span-2">
           <label className="block mb-2 text-sm font-bold">
             Job / รายละเอียดงาน
-            {!isStaff && <span className="ml-2 text-xs text-[var(--mx-muted)] font-normal">(แต่ละบรรทัด = 1 งาน)</span>}
+            {!isPersonalTask && <span className="ml-2 text-xs text-[var(--mx-muted)] font-normal">(แต่ละบรรทัด = 1 งาน)</span>}
           </label>
           <textarea
             className="mx-textarea min-h-[110px]"
             value={form.job}
             onChange={(e) => setForm((p) => ({ ...p, job: e.target.value }))}
-            placeholder={isStaff ? 'ระบุ job หรือรายละเอียดงาน' : 'Job 1\nJob 2\nJob 3 (แต่ละบรรทัดจะสร้างเป็น 1 งาน)'}
+            placeholder={isPersonalTask ? 'ระบุ job หรือรายละเอียดงาน' : 'Job 1\nJob 2\nJob 3 (แต่ละบรรทัดจะสร้างเป็น 1 งาน)'}
           />
         </div>
 
-        {!isStaff && (
+        {!isPersonalTask && (
           <div className="md:col-span-2">
             <label className="block mb-2 text-sm font-bold">ผู้รับผิดชอบ</label>
             <select
@@ -2242,7 +2256,7 @@ function QuickCreateView({ user, people, onSaved }) {
               className="mx-input"
               value={form.subkpi}
               onChange={(e) => setForm((p) => ({ ...p, subkpi: e.target.value }))}
-              placeholder={isStaff ? 'Sub KPI' : 'เลือกผู้รับผิดชอบก่อน'}
+              placeholder={isPersonalTask ? 'Sub KPI' : 'เลือกผู้รับผิดชอบก่อน'}
             />
           )}
         </div>
@@ -2261,7 +2275,7 @@ function QuickCreateView({ user, people, onSaved }) {
           subkpi={form.subkpi}
           extraData={form.extra_data}
           onChange={(ed) => setForm((p) => ({ ...p, extra_data: ed }))}
-          hideSsr={isStaff}
+          hideSsr={isPersonalTask}
         />
 
         <div>
@@ -2274,7 +2288,7 @@ function QuickCreateView({ user, people, onSaved }) {
           />
         </div>
 
-        {isStaff && (
+        {isPersonalTask && (
           <div className="md:col-span-2">
             <label className="block mb-2 text-sm font-bold">Note (optional)</label>
             <textarea
@@ -2289,7 +2303,7 @@ function QuickCreateView({ user, people, onSaved }) {
 
       <div className="mt-5">
         <button className="mx-btn mx-btn-primary" disabled={saving} onClick={handleSave}>
-          {saving ? 'กำลังบันทึก...' : isStaff ? 'Create Task' : 'Assign Task'}
+          {saving ? 'กำลังบันทึก...' : isPersonalTask ? 'Create Task' : 'Assign Task'}
         </button>
       </div>
     </Panel>
@@ -2627,7 +2641,7 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
 
   const AuditPanel = () => (
     <Panel title="ประวัติการแก้ไข" subtitle="ตรวจสอบการเปลี่ยนแปลงของระบบโดยไม่ต้องเข้า backend">
-      <div className="grid gap-3">
+      <div className="admin-audit-scroll grid gap-3">
         {logs.slice(0, 80).map((log) => (
           <div key={log.id || `${log.action}-${log.timestamp}`} className="mx-data-card">
             <div className="font-bold text-sm">{log.action || 'Activity'}</div>
@@ -2669,7 +2683,7 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
               <MetricCard label="กฎ KPI/SLA" value={kpis.length} sub="วัน SLA และน้ำหนักคะแนน" icon="fa-scale-balanced" accent="var(--mx-indigo)" />
               <MetricCard label="วันหยุด" value={holidays.length} sub="ข้อมูลในปฏิทิน SLA" icon="fa-calendar-days" accent="var(--mx-amber)" />
             </div>
-            <div className="grid xl:grid-cols-2 gap-5">
+            <div className="grid xl:grid-cols-2 gap-5 items-start">
               <MaintenancePanel />
               <AuditPanel />
             </div>
@@ -2905,7 +2919,7 @@ function App() {
   };
 
   const handleNavigate = (nextView) => {
-    if (nextView === 'create' && view === 'dashboard' && user.role === 'Staff') {
+    if (nextView === 'create' && ['dashboard', 'my-dashboard'].includes(view) && ['Staff', 'Lead'].includes(user.role)) {
       setShowDashboardCreate(true);
       return;
     }
@@ -2924,10 +2938,13 @@ function App() {
     return <LoginScreenPro onLogin={handleLogin} loading={loginLoading} error={loginError} theme={theme} onToggleTheme={toggleTheme} />;
   }
 
-  const showFilterBar = ['executive', 'dashboard', 'tasks'].includes(view);
+  const showFilterBar = ['executive', 'dashboard', 'tasks', 'my-dashboard', 'my-tasks'].includes(view);
   const peopleForAssign = state.people?.length ? state.people : state.admin?.staff || [];
+  const personalWorkUser = user.role === 'Lead' ? { ...user, role: 'Staff' } : user;
   const pageTitle =
     view === 'executive' ? 'Executive View'
+      : view === 'my-dashboard' ? 'My Dashboard'
+      : view === 'my-tasks' ? 'My Tasks'
       : view === 'dashboard'
       ? (user.role === 'Manager' ? 'Executive Dashboard' : user.role === 'Lead' ? 'Team Command Center' : user.role === 'Admin' ? 'System Control Center' : 'My Work Dashboard')
       : view === 'tasks' ? 'Task Center'
@@ -2939,6 +2956,9 @@ function App() {
       : 'MAXIWA KPI';
   const pageSubtitle =
     view === 'executive' ? 'Board-ready view for SLA risk, weighted KPI health, team performance, and critical work.'
+      :
+    view === 'my-dashboard' ? 'งานของตัวเองสำหรับ Lead ใช้งานเหมือน Staff: KPI, SLA, งานค้าง และ action ประจำวัน'
+      : view === 'my-tasks' ? 'รายการงานของตัวเอง พร้อม action แบบผู้ปฏิบัติงาน'
       :
     view === 'dashboard' ? 'KPI, SLA, งานค้าง และภาพรวมผลงานในช่วงเวลาที่เลือก'
       : view === 'tasks' ? 'จัดการรายการงาน ติดตามสถานะ และตรวจสอบ SLA'
@@ -3023,7 +3043,7 @@ function App() {
                       </div>
                     )}
                   </div>
-                  {view === 'tasks' && state.tasks.length > 0 && (
+                  {['tasks', 'my-tasks'].includes(view) && state.tasks.length > 0 && (
                     <button className="mx-btn mx-btn-soft !py-2" onClick={downloadCSV} title="Export CSV">
                       <i className="fa-solid fa-file-csv mr-1"></i>CSV
                     </button>
@@ -3091,6 +3111,7 @@ function App() {
                 <QuickCreateView
                   user={user}
                   people={peopleForAssign}
+                  mode="personal"
                   onSaved={() => {
                     reloadTasks();
                     reloadDashboard();
@@ -3120,6 +3141,17 @@ function App() {
               onNavigate={handleNavigate}
             />
           )}
+          {view === 'my-dashboard' && (
+            <DashboardView
+              user={personalWorkUser}
+              data={state.dashboard}
+              filterMonth={filterMonth}
+              filterYear={filterYear}
+              onAccept={handleAccept}
+              onStatusChange={handleStatusChange}
+              onNavigate={handleNavigate}
+            />
+          )}
           {view === 'tasks' && (
             <TaskCenterView
               user={user}
@@ -3130,11 +3162,21 @@ function App() {
               onRefresh={reloadTasks}
             />
           )}
+          {view === 'my-tasks' && (
+            <TaskCenterView
+              user={personalWorkUser}
+              tasks={state.tasks}
+              onAccept={handleAccept}
+              onStatusChange={handleStatusChange}
+              onDelete={handleDelete}
+              onRefresh={reloadTasks}
+            />
+          )}
           {view === 'create' && (
-            <QuickCreateView user={user} people={peopleForAssign} onSaved={() => { reloadTasks(); reloadDashboard(); }} />
+            <QuickCreateView user={user} people={peopleForAssign} mode="personal" onSaved={() => { reloadTasks(); reloadDashboard(); }} />
           )}
           {view === 'assign' && (
-            <QuickCreateView user={user} people={peopleForAssign} onSaved={() => { reloadTasks(); reloadDashboard(); reloadPeople(); }} />
+            <QuickCreateView user={user} people={peopleForAssign} mode="assign" onSaved={() => { reloadTasks(); reloadDashboard(); reloadPeople(); }} />
           )}
           {view === 'people' && <PeopleView user={user} people={state.people} onRefresh={reloadPeople} />}
           {view === 'tracker' && <TrackerViewNew />}
