@@ -13,6 +13,74 @@ const MONTH_NAMES = [
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
 ];
 
+const ROLE_DEFINITIONS = {
+  Staff: { scope: 'Self', level: 10, label: 'Staff' },
+  Lead: { scope: 'Team', level: 20, label: 'Lead' },
+  Manager: { scope: 'Department', level: 30, label: 'Manager' },
+  SrManager: { scope: 'Division', level: 40, label: 'Sr. Manager' },
+  Director: { scope: 'Division', level: 50, label: 'Director' },
+  Executive: { scope: 'Organization', level: 60, label: 'Executive' },
+  Admin: { scope: 'System', level: 90, label: 'System Admin' },
+};
+
+const ROLE_OPTIONS = Object.entries(ROLE_DEFINITIONS).map(([value, config]) => ({ value, label: config.label }));
+const SCOPE_OPTIONS = ['Self', 'Team', 'Department', 'Division', 'Organization', 'System'];
+const ADMIN_ROLES = ['Admin'];
+const TEAM_MANAGER_ROLES = ['Lead'];
+const DEPARTMENT_MANAGER_ROLES = ['Manager'];
+const STRATEGIC_VIEW_ROLES = ['SrManager', 'Director', 'Executive'];
+const EXECUTIVE_VIEW_ROLES = ['Manager', 'SrManager', 'Director', 'Executive', 'Admin'];
+
+function roleConfig(role) {
+  return ROLE_DEFINITIONS[role] || ROLE_DEFINITIONS.Staff;
+}
+
+function roleLabel(role) {
+  return roleConfig(role).label || role || '-';
+}
+
+function roleScope(user) {
+  const role = typeof user === 'string' ? user : user?.role;
+  return user?.accessScope || user?.scope || user?.permissions?.scope || roleConfig(role).scope;
+}
+
+function isAdminRole(role) {
+  return ADMIN_ROLES.includes(role);
+}
+
+function isTeamManagerRole(role) {
+  return TEAM_MANAGER_ROLES.includes(role);
+}
+
+function isDepartmentManagerRole(role) {
+  return DEPARTMENT_MANAGER_ROLES.includes(role);
+}
+
+function isStrategicViewRole(role) {
+  return STRATEGIC_VIEW_ROLES.includes(role);
+}
+
+function canOpenExecutiveView(role) {
+  return EXECUTIVE_VIEW_ROLES.includes(role);
+}
+
+function roleRequiresTeam(role) {
+  return ['Staff', 'Lead'].includes(role);
+}
+
+function roleRequiresDepartment(role) {
+  return ['Manager', 'SrManager', 'Director', 'Executive'].includes(role);
+}
+
+function shouldUsePersonalWork(user, view) {
+  return user?.role === 'Staff' || ['my-dashboard', 'my-tasks'].includes(view);
+}
+
+function taskScopeForUser(user) {
+  if (isTeamManagerRole(user?.role)) return user?.team || 'all';
+  return 'all';
+}
+
 const NAV_BY_ROLE = {
   Staff: [
     { id: 'dashboard', label: 'My Dashboard', icon: 'fa-chart-line', group: 'งานของฉัน' },
@@ -38,6 +106,27 @@ const NAV_BY_ROLE = {
     { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
     { id: 'admin', label: 'System Control', icon: 'fa-shield-halved', group: 'ระบบ' },
   ],
+  SrManager: [
+    { id: 'executive', label: 'Executive View', icon: 'fa-display', group: 'มุมมองผู้บริหาร' },
+    { id: 'dashboard', label: 'Division Dashboard', icon: 'fa-chart-line', group: 'มุมมองผู้บริหาร' },
+    { id: 'tasks', label: 'Work Portfolio', icon: 'fa-list-check', group: 'มุมมองผู้บริหาร' },
+    { id: 'people', label: 'People Overview', icon: 'fa-users-viewfinder', group: 'มุมมองผู้บริหาร' },
+    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
+  ],
+  Director: [
+    { id: 'executive', label: 'Executive View', icon: 'fa-display', group: 'มุมมองผู้บริหาร' },
+    { id: 'dashboard', label: 'Director Dashboard', icon: 'fa-chart-line', group: 'มุมมองผู้บริหาร' },
+    { id: 'tasks', label: 'Work Portfolio', icon: 'fa-list-check', group: 'มุมมองผู้บริหาร' },
+    { id: 'people', label: 'People Overview', icon: 'fa-users-viewfinder', group: 'มุมมองผู้บริหาร' },
+    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
+  ],
+  Executive: [
+    { id: 'executive', label: 'Executive View', icon: 'fa-display', group: 'มุมมองผู้บริหาร' },
+    { id: 'dashboard', label: 'Organization Dashboard', icon: 'fa-chart-line', group: 'มุมมองผู้บริหาร' },
+    { id: 'tasks', label: 'Work Portfolio', icon: 'fa-list-check', group: 'มุมมองผู้บริหาร' },
+    { id: 'people', label: 'People Overview', icon: 'fa-users-viewfinder', group: 'มุมมองผู้บริหาร' },
+    { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
+  ],
   Admin: [
     { id: 'dashboard', label: 'System Dashboard', icon: 'fa-chart-line', group: 'ระบบ' },
     { id: 'admin', label: 'System Control', icon: 'fa-shield-halved', group: 'ระบบ' },
@@ -45,7 +134,15 @@ const NAV_BY_ROLE = {
   ],
 };
 
-const ROLE_HOME = { Staff: 'dashboard', Lead: 'my-dashboard', Manager: 'dashboard', Admin: 'dashboard' };
+const ROLE_HOME = {
+  Staff: 'dashboard',
+  Lead: 'my-dashboard',
+  Manager: 'dashboard',
+  SrManager: 'executive',
+  Director: 'executive',
+  Executive: 'executive',
+  Admin: 'dashboard',
+};
 
 function cn(...values) {
   return values.filter(Boolean).join(' ');
@@ -212,6 +309,10 @@ function formatWeight(value) {
   const num = Number(value || 0);
   if (!Number.isFinite(num)) return '0';
   return Number.isInteger(num) ? String(num) : num.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString();
 }
 
 function formatWeightPercent(value) {
@@ -544,7 +645,6 @@ const SYSTEM_CONTROL_SECTIONS = [
   { id: 'teams', label: 'ทีมงาน', icon: 'fa-people-group' },
   { id: 'kpi', label: 'กฎ KPI/SLA', icon: 'fa-scale-balanced' },
   { id: 'calendar', label: 'ปฏิทิน SLA', icon: 'fa-calendar-days' },
-  { id: 'maintenance', label: 'ดูแลระบบ', icon: 'fa-screwdriver-wrench' },
   { id: 'audit', label: 'ประวัติการแก้ไข', icon: 'fa-shield-halved' },
 ];
 
@@ -572,11 +672,12 @@ function Sidebar({ user, view, setView, onLogout, notifCount = 0, adminSection =
           <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Signed In</div>
             <div className="mt-2 font-extrabold text-base truncate">{user?.name}</div>
-            <div className="mt-1 text-sm text-[var(--mx-muted)] truncate">{user?.role} • {user?.team}</div>
+            <div className="mt-1 text-sm text-[var(--mx-muted)] truncate">{roleLabel(user?.role)} • {user?.team}</div>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <span className="mx-badge mx-status-process">{user?.role || '-'}</span>
+          <span className="mx-badge mx-status-process">{roleLabel(user?.role)}</span>
+          <span className="mx-badge mx-status-pending">Scope: {roleScope(user)}</span>
           <span className="mx-badge mx-status-cancelled">Emp ID: {user?.empId}</span>
         </div>
       </div>
@@ -834,12 +935,12 @@ function useAppData(user, view) {
     safeSet({ loading: true, error: '' });
     const monthParam = filterMonth === 0 ? null : filterMonth;
     try {
-      if (user.role === 'Staff' || view === 'my-dashboard') {
+      if (shouldUsePersonalWork(user, view)) {
         const res = await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
         safeSet({ dashboard: { tasks: res.tasks || res || [] }, loading: false });
         return;
       }
-      if (user.role === 'Lead') {
+      if (isTeamManagerRole(user.role)) {
         const [summaryRes, tasksRes] = await Promise.all([
           API.getTeamSummaryReport(user.team, monthParam, filterYear, user.empId),
           API.getAllTasks(monthParam, filterYear, user.team, user.empId),
@@ -847,7 +948,7 @@ function useAppData(user, view) {
         safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period }, loading: false });
         return;
       }
-      if (user.role === 'Manager') {
+      if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
         const [summaryRes, tasksRes] = await Promise.all([
           API.getSummaryReport(monthParam, filterYear, user.empId),
           API.getAllTasks(monthParam, filterYear, 'all', user.empId),
@@ -873,12 +974,12 @@ function useAppData(user, view) {
     safeSet({ loading: true, error: '' });
     const monthParam = filterMonth === 0 ? null : filterMonth;
     try {
-      if (user.role === 'Staff' || view === 'my-tasks') {
+      if (shouldUsePersonalWork(user, view)) {
         const res = await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
         safeSet({ tasks: res.tasks || res || [], loading: false });
         return;
       }
-      const team = user.role === 'Lead' ? user.team : 'all';
+      const team = taskScopeForUser(user);
       const res = await API.getAllTasks(monthParam, filterYear, team, user.empId);
       safeSet({ tasks: res.tasks || [], loading: false });
     } catch (e) {
@@ -891,7 +992,8 @@ function useAppData(user, view) {
     safeSet({ loading: true, error: '' });
     try {
       let res;
-      if (user.role === 'Lead') res = await API.getAllStaffInTeam(user.team, user.empId);
+      if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
+      else if (user.role === 'Staff') res = { staff: [user] };
       else res = await API.getAllStaff(user.empId);
       safeSet({ people: res.staff || [], loading: false });
     } catch (e) {
@@ -2322,7 +2424,7 @@ function PeopleView({ user, people, onRefresh }) {
         {(people || []).map((person) => (
           <div key={`${person.empId}-${person.name}`} className="mx-data-card">
             <div className="font-bold">{person.name}</div>
-            <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team} • {person.role}</div>
+            <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.department || person.departmentId || '-'} • {person.team} • {roleLabel(person.role)}</div>
             <div className="mt-3 text-xs text-[var(--mx-muted)]">Emp ID: {person.empId}</div>
           </div>
         ))}
@@ -2334,8 +2436,8 @@ function PeopleView({ user, people, onRefresh }) {
 
 // ─── Admin Studio ──────────────────────────────────────────────────────────────
 function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', setAdminSection = () => {} }) {
-  const [userForm, setUserForm] = useState({ empid: '', name: '', team: '', role: 'Staff', pigurl: '' });
-  const [teamName, setTeamName] = useState('');
+  const [userForm, setUserForm] = useState({ empid: '', name: '', department: '', team: '', role: 'Staff', accessScope: 'Self', pigurl: '' });
+  const [teamForm, setTeamForm] = useState({ id: '', name: '' });
   const [kpiForm, setKpiForm] = useState({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
   const [holidayForm, setHolidayForm] = useState({ holiday_date: '', name: '', is_active: true });
   const [adminSearch, setAdminSearch] = useState('');
@@ -2348,9 +2450,11 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
   const logs = adminData?.logs || [];
   const q = adminSearch.trim().toLowerCase();
   const matches = (...values) => !q || values.some((value) => String(value || '').toLowerCase().includes(q));
-  const filteredStaff = staff.filter((s) => matches(s.name, s.empId, s.empid, s.team, s.role));
+  const filteredStaff = staff.filter((s) => matches(s.name, s.empId, s.empid, s.department, s.departmentId, s.team, s.role, roleScope(s)));
   const filteredKpis = kpis.filter((k) => matches(k.main, k.sub, k.team, k.days, k.main_weight));
   const filteredHolidays = holidays.filter((h) => matches(h.name, h.holiday_date, h.is_active ? 'active' : 'inactive'));
+  const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
+  const selectedRoleNeedsDepartment = roleRequiresDepartment(userForm.role);
 
   const runAdminAction = async (key, action, successMessage) => {
     setSaving(key);
@@ -2370,8 +2474,10 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
     setUserForm({
       empid: item.empId || item.empid || '',
       name: item.name || '',
+      department: item.department || item.departmentId || item.division || '',
       team: item.team || '',
       role: item.role || 'Staff',
+      accessScope: item.accessScope || item.scope || item.permissions?.scope || roleScope(item.role || 'Staff'),
       pigurl: item.pigurl || item.pigUrl || item.avatar || item.photoUrl || '',
       permissions: item.permissions || { allowedTeams: [], allowedStaff: [] },
     });
@@ -2401,15 +2507,25 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
   };
 
   const saveUser = async () => {
-    if (!userForm.empid || !userForm.name || !userForm.team || !userForm.role) return alert('กรุณากรอก Emp ID, ชื่อ, ทีม และบทบาทให้ครบ');
-    await runAdminAction('user', async () => adminPost('admin/saveUser', { ...userForm, permissions: userForm.permissions || { allowedTeams: [], allowedStaff: [] } }, user.empId), 'บันทึกผู้ใช้สำเร็จ');
-    setUserForm({ empid: '', name: '', team: '', role: 'Staff', pigurl: '' });
+    if (!userForm.empid || !userForm.name || !userForm.role) return alert('กรุณากรอก Emp ID, ชื่อ และบทบาทให้ครบ');
+    if (selectedRoleNeedsTeam && !userForm.team) return alert('กรุณาเลือกทีมสำหรับ Staff หรือ Lead');
+    if (selectedRoleNeedsDepartment && !userForm.department) return alert('กรุณากรอก Department / Division สำหรับบทบาทผู้บริหาร');
+    const accessScope = userForm.accessScope || roleScope(userForm.role);
+    const legacyTeam = userForm.team || userForm.department || accessScope;
+    const permissions = {
+      ...(userForm.permissions || {}),
+      scope: accessScope,
+      allowedTeams: userForm.permissions?.allowedTeams || [],
+      allowedStaff: userForm.permissions?.allowedStaff || [],
+    };
+    await runAdminAction('user', async () => adminPost('admin/saveUser', { ...userForm, team: legacyTeam, accessScope, permissions }, user.empId), 'บันทึกผู้ใช้สำเร็จ');
+    setUserForm({ empid: '', name: '', department: '', team: '', role: 'Staff', accessScope: 'Self', pigurl: '' });
   };
 
   const saveTeam = async () => {
-    if (!teamName.trim()) return alert('กรุณากรอกชื่อทีม');
-    await runAdminAction('team', async () => adminPost('admin/saveTeam', { name: teamName.trim() }, user.empId), 'บันทึกทีมสำเร็จ');
-    setTeamName('');
+    if (!teamForm.name.trim()) return alert('กรุณากรอกชื่อทีม');
+    await runAdminAction('team', async () => adminPost('admin/saveTeam', { id: teamForm.id || undefined, name: teamForm.name.trim() }, user.empId), 'บันทึกทีมสำเร็จ');
+    setTeamForm({ id: '', name: '' });
   };
 
   const saveKpi = async () => {
@@ -2454,7 +2570,6 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
     { id: 'teams', label: 'ทีมงาน', icon: 'fa-people-group', count: teams.length },
     { id: 'kpi', label: 'กฎ KPI/SLA', icon: 'fa-scale-balanced', count: kpis.length },
     { id: 'calendar', label: 'ปฏิทิน SLA', icon: 'fa-calendar-days', count: holidays.length },
-    { id: 'maintenance', label: 'ดูแลระบบ', icon: 'fa-screwdriver-wrench', count: logs.length },
     { id: 'audit', label: 'ประวัติการแก้ไข', icon: 'fa-shield-halved', count: logs.length },
   ];
 
@@ -2463,20 +2578,31 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
       <div className="grid gap-3">
         <input className="mx-input" placeholder="Emp ID" value={userForm.empid} onChange={(e) => setUserForm((p) => ({ ...p, empid: e.target.value.toUpperCase() }))} />
         <input className="mx-input" placeholder="ชื่อผู้ใช้" value={userForm.name} onChange={(e) => setUserForm((p) => ({ ...p, name: e.target.value }))} />
+        <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+          Department / Division {selectedRoleNeedsDepartment ? <span className="text-rose-500">Required</span> : <span>Optional</span>}
+          <input className="mx-input" placeholder="เช่น IT Division, Operations, Service" value={userForm.department} onChange={(e) => setUserForm((p) => ({ ...p, department: e.target.value }))} />
+        </label>
+        <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+          Team {selectedRoleNeedsTeam ? <span className="text-rose-500">Required</span> : <span>Optional</span>}
         <select className="mx-select" value={userForm.team} onChange={(e) => setUserForm((p) => ({ ...p, team: e.target.value }))}>
-          <option value="">เลือกทีม</option>
+          <option value="">{selectedRoleNeedsTeam ? 'เลือกทีม' : 'ไม่ผูกทีมเดียว'}</option>
           {teams.map((team) => <option key={team.id || team.name} value={team.name}>{team.name}</option>)}
         </select>
-        <select className="mx-select" value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value }))}>
-          <option value="Staff">Staff</option>
-          <option value="Lead">Lead</option>
-          <option value="Manager">Manager</option>
-          <option value="Admin">Admin</option>
+        </label>
+        <select className="mx-select" value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value, accessScope: roleScope(e.target.value) }))}>
+          {ROLE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <select className="mx-select" value={userForm.accessScope} onChange={(e) => setUserForm((p) => ({ ...p, accessScope: e.target.value }))}>
+          {SCOPE_OPTIONS.map((scope) => (
+            <option key={scope} value={scope}>Scope: {scope}</option>
+          ))}
         </select>
         <input className="mx-input" placeholder="ลิงก์รูปโปรไฟล์ (ถ้ามี)" value={userForm.pigurl} onChange={(e) => setUserForm((p) => ({ ...p, pigurl: e.target.value }))} />
         <div className="grid grid-cols-2 gap-3">
           <button className="mx-btn mx-btn-primary" onClick={saveUser} disabled={saving === 'user'}>{saving === 'user' ? 'กำลังบันทึก...' : 'บันทึกผู้ใช้'}</button>
-          <button className="mx-btn mx-btn-soft" onClick={() => setUserForm({ empid: '', name: '', team: '', role: 'Staff', pigurl: '' })}>ล้างฟอร์ม</button>
+          <button className="mx-btn mx-btn-soft" onClick={() => setUserForm({ empid: '', name: '', department: '', team: '', role: 'Staff', accessScope: 'Self', pigurl: '' })}>ล้างฟอร์ม</button>
         </div>
       </div>
     </Panel>
@@ -2490,7 +2616,7 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div>
                 <div className="font-bold">{s.name}</div>
-                <div className="mt-1 text-sm text-[var(--mx-muted)]">{s.empId || s.empid} / {s.team} / {s.role}</div>
+                <div className="mt-1 text-sm text-[var(--mx-muted)]">{s.empId || s.empid} / {s.department || s.departmentId || '-'} / {s.team} / {roleLabel(s.role)} / Scope: {roleScope(s)}</div>
               </div>
               <div className="flex gap-2">
                 <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editUser(s)}>แก้ไข</button>
@@ -2510,10 +2636,13 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
         <div className="mx-muted-card rounded-lg p-4">
           <div className="flex flex-col lg:flex-row lg:items-end gap-3">
             <div className="flex-1">
-              <div className="text-sm font-extrabold">ชื่อทีม</div>
-              <input className="mx-input mt-3" placeholder="ชื่อทีมใหม่หรือทีมที่ต้องการแก้ไข" value={teamName} onChange={(e) => setTeamName(e.target.value)} />
+              <div className="text-sm font-extrabold">{teamForm.id ? 'แก้ไขทีม' : 'เพิ่มทีมใหม่'}</div>
+              <input className="mx-input mt-3" placeholder="ชื่อทีม" value={teamForm.name} onChange={(e) => setTeamForm((p) => ({ ...p, name: e.target.value }))} />
             </div>
-            <button className="mx-btn mx-btn-primary lg:w-36" onClick={saveTeam} disabled={saving === 'team'}>{saving === 'team' ? 'กำลังบันทึก...' : 'บันทึกทีม'}</button>
+            <div className="grid grid-cols-2 lg:w-[260px] gap-2">
+              <button className="mx-btn mx-btn-primary" onClick={saveTeam} disabled={saving === 'team'}>{saving === 'team' ? 'กำลังบันทึก...' : 'บันทึกทีม'}</button>
+              <button className="mx-btn mx-btn-soft" onClick={() => setTeamForm({ id: '', name: '' })}>ล้างฟอร์ม</button>
+            </div>
           </div>
         </div>
         <div className="grid gap-3">
@@ -2521,18 +2650,27 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
             <div key={team.id || team.name} className="mx-data-card flex items-center justify-between gap-3">
               <div className="font-bold">{team.name}</div>
               <div className="flex gap-2">
-                <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => setTeamName(team.name)}>แก้ไข</button>
+                <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => setTeamForm({ id: team.id || '', name: team.name || '' })}>แก้ไข</button>
                 <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeTeam(team.id)} disabled={!team.id}>ลบ</button>
               </div>
             </div>
           ))}
+          {teams.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบทีม</div>}
         </div>
       </div>
     </Panel>
   );
 
   const KpiControls = () => (
-    <Panel title="กฎ KPI/SLA" subtitle="จัดการจำนวนวัน SLA และน้ำหนัก KPI ที่ใช้คำนวณคะแนน">
+    <Panel
+      title="กฎ KPI/SLA"
+      subtitle="จัดการจำนวนวัน SLA และน้ำหนัก KPI ที่ใช้คำนวณคะแนน"
+      actions={[
+        <button key="recalc" className="mx-btn mx-btn-soft" onClick={recalc} disabled={saving === 'recalc'}>
+          <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังคำนวณ...' : 'คำนวณ Deadline ใหม่'}
+        </button>,
+      ]}
+    >
       <div className="grid gap-5">
         <div className="mx-muted-card rounded-lg p-4">
           <div className="grid md:grid-cols-2 gap-3">
@@ -2582,13 +2720,22 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
               </div>
             </div>
           ))}
+          {filteredKpis.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบกฎ KPI/SLA</div>}
         </div>
       </div>
     </Panel>
   );
 
   const CalendarControls = () => (
-    <Panel title="ปฏิทิน SLA" subtitle="จัดการวันหยุดที่มีผลต่อการคำนวณกำหนดส่ง">
+    <Panel
+      title="ปฏิทิน SLA"
+      subtitle="จัดการวันหยุดที่มีผลต่อการคำนวณกำหนดส่ง"
+      actions={[
+        <button key="recalc" className="mx-btn mx-btn-soft" onClick={recalc} disabled={saving === 'recalc'}>
+          <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังคำนวณ...' : 'คำนวณ Deadline ใหม่'}
+        </button>,
+      ]}
+    >
       <div className="grid gap-5">
         <div className="mx-muted-card rounded-lg p-4">
           <div className="grid md:grid-cols-[180px_1fr_150px] gap-3">
@@ -2612,28 +2759,7 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
               </div>
             </div>
           ))}
-        </div>
-      </div>
-    </Panel>
-  );
-
-  const MaintenancePanel = () => (
-    <Panel title="ดูแลระบบ" subtitle="สั่งงานระบบผ่านเครื่องมือที่ควบคุมได้ โดยไม่แตะข้อมูลหลังบ้านโดยตรง">
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="mx-muted-card rounded-lg p-4">
-          <div className="text-sm font-extrabold">คำนวณกำหนดส่งใหม่</div>
-          <div className="mt-1 text-sm text-[var(--mx-muted)]">ใช้หลังจากปรับกฎ KPI หรือวันหยุด การทำงานจะผ่าน API และควรตรวจสอบย้อนหลังได้จาก audit log</div>
-          <button className="mx-btn mx-btn-primary mt-4" onClick={recalc} disabled={saving === 'recalc'}>
-            <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังทำงาน...' : 'คำนวณกำหนดส่งใหม่'}
-          </button>
-        </div>
-        <div className="mx-muted-card rounded-lg p-4">
-          <div className="text-sm font-extrabold">นโยบายการใช้งาน</div>
-          <div className="mt-2 grid gap-2 text-sm text-[var(--mx-muted)]">
-            <div>ห้ามแก้ไขฐานข้อมูลโดยตรง</div>
-            <div>การแก้ไข master data ต้องผ่าน System Control เท่านั้น</div>
-            <div>ทุก action ควรผ่าน API validation และมี audit log ตรวจสอบได้</div>
-          </div>
+          {filteredHolidays.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบวันหยุด</div>}
         </div>
       </div>
     </Panel>
@@ -2649,9 +2775,71 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
             <div className="mt-2 text-xs text-[var(--mx-muted)]">{log.by_user || '-'} / {formatDate(log.timestamp, true)}</div>
           </div>
         ))}
+        {logs.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ยังไม่มีประวัติการแก้ไข</div>}
       </div>
     </Panel>
   );
+
+  const AdminOverview = () => {
+    const setupItems = [
+      { id: 'users', label: 'ผู้ใช้และสิทธิ์', value: staff.length, icon: 'fa-users-gear', detail: 'จัดการบัญชี บทบาท ทีม และ scope' },
+      { id: 'teams', label: 'ทีมงาน', value: teams.length, icon: 'fa-people-group', detail: 'จัดการทีมที่ใช้ในงานและ KPI' },
+      { id: 'kpi', label: 'กฎ KPI/SLA', value: kpis.length, icon: 'fa-scale-balanced', detail: 'กำหนด SLA days และน้ำหนัก KPI' },
+      { id: 'calendar', label: 'ปฏิทิน SLA', value: holidays.length, icon: 'fa-calendar-days', detail: 'จัดการวันหยุดและ recalculation' },
+      { id: 'audit', label: 'ประวัติการแก้ไข', value: logs.length, icon: 'fa-shield-halved', detail: 'ตรวจสอบ action ที่เกิดในระบบ' },
+    ];
+
+    return (
+      <div className="grid gap-5">
+        <div className="mx-grid-auto">
+          <MetricCard label="ผู้ใช้" value={staff.length} sub="บัญชีที่จัดการในระบบ" icon="fa-users" />
+          <MetricCard label="ทีม" value={teams.length} sub="กลุ่มงานปฏิบัติการ" icon="fa-people-group" accent="var(--mx-teal)" />
+          <MetricCard label="กฎ KPI/SLA" value={kpis.length} sub="วัน SLA และน้ำหนักคะแนน" icon="fa-scale-balanced" accent="var(--mx-indigo)" />
+          <MetricCard label="วันหยุด" value={holidays.length} sub="ข้อมูลในปฏิทิน SLA" icon="fa-calendar-days" accent="var(--mx-amber)" />
+        </div>
+
+        <Panel title="ทางลัดการจัดการระบบ" subtitle="เลือกหมวดที่ต้องการแก้ไข ระบบจะแยกงาน setup, SLA และ audit ออกจากกันชัดเจน">
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {setupItems.map((item) => (
+              <button
+                key={item.id}
+                className="mx-data-card text-left hover:border-[var(--mx-accent)] transition-colors"
+                onClick={() => setAdminSection(item.id)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-extrabold">{item.label}</div>
+                    <div className="mt-1 text-sm text-[var(--mx-muted)]">{item.detail}</div>
+                  </div>
+                  <span className="w-10 h-10 rounded-lg grid place-items-center bg-[var(--mx-surface)] border border-[var(--mx-line)]">
+                    <i className={`fa-solid ${item.icon} text-[var(--mx-accent)]`}></i>
+                  </span>
+                </div>
+                <div className="mt-4 text-2xl font-extrabold">{formatNumber(item.value)}</div>
+              </button>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="กติกาการควบคุมระบบ" subtitle="Admin เป็นผู้จัดการระบบทั้งหมดผ่าน UI และ API เท่านั้น">
+          <div className="grid md:grid-cols-3 gap-3">
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="text-sm font-extrabold">ไม่แตะข้อมูลดิบ</div>
+              <div className="mt-2 text-sm text-[var(--mx-muted)]">การแก้ master data และงานดูแลระบบต้องทำผ่าน System Control</div>
+            </div>
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="text-sm font-extrabold">Recalculate อยู่กับ SLA</div>
+              <div className="mt-2 text-sm text-[var(--mx-muted)]">คำสั่งคำนวณ deadline ใหม่อยู่ในกฎ KPI/SLA และปฏิทิน SLA แล้ว</div>
+            </div>
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="text-sm font-extrabold">Audit แยกชัดเจน</div>
+              <div className="mt-2 text-sm text-[var(--mx-muted)]">ประวัติการแก้ไขอยู่ในหมวดของตัวเองเพื่อลดความซ้ำซ้อน</div>
+            </div>
+          </div>
+        </Panel>
+      </div>
+    );
+  };
 
   return (
     <div className="grid gap-5">
@@ -2676,25 +2864,13 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
         </Panel>
 
         {adminSection === 'overview' && (
-          <>
-            <div className="mx-grid-auto">
-              <MetricCard label="ผู้ใช้" value={staff.length} sub="บัญชีที่จัดการในระบบ" icon="fa-users" />
-              <MetricCard label="ทีม" value={teams.length} sub="กลุ่มงานปฏิบัติการ" icon="fa-people-group" accent="var(--mx-teal)" />
-              <MetricCard label="กฎ KPI/SLA" value={kpis.length} sub="วัน SLA และน้ำหนักคะแนน" icon="fa-scale-balanced" accent="var(--mx-indigo)" />
-              <MetricCard label="วันหยุด" value={holidays.length} sub="ข้อมูลในปฏิทิน SLA" icon="fa-calendar-days" accent="var(--mx-amber)" />
-            </div>
-            <div className="grid xl:grid-cols-2 gap-5 items-start">
-              <MaintenancePanel />
-              <AuditPanel />
-            </div>
-          </>
+          <AdminOverview />
         )}
 
         {adminSection === 'users' && <div className="grid xl:grid-cols-[0.85fr_1.15fr] gap-5"><UserEditor /><UsersList /></div>}
         {adminSection === 'teams' && <TeamControls />}
         {adminSection === 'kpi' && <KpiControls />}
         {adminSection === 'calendar' && <CalendarControls />}
-        {adminSection === 'maintenance' && <MaintenancePanel />}
         {adminSection === 'audit' && <AuditPanel />}
       </div>
   );
@@ -2941,12 +3117,14 @@ function App() {
   const showFilterBar = ['executive', 'dashboard', 'tasks', 'my-dashboard', 'my-tasks'].includes(view);
   const peopleForAssign = state.people?.length ? state.people : state.admin?.staff || [];
   const personalWorkUser = user.role === 'Lead' ? { ...user, role: 'Staff' } : user;
+  const currentRoleLabel = roleLabel(user.role);
+  const currentScopeLabel = roleScope(user);
   const pageTitle =
     view === 'executive' ? 'Executive View'
       : view === 'my-dashboard' ? 'My Dashboard'
       : view === 'my-tasks' ? 'My Tasks'
       : view === 'dashboard'
-      ? (user.role === 'Manager' ? 'Executive Dashboard' : user.role === 'Lead' ? 'Team Command Center' : user.role === 'Admin' ? 'System Control Center' : 'My Work Dashboard')
+      ? (isStrategicViewRole(user.role) ? 'Strategic Performance Dashboard' : user.role === 'Manager' ? 'Executive Dashboard' : user.role === 'Lead' ? 'Team Command Center' : isAdminRole(user.role) ? 'System Control Center' : 'My Work Dashboard')
       : view === 'tasks' ? 'Task Center'
       : view === 'create' ? 'Create Task'
       : view === 'assign' ? 'Assignment Center'
@@ -2991,7 +3169,8 @@ function App() {
                     <div className="mx-brand-pill inline-flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-[0.16em]">
                       <i className="fa-solid fa-gauge-high"></i> MAXIWA KPI
                     </div>
-                    <span className="mx-badge mx-status-process"><i className="fa-solid fa-user"></i>{user.role}</span>
+                    <span className="mx-badge mx-status-process"><i className="fa-solid fa-user"></i>{currentRoleLabel}</span>
+                    <span className="mx-badge mx-status-pending"><i className="fa-solid fa-layer-group"></i>{currentScopeLabel}</span>
                     <span className="mx-badge mx-status-completed"><i className="fa-solid fa-building-user"></i>{user.team}</span>
                   </div>
                   <h1 className="mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal">
@@ -3003,7 +3182,7 @@ function App() {
                 </div>
 
                 <div className="flex flex-wrap items-center xl:justify-end gap-2">
-                  {['Manager', 'Admin'].includes(user.role) && (
+                  {canOpenExecutiveView(user.role) && (
                     <button className="mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2" onClick={openExecutiveView} title="Open Executive View">
                       <i className="fa-solid fa-display"></i>
                       <span>Executive View</span>

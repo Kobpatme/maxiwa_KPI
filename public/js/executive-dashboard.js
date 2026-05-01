@@ -5,6 +5,21 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+const STRATEGIC_VIEW_ROLES = ['SrManager', 'Director', 'Executive'];
+const TEAM_SCOPED_ROLES = ['Lead'];
+
+function isTeamScopedRole(role) {
+  return TEAM_SCOPED_ROLES.includes(role);
+}
+
+function isStrategicViewRole(role) {
+  return STRATEGIC_VIEW_ROLES.includes(role);
+}
+
+function isSelfScopedRole(role) {
+  return role === 'Staff';
+}
+
 const TAB_ITEMS = [
   { id: 'overview', label: 'ภาพรวม', icon: 'fa-chart-line' },
   { id: 'teams', label: 'รายทีม', icon: 'fa-people-group' },
@@ -1369,24 +1384,26 @@ function App() {
       const user = { ...initial.user, kpis: initial.kpis || [] };
       const monthParam = month === 0 ? null : month;
       let tasks = [];
-      if (user.role === 'Staff') {
+      if (isSelfScopedRole(user.role)) {
         const res = await API.getEmployeeTasks(user, monthParam, year, month === 0, user.empId);
         tasks = res.tasks || res || [];
       } else {
-        const team = user.role === 'Lead' ? user.team : 'all';
+        const team = isTeamScopedRole(user.role) ? user.team : 'all';
         const res = await API.getAllTasks(monthParam, year, team, user.empId);
         tasks = res.tasks || [];
       }
       let staff = [];
       try {
-        if (user.role === 'Staff') {
+        if (isSelfScopedRole(user.role)) {
           staff = [user];
-        } else if (user.role === 'Lead') {
+        } else if (isTeamScopedRole(user.role)) {
           const staffRes = await API.getAllStaffInTeam(user.team, user.empId);
           staff = staffRes.staff || [];
-        } else {
+        } else if (isStrategicViewRole(user.role) || user.role === 'Manager' || user.role === 'Admin') {
           const staffRes = await API.getAllStaff(user.empId);
           staff = staffRes.staff || [];
+        } else {
+          staff = [];
         }
       } catch (staffError) {
         console.warn('Executive View staff image load failed:', staffError);
