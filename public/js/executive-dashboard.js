@@ -6,11 +6,11 @@ const MONTH_NAMES = [
 ];
 
 const TAB_ITEMS = [
-  { id: 'overview', label: 'Overview', icon: 'fa-chart-line' },
-  { id: 'teams', label: 'Teams', icon: 'fa-people-group' },
-  { id: 'employees', label: 'Employees', icon: 'fa-id-badge' },
-  { id: 'kpi', label: 'KPI Analysis', icon: 'fa-bullseye' },
-  { id: 'weights', label: 'KPI Weights', icon: 'fa-scale-balanced' },
+  { id: 'overview', label: 'ภาพรวม', icon: 'fa-chart-line' },
+  { id: 'teams', label: 'รายทีม', icon: 'fa-people-group' },
+  { id: 'employees', label: 'รายบุคคล', icon: 'fa-id-badge' },
+  { id: 'kpi', label: 'วิเคราะห์ KPI', icon: 'fa-bullseye' },
+  { id: 'weights', label: 'น้ำหนัก KPI', icon: 'fa-scale-balanced' },
 ];
 
 function fmtPct(value) {
@@ -69,6 +69,30 @@ function personName(task) {
 
 function teamName(task) {
   return String(task?.team || 'Unassigned').trim();
+}
+
+function normalizePhotoUrl(value) {
+  const src = String(value || '').trim();
+  if (!src) return '';
+  const driveFile = src.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  if (driveFile?.[1]) return `https://drive.google.com/uc?export=view&id=${driveFile[1]}`;
+  const driveOpen = src.match(/[?&]id=([^&]+)/);
+  if (src.includes('drive.google.com') && driveOpen?.[1]) return `https://drive.google.com/uc?export=view&id=${driveOpen[1]}`;
+  return src;
+}
+
+function getPhotoUrl(item) {
+  return normalizePhotoUrl(
+    item?.pigurl || item?.pigUrl || item?.pigURL || item?.picurl || item?.picUrl ||
+    item?.picture || item?.pictureUrl || item?.profilePicture || item?.profile_picture ||
+    item?.avatar || item?.avatarUrl || item?.photoUrl || item?.photo_url ||
+    item?.profileUrl || item?.profile_url || item?.imageUrl || item?.image_url ||
+    item?.image || item?.photo || ''
+  );
+}
+
+function initialsFrom(name) {
+  return String(name || 'U').trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join('').toUpperCase() || 'U';
 }
 
 function isCompletedOnTime(task) {
@@ -320,32 +344,61 @@ function HorizontalBar({ value, color = 'var(--mx-indigo)' }) {
   );
 }
 
-function LineChart({ months, series }) {
+function LineChart({ months, series, mode = 'percent' }) {
   const width = 860;
   const height = 270;
   const pad = { left: 42, right: 18, top: 24, bottom: 42 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
+  const keys = mode === 'volume' ? ['total', 'completed', 'risk'] : ['sla', 'completion', 'risk'];
+  const values = keys.flatMap((key) => series[key] || [])
+    .filter((value) => value !== null && value !== undefined && Number.isFinite(Number(value)))
+    .map(Number);
+  const minValue = values.length ? Math.min(...values) : 0;
+  const maxValue = values.length ? Math.max(...values) : (mode === 'volume' ? 10 : 100);
+  const closeRange = mode !== 'volume' && values.length > 1 && maxValue - minValue <= 18 && minValue >= 60;
+  const yMin = mode === 'volume' ? 0 : (closeRange ? Math.max(0, Math.floor((minValue - 8) / 5) * 5) : 0);
+  const yMax = mode === 'volume'
+    ? Math.max(5, Math.ceil((maxValue + Math.max(2, maxValue * 0.12)) / 5) * 5)
+    : (closeRange ? Math.min(100, Math.ceil((maxValue + 6) / 5) * 5) : 100);
+  const ticks = mode === 'volume'
+    ? Array.from({ length: 5 }, (_, index) => Math.round(yMin + ((yMax - yMin) * index) / 4))
+    : (closeRange
+      ? Array.from({ length: 5 }, (_, index) => Math.round((yMin + ((yMax - yMin) * index) / 4) * 10) / 10)
+      : [0, 25, 50, 75, 100]);
   const x = (index) => pad.left + (plotW * index) / Math.max(1, months.length - 1);
-  const y = (value) => pad.top + plotH - (plotH * clampPercent(value)) / 100;
-  const points = (values) => values.map((value, index) => `${x(index)},${value === null ? y(0) : y(value)}`).join(' ');
+  const y = (value) => {
+    const num = Number(value || 0);
+    const range = Math.max(1, yMax - yMin);
+    return pad.top + plotH - (plotH * (Math.max(yMin, Math.min(yMax, num)) - yMin)) / range;
+  };
+  const points = (values) => values.map((value, index) => `${x(index)},${value === null ? y(yMin) : y(value)}`).join(' ');
   return (
     <div className="w-full overflow-x-auto">
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[720px]">
-        {[0, 25, 50, 75, 100].map((tick) => (
+        {ticks.map((tick) => (
           <g key={tick}>
             <line className="chart-grid" x1={pad.left} x2={width - pad.right} y1={y(tick)} y2={y(tick)} />
-            <text className="chart-label" x="8" y={y(tick) + 4}>{tick}%</text>
+            <text className="chart-label" x="8" y={y(tick) + 4}>{mode === 'volume' ? tick : `${tick}%`}</text>
           </g>
         ))}
+        {mode !== 'volume' && yMin <= 95 && yMax >= 95 && (
+          <g>
+            <line x1={pad.left} x2={width - pad.right} y1={y(95)} y2={y(95)} stroke="rgba(15,122,79,.45)" strokeDasharray="7 7" strokeWidth="1.5" />
+            <text className="chart-label" x={width - pad.right - 70} y={y(95) - 7}>Target 95%</text>
+          </g>
+        )}
+        {mode !== 'volume' && closeRange && (
+          <text className="chart-label" x={width - pad.right - 126} y="16">Zoomed scale {yMin}-{yMax}%</text>
+        )}
         {months.map((month, index) => (
           <text key={month} className="chart-label" x={x(index)} y={height - 14} textAnchor="middle">{MONTH_NAMES[month].slice(0, 3)}</text>
         ))}
-        <polyline className="chart-line" points={points(series.sla)} stroke="var(--mx-info)" />
-        <polyline className="chart-line" points={points(series.completion)} stroke="var(--mx-success)" />
+        <polyline className="chart-line" points={points(mode === 'volume' ? series.total : series.sla)} stroke="var(--mx-info)" />
+        <polyline className="chart-line" points={points(mode === 'volume' ? series.completed : series.completion)} stroke="var(--mx-success)" />
         <polyline className="chart-line" points={points(series.risk)} stroke="var(--mx-danger)" />
-        {series.sla.map((value, index) => value !== null && <circle key={`s-${index}`} cx={x(index)} cy={y(value)} r="4" fill="var(--mx-info)" />)}
-        {series.completion.map((value, index) => value !== null && <circle key={`c-${index}`} cx={x(index)} cy={y(value)} r="4" fill="var(--mx-success)" />)}
+        {(mode === 'volume' ? series.total : series.sla).map((value, index) => value !== null && <circle key={`s-${index}`} cx={x(index)} cy={y(value)} r="4" fill="var(--mx-info)" />)}
+        {(mode === 'volume' ? series.completed : series.completion).map((value, index) => value !== null && <circle key={`c-${index}`} cx={x(index)} cy={y(value)} r="4" fill="var(--mx-success)" />)}
         {series.risk.map((value, index) => value !== null && <circle key={`r-${index}`} cx={x(index)} cy={y(value)} r="4" fill="var(--mx-danger)" />)}
       </svg>
     </div>
@@ -373,8 +426,223 @@ function DataTable({ children, minWidth = 900 }) {
   );
 }
 
+function Avatar({ item, name, className = '' }) {
+  const [failed, setFailed] = useState(false);
+  const photo = getPhotoUrl(item);
+  const initials = initialsFrom(name || item?.name || item?.empId || item?.empid);
+  return (
+    <div className={`avatar-ring ${className}`}>
+      {photo && !failed ? (
+        <img src={photo} alt={name || 'Profile'} referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+      ) : (
+        <span>{initials}</span>
+      )}
+    </div>
+  );
+}
+
+function DonutChart({ rows, total }) {
+  const size = 190;
+  const radius = 72;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+  const colors = ['var(--mx-success)', 'var(--mx-info)', 'var(--mx-warning)', 'var(--mx-danger)', 'var(--mx-brass)', '#6b7280'];
+  return (
+    <div className="donut-wrap">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Status distribution">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(16,19,25,.08)" strokeWidth="22" />
+        {rows.map((row, index) => {
+          const dash = total ? (row.total / total) * circumference : 0;
+          const item = (
+            <circle
+              key={row.status}
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke={colors[index % colors.length]}
+              strokeWidth="22"
+              strokeLinecap="round"
+              strokeDasharray={`${dash} ${circumference - dash}`}
+              strokeDashoffset={-offset}
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            />
+          );
+          offset += dash;
+          return item;
+        })}
+        <text x={size / 2} y={size / 2 - 4} textAnchor="middle" fontSize="30" fontWeight="900" fill="var(--mx-text)">{fmtNum(total)}</text>
+        <text x={size / 2} y={size / 2 + 22} textAnchor="middle" fontSize="11" fontWeight="900" fill="var(--mx-muted)">TASKS</text>
+      </svg>
+      <div className="donut-legend">
+        {rows.map((row, index) => (
+          <div key={row.status} className="donut-legend-row">
+            <span style={{ background: colors[index % colors.length] }}></span>
+            <strong>{row.status}</strong>
+            <em>{fmtNum(row.total)} / {fmtPct(row.pct)}</em>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StackedWorkloadChart({ rows }) {
+  const maxTotal = Math.max(...rows.map((row) => row.total), 1);
+  return (
+    <div className="stacked-chart">
+      {rows.slice(0, 10).map((row) => {
+        const completed = row.total ? (row.completed / row.total) * 100 : 0;
+        const onProcess = row.total ? (row.onProcess / row.total) * 100 : 0;
+        const backlog = Math.max(0, 100 - completed - onProcess);
+        return (
+          <div key={row.team} className="stacked-row">
+            <div className="stacked-name">
+              <strong>{row.team}</strong>
+              <span>{fmtNum(row.total)} tasks</span>
+            </div>
+            <div className="stacked-track" style={{ width: `${Math.max(18, (row.total / maxTotal) * 100)}%` }}>
+              <span className="seg done" style={{ width: `${completed}%` }} title={`Completed ${fmtNum(row.completed)}`}></span>
+              <span className="seg process" style={{ width: `${onProcess}%` }} title={`On process ${fmtNum(row.onProcess)}`}></span>
+              <span className="seg backlog" style={{ width: `${backlog}%` }} title={`Backlog ${fmtNum(row.backlog)}`}></span>
+            </div>
+            <div className="stacked-meta">{fmtPct(row.completion)}</div>
+          </div>
+        );
+      })}
+      <div className="chart-legend">
+        <span><i className="legend-dot done"></i>Completed</span>
+        <span><i className="legend-dot process"></i>On Process</span>
+        <span><i className="legend-dot backlog"></i>Backlog</span>
+      </div>
+    </div>
+  );
+}
+
+function PerformanceScatter({ rows }) {
+  const width = 720;
+  const height = 380;
+  const pad = { left: 54, right: 26, top: 28, bottom: 48 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const maxTotal = Math.max(...rows.map((row) => row.total), 1);
+  const x = (value) => pad.left + (plotW * clampPercent(value)) / 100;
+  const y = (value) => pad.top + plotH - (plotH * clampPercent(value)) / 100;
+  const scored = rows.filter((row) => row.sla !== null && row.completion !== null).slice(0, 30);
+  return (
+    <div className="w-full overflow-x-auto">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[680px]" role="img" aria-label="SLA and completion performance scatter">
+        {[0, 25, 50, 75, 100].map((tick) => (
+          <g key={tick}>
+            <line className="chart-grid" x1={x(tick)} x2={x(tick)} y1={pad.top} y2={height - pad.bottom} />
+            <line className="chart-grid" x1={pad.left} x2={width - pad.right} y1={y(tick)} y2={y(tick)} />
+            <text className="chart-label" x={x(tick)} y={height - 18} textAnchor="middle">{tick}</text>
+            <text className="chart-label" x="12" y={y(tick) + 4}>{tick}</text>
+          </g>
+        ))}
+        <rect x={x(85)} y={pad.top} width={width - pad.right - x(85)} height={y(85) - pad.top} fill="rgba(15,122,79,.07)" />
+        <line x1={x(95)} x2={x(95)} y1={pad.top} y2={height - pad.bottom} stroke="rgba(15,122,79,.45)" strokeDasharray="6 6" />
+        <line x1={pad.left} x2={width - pad.right} y1={y(95)} y2={y(95)} stroke="rgba(15,122,79,.45)" strokeDasharray="6 6" />
+        {scored.map((row, index) => {
+          const tone = row.weightedScore >= 90 ? 'var(--mx-success)' : row.weightedScore >= 75 ? 'var(--mx-info)' : row.weightedScore >= 60 ? 'var(--mx-warning)' : 'var(--mx-danger)';
+          return (
+            <g key={row.name}>
+              <circle cx={x(row.completion)} cy={y(row.sla)} r={6 + (row.total / maxTotal) * 16} fill={tone} opacity=".78" />
+              {index < 8 && <text className="chart-label" x={x(row.completion) + 10} y={y(row.sla) - 8}>{row.person || row.team}</text>}
+            </g>
+          );
+        })}
+        <text className="axis-title" x={width / 2} y={height - 2} textAnchor="middle">Weighted Completion</text>
+        <text className="axis-title" x="18" y={height / 2} textAnchor="middle" transform={`rotate(-90 18 ${height / 2})`}>Weighted SLA</text>
+      </svg>
+    </div>
+  );
+}
+
+function RadarChart({ teamRows }) {
+  const top = [...teamRows].sort((a, b) => b.total - a.total).slice(0, 5);
+  const axes = ['SLA', 'Completion', 'Health', 'Low Risk', 'Capacity'];
+  const size = 330;
+  const center = size / 2;
+  const radius = 118;
+  const maxTotal = Math.max(...top.map((row) => row.total), 1);
+  const point = (axisIndex, value) => {
+    const angle = (-90 + axisIndex * (360 / axes.length)) * Math.PI / 180;
+    const r = radius * clampPercent(value) / 100;
+    return [center + Math.cos(angle) * r, center + Math.sin(angle) * r];
+  };
+  const values = axes.map((_, axisIndex) => {
+    if (!top.length) return 0;
+    const avg = top.reduce((sum, row) => {
+      if (axisIndex === 0) return sum + clampPercent(row.sla);
+      if (axisIndex === 1) return sum + clampPercent(row.completion);
+      if (axisIndex === 2) return sum + clampPercent(row.health);
+      if (axisIndex === 3) return sum + clampPercent(100 - ((row.overdue + row.risk) / Math.max(row.total, 1)) * 100);
+      return sum + clampPercent((row.total / maxTotal) * 100);
+    }, 0) / top.length;
+    return Math.round(avg);
+  });
+  const polygon = values.map((value, index) => point(index, value).join(',')).join(' ');
+  return (
+    <div className="radar-wrap">
+      <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[360px]" role="img" aria-label="Performance balance radar">
+        {[25, 50, 75, 100].map((ring) => (
+          <polygon key={ring} points={axes.map((_, index) => point(index, ring).join(',')).join(' ')} fill="none" stroke="rgba(16,19,25,.1)" />
+        ))}
+        {axes.map((axis, index) => {
+          const [x2, y2] = point(index, 100);
+          const [lx, ly] = point(index, 116);
+          return (
+            <g key={axis}>
+              <line x1={center} y1={center} x2={x2} y2={y2} stroke="rgba(16,19,25,.12)" />
+              <text className="chart-label" x={lx} y={ly} textAnchor="middle">{axis}</text>
+            </g>
+          );
+        })}
+        <polygon points={polygon} fill="rgba(17,109,143,.22)" stroke="var(--mx-info)" strokeWidth="3" />
+        {values.map((value, index) => {
+          const [cx, cy] = point(index, value);
+          return <circle key={index} cx={cx} cy={cy} r="4" fill="var(--mx-info)" />;
+        })}
+      </svg>
+      <div className="radar-score">
+        <strong>{fmtPct(Math.round(values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1)))}</strong>
+        <span>Balance Index</span>
+      </div>
+    </div>
+  );
+}
+
+function KpiHeatmap({ teamRows, kpiRows }) {
+  const teams = teamRows.slice(0, 8);
+  const kpis = kpiRows.slice(0, 8);
+  const maxValue = Math.max(...teams.flatMap((team) => kpis.map((kpi) => team.items.filter((task) => mainKpi(task) === kpi.name).length)), 1);
+  return (
+    <div className="heatmap-wrap">
+      <div className="heatmap-grid" style={{ gridTemplateColumns: `180px repeat(${kpis.length}, minmax(78px, 1fr))` }}>
+        <div className="heat-head">Team / KPI</div>
+        {kpis.map((kpi) => <div key={kpi.name} className="heat-head vertical" title={kpi.name}>{kpi.name}</div>)}
+        {teams.map((team) => (
+          <React.Fragment key={team.team}>
+            <div className="heat-team">{team.team}</div>
+            {kpis.map((kpi) => {
+              const value = team.items.filter((task) => mainKpi(task) === kpi.name).length;
+              const intensity = value / maxValue;
+              return (
+                <div key={`${team.team}-${kpi.name}`} className="heat-cell" style={{ background: `rgba(17,109,143,${0.08 + intensity * 0.72})` }} title={`${team.team} / ${kpi.name}: ${value}`}>
+                  {value || ''}
+                </div>
+              );
+            })}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue, monthlyTrend, periodLabel, user, empId, tasks }) {
-  const highestRisk = teamRows[0];
+  const highestRisk = [...teamRows].sort((a, b) => ((b.overdue * 3 + b.risk + b.backlog / Math.max(b.total, 1)) - (a.overdue * 3 + a.risk + a.backlog / Math.max(a.total, 1))))[0];
   const strongestTeam = [...teamRows].sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
   const insights = [
     portfolio.overdue.length ? `${portfolio.overdue.length} overdue task(s) require executive attention.` : 'No overdue active tasks in the current scope.',
@@ -420,46 +688,34 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
             <div>
               <h2 className="section-title m-0">Execution Trend</h2>
-              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">SLA, completion, and risk rate across the selected period.</p>
+          <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">ปริมาณงานรายเดือน แยกงานทั้งหมด งานที่เสร็จแล้ว และงานเสี่ยง/เกินกำหนด</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <span className="mx-badge status-info">SLA</span>
-              <span className="mx-badge status-good">Completion</span>
-              <span className="mx-badge status-bad">Risk</span>
+              <span className="mx-badge status-info">งานทั้งหมด</span>
+              <span className="mx-badge status-good">เสร็จแล้ว</span>
+              <span className="mx-badge status-bad">เสี่ยง/เกินกำหนด</span>
             </div>
           </div>
-          <div className="mt-5"><LineChart months={monthlyTrend.months} series={monthlyTrend.series} /></div>
+          <div className="mt-5"><LineChart months={monthlyTrend.months} series={monthlyTrend.series} mode="volume" /></div>
         </section>
 
         <section className="mx-card p-5 md:p-7">
-          <h2 className="section-title m-0">Workload Mix</h2>
-          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Status distribution and top KPI exposure.</p>
-          <div className="grid gap-5">
-            {statusRows.map((row) => (
-              <div key={row.status}>
-                <div className="flex items-center justify-between gap-3 mb-2">
-                  <span className={`mx-badge ${statusClass(row.status)}`}>{row.status}</span>
-                  <strong>{fmtNum(row.total)} / {row.pct}%</strong>
-                </div>
-                <HorizontalBar value={row.pct} color={statusClass(row.status) === 'status-good' ? 'var(--mx-success)' : statusClass(row.status) === 'status-bad' ? 'var(--mx-danger)' : 'var(--mx-info)'} />
-              </div>
-            ))}
-            <div className="grid gap-3">
-              {kpiRows.slice(0, 6).map((row, index) => (
-                <div key={row.name} className="mx-soft p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="font-extrabold leading-5 min-w-0 break-words"><span className="text-[var(--mx-brass)] mr-2">#{index + 1}</span>{row.name}</div>
-                    <span className="mx-badge status-neutral">{fmtNum(row.total)}</span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-[var(--mx-muted)]">
-                    <span>SLA <strong className="text-[var(--mx-text)]">{fmtPct(row.sla)}</strong></span>
-                    <span>Done <strong className="text-[var(--mx-text)]">{fmtPct(row.completion)}</strong></span>
-                    <span>Share <strong className="text-[var(--mx-text)]">{fmtPct(row.share)}</strong></span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <h2 className="section-title m-0">Portfolio Composition</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Status distribution and executive workload proportions.</p>
+          <DonutChart rows={statusRows} total={tasks.length} />
+        </section>
+      </div>
+
+      <div className="grid 2xl:grid-cols-[0.9fr_1.1fr] gap-5">
+        <section className="mx-card p-5 md:p-7">
+          <h2 className="section-title m-0">Performance Balance</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">A blended radar of SLA, completion, health, risk control, and capacity.</p>
+          <RadarChart teamRows={teamRows} />
+        </section>
+        <section className="mx-card p-5 md:p-7">
+          <h2 className="section-title m-0">Team Workload Mix</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Completed, on-process, and backlog by team.</p>
+          <StackedWorkloadChart rows={teamRows} />
         </section>
       </div>
 
@@ -550,6 +806,12 @@ function TeamsPanel({ teamRows }) {
       </div>
 
       <section className="mx-card p-5 md:p-7">
+        <h2 className="section-title m-0">Completion Rate by Team</h2>
+        <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Operational workload stack with completion proportion and remaining backlog.</p>
+        <StackedWorkloadChart rows={teamRows} />
+      </section>
+
+      <section className="mx-card p-5 md:p-7">
         <h2 className="section-title m-0">Team SLA Summary</h2>
         <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Detailed team matrix aligned with the SPDS executive dashboard structure.</p>
         <DataTable minWidth={980}>
@@ -571,7 +833,84 @@ function TeamsPanel({ teamRows }) {
   );
 }
 
-function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilter, tasks }) {
+function EmployeeDetailModal({ person, onClose }) {
+  if (!person) return null;
+  const kpiBreakdown = Object.entries(groupBy(person.items, mainKpi))
+    .map(([name, items]) => ({ name, total: items.length, scores: calcWeightedScores(items), completed: items.filter(isCompleted).length, fail: items.filter(isCompletedLate).length }))
+    .sort((a, b) => b.total - a.total);
+  const urgent = person.items
+    .filter(isActive)
+    .map((task) => ({ task, days: daysUntil(task), weight: taskWeight(task) }))
+    .filter((item) => item.days !== null)
+    .sort((a, b) => a.days - b.days || b.weight - a.weight)
+    .slice(0, 8);
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+        <button className="modal-close no-print" onClick={onClose} aria-label="Close"><i className="fa-solid fa-xmark"></i></button>
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+          <div className="flex items-start gap-4">
+            <Avatar item={person.profile || person} name={person.person} className="modal-avatar" />
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Employee Drilldown</div>
+              <h2 className="section-title mt-2 mb-1">{person.person}</h2>
+              <div className="flex flex-wrap gap-2">
+                <span className="mx-badge status-neutral">{person.team}</span>
+                <span className={`mx-badge ${healthClass(person.weightedScore)}`}>Score {fmtPct(person.weightedScore)}</span>
+              </div>
+            </div>
+          </div>
+          <div className="mini-metric-grid modal-metrics">
+            <div><span>Total</span><strong>{fmtNum(person.total)}</strong></div>
+            <div><span>Completed</span><strong>{fmtNum(person.completed)}</strong></div>
+            <div><span>W.SLA</span><strong>{fmtPct(person.sla)}</strong></div>
+            <div><span>SLA Fail</span><strong>{fmtNum(person.slaFail)}</strong></div>
+          </div>
+        </div>
+        <div className="mt-6 grid xl:grid-cols-[1fr_1fr] gap-5">
+          <section className="mx-soft p-5">
+            <h3 className="m-0 text-lg font-black">KPI Ownership Mix</h3>
+            <div className="mt-4 grid gap-3">
+              {kpiBreakdown.map((row) => (
+                <div key={row.name}>
+                  <div className="flex justify-between gap-3 mb-2 text-sm">
+                    <strong className="truncate">{row.name}</strong>
+                    <span>{fmtNum(row.total)} / SLA {fmtPct(row.scores.sla)}</span>
+                  </div>
+                  <HorizontalBar value={person.total ? Math.round((row.total / person.total) * 1000) / 10 : 0} color={row.fail ? 'var(--mx-warning)' : 'var(--mx-info)'} />
+                </div>
+              ))}
+            </div>
+          </section>
+          <section className="mx-soft p-5">
+            <h3 className="m-0 text-lg font-black">Urgent Work Queue</h3>
+            <div className="mt-4 grid gap-3 max-h-[420px] overflow-auto pr-1">
+              {urgent.map(({ task, days, weight }) => {
+                const [label, klass] = riskBadge(days);
+                return (
+                  <div key={task.id || `${task.job}-${task.deadline}`} className="insight-card p-3">
+                    <div className="flex justify-between gap-3">
+                      <strong className="truncate">{extractJobCode(task.job)}</strong>
+                      <span className={`mx-badge ${klass}`}>{label}</span>
+                    </div>
+                    <div className="mt-2 text-xs text-[var(--mx-muted)] line-clamp-2">{task.job || '-'}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="mx-badge status-neutral">{fmtDate(task.deadline)}</span>
+                      <span className="mx-badge status-info">weight {weight}</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {!urgent.length && <div className="text-sm text-[var(--mx-muted)]">No urgent active work for this person.</div>}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilter, tasks, selectedPerson, setSelectedPerson }) {
   const filtered = personTeamFilter === 'all' ? personRows : personRows.filter((row) => row.team === personTeamFilter);
   return (
     <div className="grid gap-6">
@@ -590,9 +929,9 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
 
       <div className="employee-grid">
         {filtered.slice(0, 36).map((row, index) => (
-          <div key={row.name} className="mx-card employee-card p-5">
+          <button key={row.name} className="mx-card employee-card p-5 text-left" onClick={() => setSelectedPerson(row)}>
             <div className="flex items-start gap-4">
-              <div className="avatar-ring">{row.person.charAt(0).toUpperCase()}</div>
+              <Avatar item={row.profile || row} name={row.person} />
               <div className="min-w-0 flex-1">
                 <div className="font-black truncate">{row.person}</div>
                 <div className="mt-1 flex flex-wrap gap-2">
@@ -615,7 +954,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
               <div className="font-black">Top KPI</div>
               <div className="mt-1 text-[var(--mx-muted)]">{row.topKpi} / {fmtNum(row.topKpiCount)} task(s)</div>
             </div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -641,40 +980,88 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
           </tbody>
         </DataTable>
       </section>
+      <EmployeeDetailModal person={selectedPerson} onClose={() => setSelectedPerson(null)} />
     </div>
   );
 }
 
 function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
-  const topPerformer = [...personRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
-  const bestTeam = [...teamRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
+  const totalTasks = kpiRows.reduce((sum, row) => sum + row.total, 0);
+  const topPerformer = [...personRows].filter((row) => row.weightedScore !== null).sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total)[0];
+  const bestTeam = [...teamRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0) || b.total - a.total)[0];
   const avgTasks = personRows.length ? Math.round(personRows.reduce((sum, row) => sum + row.total, 0) / personRows.length) : 0;
+  const highRiskKpis = [...kpiRows].sort((a, b) => (b.slaFail - a.slaFail) || (b.active - a.active) || b.total - a.total).slice(0, 8);
+  const employeeLeaders = [...personRows]
+    .filter((row) => row.sla !== null || row.completion !== null)
+    .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total)
+    .slice(0, 12);
+  const teamKpiRows = teamRows.slice(0, 10).map((team) => {
+    const groups = Object.entries(groupBy(team.items || [], mainKpi))
+      .map(([name, items]) => ({
+        name,
+        total: items.length,
+        fail: items.filter(isCompletedLate).length,
+        scores: calcWeightedScores(items),
+      }))
+      .sort((a, b) => b.total - a.total || b.fail - a.fail)
+      .slice(0, 3);
+    return { ...team, groups };
+  });
   return (
     <div className="grid gap-6">
-      <div className="grid md:grid-cols-4 gap-5">
-        <Metric label="KPI Categories" value={fmtNum(kpiRows.length)} sub="Main KPI categories" icon="fa-bullseye" tone="status-info" />
-        <Metric label="Top Performer" value={topPerformer?.person || '-'} sub={topPerformer ? `W.SLA ${fmtPct(topPerformer.sla)}` : 'No scored person'} icon="fa-trophy" tone="status-good" />
-        <Metric label="Best SLA Team" value={bestTeam?.team || '-'} sub={bestTeam ? `W.SLA ${fmtPct(bestTeam.sla)}` : 'No scored team'} icon="fa-bolt" tone="status-warn" />
-        <Metric label="Avg Tasks/Person" value={fmtNum(avgTasks)} sub={`${fmtNum(personRows.length)} people`} icon="fa-users" tone="status-neutral" />
-      </div>
+      <section className="mx-card p-5 md:p-7 kpi-intelligence">
+        <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4 mb-5">
+          <div>
+            <p className="eyebrow mb-2">KPI Intelligence</p>
+            <h2 className="section-title m-0">ภาพวิเคราะห์ KPI สำหรับผู้บริหาร</h2>
+            <p className="mt-2 mb-0 text-sm text-[var(--mx-muted)]">รวมสัดส่วนงาน จุดเสี่ยง ผลงานรายบุคคล และความเข้มข้นของ KPI รายทีมในมุมเดียว</p>
+          </div>
+          <span className="mx-badge status-info">Portfolio {fmtNum(totalTasks)} tasks</span>
+        </div>
+        <div className="kpi-insight-grid">
+          <div className="kpi-insight-card">
+            <span>หมวด KPI</span>
+            <strong>{fmtNum(kpiRows.length)}</strong>
+            <em>Main categories</em>
+          </div>
+          <div className="kpi-insight-card">
+            <span>ผู้ทำคะแนนสูงสุด</span>
+            <strong>{topPerformer?.person || '-'}</strong>
+            <em>{topPerformer ? `Performance ${fmtPct(topPerformer.weightedScore)}` : 'ยังไม่มีคะแนน'}</em>
+          </div>
+          <div className="kpi-insight-card">
+            <span>ทีม SLA ดีสุด</span>
+            <strong>{bestTeam?.team || '-'}</strong>
+            <em>{bestTeam ? `W.SLA ${fmtPct(bestTeam.sla)}` : 'ยังไม่มีคะแนนทีม'}</em>
+          </div>
+          <div className="kpi-insight-card">
+            <span>เฉลี่ยงาน/คน</span>
+            <strong>{fmtNum(avgTasks)}</strong>
+            <em>{fmtNum(personRows.length)} คนในช่วงที่เลือก</em>
+          </div>
+        </div>
+      </section>
 
-      <div className="presentation-grid">
+      <div className="kpi-analysis-grid">
         <section className="mx-card p-5 md:p-7">
-          <h2 className="section-title m-0">Top KPI Categories by Volume</h2>
-          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Portfolio share and execution quality by KPI group.</p>
-          <div className="grid gap-4">
-            {kpiRows.slice(0, 12).map((row) => (
-              <div key={row.name} className="mx-soft p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="font-black break-words">{row.name}</div>
-                  <span className="mx-badge status-neutral">{fmtPct(row.share)}</span>
+          <h2 className="section-title m-0">สัดส่วน KPI Portfolio</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">เรียงตามปริมาณงาน พร้อมคุณภาพการส่งมอบของแต่ละหมวด KPI</p>
+          <div className="kpi-portfolio-list">
+            {kpiRows.slice(0, 10).map((row, index) => (
+              <div key={row.name} className="kpi-row-card">
+                <div className="kpi-row-rank">{String(index + 1).padStart(2, '0')}</div>
+                <div className="min-w-0">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="font-black break-words leading-tight">{row.name}</div>
+                    <span className={`mx-badge ${healthClass(row.sla)}`}>{fmtPct(row.sla)}</span>
+                  </div>
+                  <HorizontalBar value={row.share} color={row.sla >= 95 ? 'var(--mx-success)' : row.sla >= 85 ? 'var(--mx-warning)' : 'var(--mx-danger)'} />
                 </div>
-                <div className="mt-4"><HorizontalBar value={row.share} color="var(--mx-brass)" /></div>
-                <div className="mt-3 grid grid-cols-4 gap-2 text-xs text-[var(--mx-muted)]">
-                  <span>Total <strong className="text-[var(--mx-text)]">{fmtNum(row.total)}</strong></span>
-                  <span>W.SLA <strong className="text-[var(--mx-text)]">{fmtPct(row.sla)}</strong></span>
-                  <span>Done <strong className="text-[var(--mx-text)]">{fmtPct(row.completion)}</strong></span>
-                  <span>Fail <strong className="text-[var(--mx-text)]">{fmtNum(row.slaFail)}</strong></span>
+                <div className="kpi-row-stats">
+                  <span><b>{fmtPct(row.share)}</b><em>Share</em></span>
+                  <span><b>{fmtNum(row.total)}</b><em>Total</em></span>
+                  <span><b>{fmtPct(row.completion)}</b><em>Done</em></span>
+                  <span><b>{fmtNum(row.slaFail)}</b><em>Fail</em></span>
                 </div>
               </div>
             ))}
@@ -682,19 +1069,85 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
         </section>
 
         <section className="mx-card p-5 md:p-7">
-          <h2 className="section-title m-0">Weighted SLA Performance by Employee</h2>
-          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Top 15 people by weighted SLA score.</p>
-          <div className="grid gap-4">
-            {[...personRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0)).slice(0, 15).map((row) => (
-              <div key={row.name}>
-                <div className="flex justify-between gap-3 mb-2 text-sm">
-                  <span className="font-black truncate">{row.person}</span>
-                  <span className={`font-black ${row.sla >= 95 ? 'text-[var(--mx-success)]' : row.sla >= 85 ? 'text-[var(--mx-warning)]' : 'text-[var(--mx-danger)]'}`}>{fmtPct(row.sla)}</span>
+          <h2 className="section-title m-0">KPI Watchlist</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">หมวด KPI ที่มีงานเกินกำหนดหรือยัง active สูง ควรถูกติดตามก่อน</p>
+          <div className="grid gap-3">
+            {highRiskKpis.map((row) => (
+              <div key={row.name} className="watch-row">
+                <div className="min-w-0">
+                  <div className="font-black line-clamp-2">{row.name}</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="mx-badge status-neutral">Active {fmtNum(row.active)}</span>
+                    <span className={`mx-badge ${row.slaFail > 0 ? 'status-bad' : 'status-good'}`}>Fail {fmtNum(row.slaFail)}</span>
+                  </div>
                 </div>
-                <HorizontalBar value={row.sla} color={row.sla >= 95 ? 'var(--mx-success)' : row.sla >= 85 ? 'var(--mx-warning)' : 'var(--mx-danger)'} />
+                <div className="watch-score">
+                  <strong>{fmtPct(row.sla)}</strong>
+                  <span>SLA</span>
+                </div>
               </div>
             ))}
+            {!highRiskKpis.length && <div className="text-sm text-[var(--mx-muted)]">ไม่มีข้อมูล KPI ในช่วงที่เลือก</div>}
           </div>
+        </section>
+      </div>
+
+      <div className="grid 2xl:grid-cols-[1fr_1fr] gap-5">
+        <section className="mx-card p-5 md:p-7">
+          <h2 className="section-title m-0">Employee SLA Leaderboard</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">อันดับบุคคลจากคะแนนถ่วงน้ำหนัก พร้อมปริมาณงานและสถานะ SLA</p>
+          <DataTable minWidth={760}>
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
+                <th className="p-4">Rank</th><th className="p-4">Name</th><th className="p-4">Team</th><th className="p-4">Tasks</th><th className="p-4">W.SLA</th><th className="p-4">Performance</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--mx-line)]">
+              {employeeLeaders.map((row, index) => (
+                <tr key={row.name}>
+                  <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td>
+                  <td className="p-4 font-black max-w-[220px]">{row.person}</td>
+                  <td className="p-4"><span className="mx-badge status-neutral">{row.team}</span></td>
+                  <td className="p-4">{fmtNum(row.total)}</td>
+                  <td className="p-4 font-bold">{fmtPct(row.sla)}</td>
+                  <td className="p-4"><span className={`mx-badge ${healthClass(row.weightedScore)}`}>{fmtPct(row.weightedScore)}</span></td>
+                </tr>
+              ))}
+              {!employeeLeaders.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="6">ไม่มีข้อมูลบุคคลในช่วงที่เลือก</td></tr>}
+            </tbody>
+          </DataTable>
+        </section>
+        <section className="mx-card p-5 md:p-7">
+          <h2 className="section-title m-0">Team x KPI Concentration</h2>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">KPI หลักที่กินสัดส่วนงานสูงสุดของแต่ละทีม เพื่อมองโหลดงานและความเสี่ยง</p>
+          <DataTable minWidth={900}>
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
+                <th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">W.SLA</th><th className="p-4">Top KPI Mix</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--mx-line)]">
+              {teamKpiRows.map((row) => (
+                <tr key={row.team}>
+                  <td className="p-4 font-black">{row.team}</td>
+                  <td className="p-4">{fmtNum(row.total)}</td>
+                  <td className="p-4"><span className={`mx-badge ${healthClass(row.sla)}`}>{fmtPct(row.sla)}</span></td>
+                  <td className="p-4">
+                    <div className="grid gap-2">
+                      {row.groups.map((group) => (
+                        <div key={`${row.team}-${group.name}`} className="team-kpi-chip">
+                          <span className="line-clamp-2">{group.name}</span>
+                          <strong>{fmtNum(group.total)} งาน</strong>
+                          <em>{fmtPct(group.scores.sla)}</em>
+                        </div>
+                      ))}
+                      {!row.groups.length && <span className="text-[var(--mx-muted)]">ไม่มีข้อมูล KPI</span>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
         </section>
       </div>
     </div>
@@ -754,7 +1207,8 @@ function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [personTeamFilter, setPersonTeamFilter] = useState('all');
   const [kpiSearch, setKpiSearch] = useState('');
-  const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [] });
+  const [selectedPerson, setSelectedPerson] = useState(null);
+  const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [] });
 
   const years = useMemo(() => {
     const now = new Date().getFullYear();
@@ -783,7 +1237,22 @@ function App() {
         const res = await API.getAllTasks(monthParam, year, team, user.empId);
         tasks = res.tasks || [];
       }
-      setState({ loading: false, error: '', user, tasks });
+      let staff = [];
+      try {
+        if (user.role === 'Staff') {
+          staff = [user];
+        } else if (user.role === 'Lead') {
+          const staffRes = await API.getAllStaffInTeam(user.team, user.empId);
+          staff = staffRes.staff || [];
+        } else {
+          const staffRes = await API.getAllStaff(user.empId);
+          staff = staffRes.staff || [];
+        }
+      } catch (staffError) {
+        console.warn('Executive View staff image load failed:', staffError);
+        staff = [];
+      }
+      setState({ loading: false, error: '', user, tasks, staff });
       const url = new URL(window.location.href);
       url.searchParams.set('empId', cleanEmpId);
       url.searchParams.set('month', String(month));
@@ -799,19 +1268,39 @@ function App() {
   }, [month, year]);
 
   const tasks = state.tasks || [];
+  const staffDirectory = state.staff || [];
   const portfolio = useMemo(() => buildPortfolio(tasks), [tasks]);
-  const periodLabel = `${month === 0 ? 'All Months' : MONTH_NAMES[month - 1]} ${year}`;
+  const periodLabel = `${month === 0 ? 'ทุกเดือน' : MONTH_NAMES[month - 1]} ${year}`;
+  const staffByName = useMemo(() => {
+    const map = {};
+    staffDirectory.forEach((person) => {
+      const name = String(person.name || person.fullname || '').trim().toLowerCase();
+      const emp = String(person.empId || person.empid || person.emp_id || '').trim().toLowerCase();
+      if (name) map[name] = person;
+      if (emp) map[emp] = person;
+    });
+    if (state.user) {
+      const name = String(state.user.name || '').trim().toLowerCase();
+      const emp = String(state.user.empId || state.user.empid || '').trim().toLowerCase();
+      if (name && !map[name]) map[name] = state.user;
+      if (emp && !map[emp]) map[emp] = state.user;
+    }
+    return map;
+  }, [staffDirectory, state.user]);
 
   const teamRows = useMemo(() => buildGroupRows(tasks, teamName)
     .map((row) => ({ ...row, team: row.name }))
-    .sort((a, b) => (a.overdue - b.overdue) || (a.risk - b.risk) || (b.health - a.health) || b.total - a.total), [tasks]);
+    .sort((a, b) => ((b.overdue * 3 + b.risk + b.backlog / Math.max(b.total, 1)) - (a.overdue * 3 + a.risk + a.backlog / Math.max(a.total, 1))) || (b.total - a.total)), [tasks]);
 
   const personRows = useMemo(() => buildGroupRows(tasks, (task) => `${personName(task)}|${teamName(task)}`)
     .map((row) => {
       const [person, team] = row.name.split('|');
-      return { ...row, person, team };
+      const profile = staffByName[String(person || '').trim().toLowerCase()]
+        || row.items.map((task) => task).find((task) => getPhotoUrl(task))
+        || null;
+      return { ...row, person, team, profile };
     })
-    .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total), [tasks]);
+    .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total), [tasks, staffByName]);
 
   const statusRows = useMemo(() => Object.entries(groupBy(tasks, (task) => task.status || 'Unknown'))
     .map(([status, items]) => ({ status, total: items.length, pct: tasks.length ? Math.round((items.length / tasks.length) * 1000) / 10 : 0 }))
@@ -826,14 +1315,18 @@ function App() {
     const sla = [];
     const trendCompletion = [];
     const risk = [];
+    const total = [];
+    const completed = [];
     months.forEach((monthIndex) => {
       const monthTasks = tasks.filter((task) => getTaskMonth(task) === monthIndex);
       const monthPortfolio = buildPortfolio(monthTasks);
       sla.push(monthTasks.length ? monthPortfolio.scores.sla : null);
       trendCompletion.push(monthTasks.length ? monthPortfolio.completion : null);
-      risk.push(monthTasks.length ? Math.round(((monthPortfolio.overdue.length + monthPortfolio.atRisk.length) / monthTasks.length) * 1000) / 10 : null);
+      risk.push(monthTasks.length ? (monthPortfolio.overdue.length + monthPortfolio.atRisk.length) : 0);
+      total.push(monthTasks.length);
+      completed.push(monthPortfolio.completed.length);
     });
-    return { months, series: { sla, completion: trendCompletion, risk } };
+    return { months, series: { sla, completion: trendCompletion, risk, total, completed } };
   }, [tasks, month]);
 
   const criticalQueue = useMemo(() => portfolio.active
@@ -849,34 +1342,35 @@ function App() {
   return (
     <Shell>
       <header className="mx-card stage-header p-5 md:p-8">
-        <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+        <div className="executive-header-grid">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-3">
+              {state.user && <Avatar item={state.user} name={state.user.name || state.user.empId} className="header-avatar" />}
               <span className="mx-badge status-info"><i className="fa-solid fa-display"></i> Executive View</span>
               <span className="mx-badge status-neutral">MAXIWA KPI</span>
               {state.user && <span className="mx-badge status-good">{state.user.role} / {state.user.team}</span>}
             </div>
             <h1 className="display-title mt-6 mb-0 break-words">
               <span className="block">Executive Performance</span>
-              <span className="block">Command Center</span>
+              <span className="block">SLA & KPI Command Center</span>
             </h1>
             <p className="mt-4 mb-0 max-w-[84ch] text-base md:text-[18px] leading-8 text-[var(--mx-muted)]">
-              Boardroom-ready SLA, KPI weight, team capacity, employee performance, and priority risk intelligence.
+              สรุป SLA, น้ำหนัก KPI, ภาระงานรายทีม, ผลงานรายบุคคล และความเสี่ยงสำคัญสำหรับเปิดนำเสนอผู้บริหารได้ทันที
             </p>
           </div>
-          <div className="no-print control-panel flex flex-wrap gap-2 xl:justify-end xl:max-w-[640px]">
+          <div className="no-print control-panel executive-controls">
             <input className="mx-input !w-36" value={empId} onChange={(e) => setEmpId(e.target.value.toUpperCase())} placeholder="empId" />
             <select className="mx-input !w-40" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-              <option value={0}>All Months</option>
+              <option value={0}>ทุกเดือน</option>
               {MONTH_NAMES.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
             </select>
             <select className="mx-input !w-28" value={year} onChange={(e) => setYear(Number(e.target.value))}>
               {years.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
             <button className="mx-btn mx-btn-primary" onClick={() => load(empId)} disabled={state.loading}>
-              <i className={`fa-solid ${state.loading ? 'fa-rotate-right fa-spin' : 'fa-arrows-rotate'} mr-2`}></i>Load
+              <i className={`fa-solid ${state.loading ? 'fa-rotate-right fa-spin' : 'fa-arrows-rotate'} mr-2`}></i>โหลดข้อมูล
             </button>
-            <button className="mx-btn" onClick={() => window.print()}><i className="fa-solid fa-print mr-2"></i>Print</button>
+            <button className="mx-btn print-btn" onClick={() => window.print()}><i className="fa-solid fa-print mr-2"></i>พิมพ์</button>
           </div>
         </div>
         {state.error && <div className="mt-4 mx-soft p-4 text-sm font-bold text-[var(--mx-danger)]">{state.error}</div>}
@@ -885,13 +1379,13 @@ function App() {
       <section className="mx-card hero-band p-5 md:p-8">
         <div className="presentation-grid items-stretch">
           <div className="grid md:grid-cols-2 gap-5">
-            <GaugeMetric label="Overall SLA" value={portfolio.scores.sla} sub="Weighted on-time completion across KPI groups" tone="var(--mx-info)" />
-            <GaugeMetric label="Weighted Completion" value={portfolio.completion} sub={`${fmtNum(portfolio.completed.length)} of ${fmtNum(tasks.length)} tasks completed`} tone="var(--mx-success)" />
+            <GaugeMetric label="SLA รวม" value={portfolio.scores.sla} sub="คะแนนงานเสร็จตรงเวลาถ่วงน้ำหนักตามกลุ่ม KPI" tone="var(--mx-info)" />
+            <GaugeMetric label="Completion ถ่วงน้ำหนัก" value={portfolio.completion} sub={`เสร็จแล้ว ${fmtNum(portfolio.completed.length)} จาก ${fmtNum(tasks.length)} งาน`} tone="var(--mx-success)" />
           </div>
           <div className="grid sm:grid-cols-3 gap-5">
-            <Metric label="Total Tasks" value={fmtNum(tasks.length)} sub={periodLabel} icon="fa-clipboard-list" tone="status-neutral" />
-            <Metric label="Overdue" value={fmtNum(portfolio.overdue.length)} sub="Active tasks past deadline" icon="fa-triangle-exclamation" tone={portfolio.overdue.length ? 'status-bad' : 'status-good'} />
-            <Metric label="At Risk" value={fmtNum(portfolio.atRisk.length)} sub="Due within 3 days" icon="fa-clock" tone={portfolio.atRisk.length ? 'status-warn' : 'status-good'} />
+            <Metric label="งานทั้งหมด" value={fmtNum(tasks.length)} sub={periodLabel} icon="fa-clipboard-list" tone="status-neutral" />
+            <Metric label="เกินกำหนด" value={fmtNum(portfolio.overdue.length)} sub="งานที่ยัง active และเลย deadline" icon="fa-triangle-exclamation" tone={portfolio.overdue.length ? 'status-bad' : 'status-good'} />
+            <Metric label="เสี่ยงใกล้ครบกำหนด" value={fmtNum(portfolio.atRisk.length)} sub="ครบกำหนดภายใน 3 วัน" icon="fa-clock" tone={portfolio.atRisk.length ? 'status-warn' : 'status-good'} />
           </div>
         </div>
       </section>
@@ -900,7 +1394,7 @@ function App() {
 
       {activeTab === 'overview' && <OverviewPanel portfolio={portfolio} teamRows={teamRows} kpiRows={kpiRows} statusRows={statusRows} criticalQueue={criticalQueue} monthlyTrend={monthlyTrend} periodLabel={periodLabel} user={state.user} empId={empId} tasks={tasks} />}
       {activeTab === 'teams' && <TeamsPanel teamRows={teamRows} />}
-      {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} />}
+      {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} selectedPerson={selectedPerson} setSelectedPerson={setSelectedPerson} />}
       {activeTab === 'kpi' && <KpiAnalysisPanel kpiRows={kpiRows} personRows={personRows} teamRows={teamRows} />}
       {activeTab === 'weights' && <KpiWeightsPanel kpiWeightRows={kpiWeightRows} kpiSearch={kpiSearch} setKpiSearch={setKpiSearch} />}
     </Shell>

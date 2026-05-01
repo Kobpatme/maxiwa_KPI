@@ -33,11 +33,11 @@ const NAV_BY_ROLE = {
     { id: 'assign', label: 'Assign Task', icon: 'fa-user-plus' },
     { id: 'people', label: 'People', icon: 'fa-users-viewfinder' },
     { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project' },
-    { id: 'admin', label: 'Admin Studio', icon: 'fa-shield-halved' },
+    { id: 'admin', label: 'System Control', icon: 'fa-shield-halved' },
   ],
   Admin: [
     { id: 'dashboard', label: 'System Dashboard', icon: 'fa-chart-line' },
-    { id: 'admin', label: 'Admin Studio', icon: 'fa-shield-halved' },
+    { id: 'admin', label: 'System Control', icon: 'fa-shield-halved' },
     { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project' },
   ],
 };
@@ -535,8 +535,24 @@ function StatusChangeModal({ task, onSave, onClose }) {
 }
 
 // ─── Sidebar ───────────────────────────────────────────────────────────────────
-function Sidebar({ user, view, setView, onLogout, notifCount = 0 }) {
+const SYSTEM_CONTROL_SECTIONS = [
+  { id: 'overview', label: 'ภาพรวมระบบ', icon: 'fa-gauge-high' },
+  { id: 'users', label: 'ผู้ใช้และสิทธิ์', icon: 'fa-users-gear' },
+  { id: 'teams', label: 'ทีมงาน', icon: 'fa-people-group' },
+  { id: 'kpi', label: 'กฎ KPI/SLA', icon: 'fa-scale-balanced' },
+  { id: 'calendar', label: 'ปฏิทิน SLA', icon: 'fa-calendar-days' },
+  { id: 'maintenance', label: 'ดูแลระบบ', icon: 'fa-screwdriver-wrench' },
+  { id: 'audit', label: 'ประวัติการแก้ไข', icon: 'fa-shield-halved' },
+];
+
+function Sidebar({ user, view, setView, onLogout, notifCount = 0, adminSection = 'overview', setAdminSection = () => {} }) {
   const navItems = NAV_BY_ROLE[user?.role] || NAV_BY_ROLE.Staff;
+  const [expanded, setExpanded] = useState(() => view === 'admin');
+
+  useEffect(() => {
+    if (view === 'admin') setExpanded(true);
+  }, [view]);
+
   return (
     <aside className="mx-shell-card rounded-[28px] p-5 md:p-6 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto">
       <div className="flex items-center gap-4 mb-7">
@@ -564,26 +580,71 @@ function Sidebar({ user, view, setView, onLogout, notifCount = 0 }) {
 
       <div className="mt-6 text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Navigation</div>
       <div className="mt-3 grid gap-2">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setView(item.id)}
-            className={cn(
-              'mx-btn text-left flex items-center gap-3 px-4 py-4 rounded-[18px]',
-              view === item.id
-                ? 'mx-nav-active'
-                : 'bg-transparent border border-transparent'
-            )}
-          >
-            <i className={`fa-solid ${item.icon} w-5 text-center text-[var(--mx-accent-2)]`}></i>
-            <span>{item.label}</span>
-            {item.id === 'tasks' && notifCount > 0 && (
-              <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-black">
-                {notifCount}
-              </span>
-            )}
-          </button>
-        ))}
+        {navItems.map((item) => {
+          const isSystemControl = item.id === 'admin';
+          if (isSystemControl) {
+            return (
+              <div key={item.id} className="grid gap-2">
+                <button
+                  onClick={() => {
+                    setExpanded((current) => !current);
+                    setView('admin');
+                  }}
+                  className={cn(
+                    'mx-btn text-left flex items-center gap-3 px-4 py-4 rounded-[18px]',
+                    view === item.id ? 'mx-nav-active' : 'bg-transparent border border-transparent'
+                  )}
+                >
+                  <i className={`fa-solid ${item.icon} w-5 text-center text-[var(--mx-accent-2)]`}></i>
+                  <span className="flex-1">{item.label}</span>
+                  <i className={cn('fa-solid fa-chevron-right text-xs transition-transform', expanded ? 'rotate-90' : '')}></i>
+                </button>
+                {expanded && (
+                  <div className="ml-4 pl-3 border-l border-[var(--mx-line)] grid gap-1">
+                    {SYSTEM_CONTROL_SECTIONS.map((section) => (
+                      <button
+                        key={section.id}
+                        onClick={() => {
+                          setView('admin');
+                          setAdminSection(section.id);
+                        }}
+                        className={cn(
+                          'mx-btn text-left flex items-center gap-3 px-3 py-3 rounded-[14px] text-sm',
+                          view === 'admin' && adminSection === section.id
+                            ? 'mx-nav-active'
+                            : 'bg-transparent border border-transparent'
+                        )}
+                      >
+                        <i className={`fa-solid ${section.icon} w-4 text-center text-[var(--mx-accent-2)]`}></i>
+                        <span className="truncate">{section.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return (
+            <button
+              key={item.id}
+              onClick={() => setView(item.id)}
+              className={cn(
+                'mx-btn text-left flex items-center gap-3 px-4 py-4 rounded-[18px]',
+                view === item.id
+                  ? 'mx-nav-active'
+                  : 'bg-transparent border border-transparent'
+              )}
+            >
+              <i className={`fa-solid ${item.icon} w-5 text-center text-[var(--mx-accent-2)]`}></i>
+              <span>{item.label}</span>
+              {item.id === 'tasks' && notifCount > 0 && (
+                <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-black">
+                  {notifCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <button onClick={onLogout} className="mx-btn mx-btn-soft w-full mt-6">
@@ -1955,7 +2016,7 @@ function TrackerViewNew() {
 }
 
 // ─── Extra Data Fields (conditional per Sub KPI) ──────────────────────────────
-function ExtraDataFields({ subkpi, extraData, onChange }) {
+function ExtraDataFields({ subkpi, extraData, onChange, hideSsr = false }) {
   if (!subkpi) return null;
   const sub = subkpi;
   const isCoord  = sub.includes('ประสานงานอาคาร');
@@ -1989,7 +2050,7 @@ function ExtraDataFields({ subkpi, extraData, onChange }) {
             </select>
           </>
         )}
-        {isSAP && (
+        {isSAP && !hideSsr && (
           <input className="mx-input" placeholder="SSR Number" value={ed.ssrNumber || ''} onChange={(e) => upd('ssrNumber', e.target.value)} />
         )}
         {isOWF && (
@@ -2124,6 +2185,18 @@ function QuickCreateView({ user, people, onSaved }) {
         </div>
       )}
       <div className="grid md:grid-cols-2 gap-4">
+        {isStaff && (
+          <div className="md:col-span-2">
+            <label className="block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]">SSR Number</label>
+            <input
+              className="mx-input"
+              placeholder="เช่น DS01_0123"
+              value={form.extra_data?.ssrNumber || ''}
+              onChange={(e) => setForm((p) => ({ ...p, extra_data: { ...(p.extra_data || {}), ssrNumber: e.target.value } }))}
+            />
+          </div>
+        )}
+
         <div className="md:col-span-2">
           <label className="block mb-2 text-sm font-bold">
             Job / รายละเอียดงาน
@@ -2188,6 +2261,7 @@ function QuickCreateView({ user, people, onSaved }) {
           subkpi={form.subkpi}
           extraData={form.extra_data}
           onChange={(ed) => setForm((p) => ({ ...p, extra_data: ed }))}
+          hideSsr={isStaff}
         />
 
         <div>
@@ -2245,255 +2319,370 @@ function PeopleView({ user, people, onRefresh }) {
 }
 
 // ─── Admin Studio ──────────────────────────────────────────────────────────────
-function AdminStudio({ user, adminData, onRefresh }) {
+function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', setAdminSection = () => {} }) {
   const [userForm, setUserForm] = useState({ empid: '', name: '', team: '', role: 'Staff', pigurl: '' });
   const [teamName, setTeamName] = useState('');
   const [kpiForm, setKpiForm] = useState({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
   const [holidayForm, setHolidayForm] = useState({ holiday_date: '', name: '', is_active: true });
+  const [adminSearch, setAdminSearch] = useState('');
+  const [saving, setSaving] = useState('');
+
+  const teams = adminData?.teams || [];
+  const staff = adminData?.staff || [];
+  const kpis = adminData?.kpis || [];
+  const holidays = adminData?.holidays || [];
+  const logs = adminData?.logs || [];
+  const q = adminSearch.trim().toLowerCase();
+  const matches = (...values) => !q || values.some((value) => String(value || '').toLowerCase().includes(q));
+  const filteredStaff = staff.filter((s) => matches(s.name, s.empId, s.empid, s.team, s.role));
+  const filteredKpis = kpis.filter((k) => matches(k.main, k.sub, k.team, k.days, k.main_weight));
+  const filteredHolidays = holidays.filter((h) => matches(h.name, h.holiday_date, h.is_active ? 'active' : 'inactive'));
+
+  const runAdminAction = async (key, action, successMessage) => {
+    setSaving(key);
+    try {
+      const res = await action();
+      if (res?.error) return alert(res.error);
+      await onRefresh();
+      if (successMessage) alert(successMessage);
+    } catch (error) {
+      alert(error.message || 'ดำเนินการไม่สำเร็จ');
+    } finally {
+      setSaving('');
+    }
+  };
+
+  const editUser = (item) => {
+    setUserForm({
+      empid: item.empId || item.empid || '',
+      name: item.name || '',
+      team: item.team || '',
+      role: item.role || 'Staff',
+      pigurl: item.pigurl || item.pigUrl || item.avatar || item.photoUrl || '',
+      permissions: item.permissions || { allowedTeams: [], allowedStaff: [] },
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const editKpi = (item) => {
+    setKpiForm({
+      id: item.id,
+      main: item.main || item.mainkpi || '',
+      sub: item.sub || item.subkpi || '',
+      team: item.team || '',
+      days: item.days || 1,
+      main_weight: item.main_weight || item.mainWeight || 1,
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const editHoliday = (item) => {
+    setHolidayForm({
+      id: item.id,
+      holiday_date: item.holiday_date || '',
+      name: item.name || '',
+      is_active: item.is_active !== false,
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const saveUser = async () => {
-    const res = await adminPost('admin/saveUser', { ...userForm, permissions: { allowedTeams: [], allowedStaff: [] } }, user.empId);
-    if (res.error) return alert(res.error);
+    if (!userForm.empid || !userForm.name || !userForm.team || !userForm.role) return alert('กรุณากรอก Emp ID, ชื่อ, ทีม และบทบาทให้ครบ');
+    await runAdminAction('user', async () => adminPost('admin/saveUser', { ...userForm, permissions: userForm.permissions || { allowedTeams: [], allowedStaff: [] } }, user.empId), 'บันทึกผู้ใช้สำเร็จ');
     setUserForm({ empid: '', name: '', team: '', role: 'Staff', pigurl: '' });
-    onRefresh();
-    alert('บันทึก user สำเร็จ');
   };
 
   const saveTeam = async () => {
-    const res = await adminPost('admin/saveTeam', { name: teamName }, user.empId);
-    if (res.error) return alert(res.error);
+    if (!teamName.trim()) return alert('กรุณากรอกชื่อทีม');
+    await runAdminAction('team', async () => adminPost('admin/saveTeam', { name: teamName.trim() }, user.empId), 'บันทึกทีมสำเร็จ');
     setTeamName('');
-    onRefresh();
-    alert('บันทึกทีมสำเร็จ');
   };
 
   const saveKpi = async () => {
-    const res = await adminPost('admin/saveKpi', { ...kpiForm, days: Number(kpiForm.days), main_weight: Number(kpiForm.main_weight) }, user.empId);
-    if (res.error) return alert(res.error);
+    if (!kpiForm.main || !kpiForm.sub || !kpiForm.team) return alert('กรุณากรอก Main KPI, Sub KPI และทีมให้ครบ');
+    await runAdminAction('kpi', async () => adminPost('admin/saveKpi', { ...kpiForm, days: Number(kpiForm.days), main_weight: Number(kpiForm.main_weight) }, user.empId), 'บันทึก KPI สำเร็จ');
     setKpiForm({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
-    alert('บันทึก KPI สำเร็จ');
   };
 
   const saveHoliday = async () => {
-    const res = await adminPost('admin/saveHoliday', holidayForm, user.empId);
-    if (res.error) return alert(res.error);
+    if (!holidayForm.holiday_date || !holidayForm.name) return alert('กรุณากรอกวันที่และชื่อวันหยุดให้ครบ');
+    await runAdminAction('holiday', async () => adminPost('admin/saveHoliday', holidayForm, user.empId), 'บันทึกวันหยุดสำเร็จ');
     setHolidayForm({ holiday_date: '', name: '', is_active: true });
-    onRefresh();
-    alert('บันทึกวันหยุดสำเร็จ');
   };
 
   const recalc = async () => {
-    const res = await adminPost('admin/recalculateDeadlines', {}, user.empId);
-    if (res.error) return alert(res.error);
-    alert(`Recalculated ${res.syncedTasks || 0} task(s)`);
+    await runAdminAction('recalc', async () => adminPost('admin/recalculateDeadlines', {}, user.empId), 'คำนวณกำหนดส่งใหม่สำเร็จ');
   };
 
   const removeUser = async (empId) => {
-    if (!window.confirm(`Delete user ${empId}?`)) return;
-    const res = await adminDelete(`admin/deleteUser?empId=${encodeURIComponent(empId)}`, user.empId);
-    if (res.error) return alert(res.error);
-    onRefresh();
+    if (!window.confirm(`ยืนยันการลบผู้ใช้ ${empId}?`)) return;
+    await runAdminAction(`delete-user-${empId}`, async () => adminDelete(`admin/deleteUser?empId=${encodeURIComponent(empId)}`, user.empId), 'ลบผู้ใช้สำเร็จ');
   };
 
   const removeTeam = async (id) => {
-    if (!window.confirm('Delete this team?')) return;
-    const res = await adminDelete(`admin/deleteTeam?id=${encodeURIComponent(id)}`, user.empId);
-    if (res.error) return alert(res.error);
-    onRefresh();
+    if (!window.confirm('ยืนยันการลบทีมนี้?')) return;
+    await runAdminAction(`delete-team-${id}`, async () => adminDelete(`admin/deleteTeam?id=${encodeURIComponent(id)}`, user.empId), 'ลบทีมสำเร็จ');
   };
 
   const removeHoliday = async (id) => {
-    if (!window.confirm('Delete this holiday?')) return;
-    const res = await adminDelete(`admin/deleteHoliday?id=${encodeURIComponent(id)}`, user.empId);
-    if (res.error) return alert(res.error);
-    onRefresh();
+    if (!window.confirm('ยืนยันการลบวันหยุดนี้?')) return;
+    await runAdminAction(`delete-holiday-${id}`, async () => adminDelete(`admin/deleteHoliday?id=${encodeURIComponent(id)}`, user.empId), 'ลบวันหยุดสำเร็จ');
   };
 
   const removeKpi = async (id) => {
-    if (!window.confirm('Delete this KPI?')) return;
-    const res = await adminDelete(`admin/deleteKpi?id=${encodeURIComponent(id)}`, user.empId);
-    if (res.error) return alert(res.error);
-    onRefresh();
+    if (!window.confirm('ยืนยันการลบ KPI นี้?')) return;
+    await runAdminAction(`delete-kpi-${id}`, async () => adminDelete(`admin/deleteKpi?id=${encodeURIComponent(id)}`, user.empId), 'ลบ KPI สำเร็จ');
   };
+
+  const sectionItems = [
+    { id: 'overview', label: 'ภาพรวมระบบ', icon: 'fa-gauge-high', count: staff.length + teams.length + kpis.length + holidays.length },
+    { id: 'users', label: 'ผู้ใช้และสิทธิ์', icon: 'fa-users-gear', count: staff.length },
+    { id: 'teams', label: 'ทีมงาน', icon: 'fa-people-group', count: teams.length },
+    { id: 'kpi', label: 'กฎ KPI/SLA', icon: 'fa-scale-balanced', count: kpis.length },
+    { id: 'calendar', label: 'ปฏิทิน SLA', icon: 'fa-calendar-days', count: holidays.length },
+    { id: 'maintenance', label: 'ดูแลระบบ', icon: 'fa-screwdriver-wrench', count: logs.length },
+    { id: 'audit', label: 'ประวัติการแก้ไข', icon: 'fa-shield-halved', count: logs.length },
+  ];
+
+  const UserEditor = () => (
+    <Panel title="เพิ่ม / แก้ไขผู้ใช้" subtitle="จัดการตัวตน บทบาท ทีม และรูปโปรไฟล์ผ่านระบบเท่านั้น">
+      <div className="grid gap-3">
+        <input className="mx-input" placeholder="Emp ID" value={userForm.empid} onChange={(e) => setUserForm((p) => ({ ...p, empid: e.target.value.toUpperCase() }))} />
+        <input className="mx-input" placeholder="ชื่อผู้ใช้" value={userForm.name} onChange={(e) => setUserForm((p) => ({ ...p, name: e.target.value }))} />
+        <select className="mx-select" value={userForm.team} onChange={(e) => setUserForm((p) => ({ ...p, team: e.target.value }))}>
+          <option value="">เลือกทีม</option>
+          {teams.map((team) => <option key={team.id || team.name} value={team.name}>{team.name}</option>)}
+        </select>
+        <select className="mx-select" value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value }))}>
+          <option value="Staff">Staff</option>
+          <option value="Lead">Lead</option>
+          <option value="Manager">Manager</option>
+          <option value="Admin">Admin</option>
+        </select>
+        <input className="mx-input" placeholder="ลิงก์รูปโปรไฟล์ (ถ้ามี)" value={userForm.pigurl} onChange={(e) => setUserForm((p) => ({ ...p, pigurl: e.target.value }))} />
+        <div className="grid grid-cols-2 gap-3">
+          <button className="mx-btn mx-btn-primary" onClick={saveUser} disabled={saving === 'user'}>{saving === 'user' ? 'กำลังบันทึก...' : 'บันทึกผู้ใช้'}</button>
+          <button className="mx-btn mx-btn-soft" onClick={() => setUserForm({ empid: '', name: '', team: '', role: 'Staff', pigurl: '' })}>ล้างฟอร์ม</button>
+        </div>
+      </div>
+    </Panel>
+  );
+
+  const UsersList = () => (
+    <Panel title="ผู้ใช้และสิทธิ์" subtitle="แก้ไขหรือลบสิทธิ์ผู้ใช้ผ่านระบบ โดยไม่แตะ data source โดยตรง">
+      <div className="grid gap-3">
+        {filteredStaff.slice(0, 60).map((s) => (
+          <div key={s.empId || s.empid} className="mx-data-card">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div>
+                <div className="font-bold">{s.name}</div>
+                <div className="mt-1 text-sm text-[var(--mx-muted)]">{s.empId || s.empid} / {s.team} / {s.role}</div>
+              </div>
+              <div className="flex gap-2">
+                <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editUser(s)}>แก้ไข</button>
+                <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeUser(s.empId || s.empid)}>ลบ</button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {filteredStaff.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบผู้ใช้</div>}
+      </div>
+    </Panel>
+  );
+
+  const TeamControls = () => (
+    <Panel title="ทีมงาน" subtitle="เพิ่ม แก้ไข และลบทีมผ่านระบบเท่านั้น">
+      <div className="grid gap-4">
+        <div className="mx-muted-card rounded-lg p-4">
+          <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+            <div className="flex-1">
+              <div className="text-sm font-extrabold">ชื่อทีม</div>
+              <input className="mx-input mt-3" placeholder="ชื่อทีมใหม่หรือทีมที่ต้องการแก้ไข" value={teamName} onChange={(e) => setTeamName(e.target.value)} />
+            </div>
+            <button className="mx-btn mx-btn-primary lg:w-36" onClick={saveTeam} disabled={saving === 'team'}>{saving === 'team' ? 'กำลังบันทึก...' : 'บันทึกทีม'}</button>
+          </div>
+        </div>
+        <div className="grid gap-3">
+          {teams.map((team) => (
+            <div key={team.id || team.name} className="mx-data-card flex items-center justify-between gap-3">
+              <div className="font-bold">{team.name}</div>
+              <div className="flex gap-2">
+                <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => setTeamName(team.name)}>แก้ไข</button>
+                <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeTeam(team.id)} disabled={!team.id}>ลบ</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Panel>
+  );
+
+  const KpiControls = () => (
+    <Panel title="กฎ KPI/SLA" subtitle="จัดการจำนวนวัน SLA และน้ำหนัก KPI ที่ใช้คำนวณคะแนน">
+      <div className="grid gap-5">
+        <div className="mx-muted-card rounded-lg p-4">
+          <div className="grid md:grid-cols-2 gap-3">
+            <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+              Main KPI
+              <input className="mx-input" placeholder="Main KPI" value={kpiForm.main} onChange={(e) => setKpiForm((p) => ({ ...p, main: e.target.value }))} />
+            </label>
+            <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+              Sub KPI
+              <input className="mx-input" placeholder="Sub KPI" value={kpiForm.sub} onChange={(e) => setKpiForm((p) => ({ ...p, sub: e.target.value }))} />
+            </label>
+            <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+              Team
+              <select className="mx-select" value={kpiForm.team} onChange={(e) => setKpiForm((p) => ({ ...p, team: e.target.value }))}>
+                <option value="">เลือกทีม</option>
+                {teams.map((team) => <option key={team.id || team.name} value={team.name}>{team.name}</option>)}
+              </select>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                SLA Days
+                <input className="mx-input" type="number" min="1" placeholder="1" value={kpiForm.days} onChange={(e) => setKpiForm((p) => ({ ...p, days: e.target.value }))} />
+              </label>
+              <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                Weight
+                <input className="mx-input" type="number" min="1" step="0.1" placeholder="1" value={kpiForm.main_weight} onChange={(e) => setKpiForm((p) => ({ ...p, main_weight: e.target.value }))} />
+              </label>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <button className="mx-btn mx-btn-primary w-full" onClick={saveKpi} disabled={saving === 'kpi'}>{saving === 'kpi' ? 'กำลังบันทึก...' : 'บันทึก KPI'}</button>
+            <button className="mx-btn mx-btn-soft w-full" onClick={() => setKpiForm({ main: '', sub: '', team: '', days: 1, main_weight: 1 })}>ล้างฟอร์ม</button>
+          </div>
+        </div>
+        <div className="grid gap-3">
+          {filteredKpis.slice(0, 80).map((kpi) => (
+            <div key={kpi.id || `${kpi.team}-${kpi.main}-${kpi.sub}`} className="mx-data-card">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <div className="font-bold">{kpi.main} / {kpi.sub}</div>
+                  <div className="mt-1 text-sm text-[var(--mx-muted)]">{kpi.team} / {kpi.days} day(s) / weight {kpi.main_weight}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editKpi(kpi)}>แก้ไข</button>
+                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeKpi(kpi.id)} disabled={!kpi.id}>ลบ</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Panel>
+  );
+
+  const CalendarControls = () => (
+    <Panel title="ปฏิทิน SLA" subtitle="จัดการวันหยุดที่มีผลต่อการคำนวณกำหนดส่ง">
+      <div className="grid gap-5">
+        <div className="mx-muted-card rounded-lg p-4">
+          <div className="grid md:grid-cols-[180px_1fr_150px] gap-3">
+            <input className="mx-input" type="date" value={holidayForm.holiday_date} onChange={(e) => setHolidayForm((p) => ({ ...p, holiday_date: e.target.value }))} />
+            <input className="mx-input" placeholder="ชื่อวันหยุด" value={holidayForm.name} onChange={(e) => setHolidayForm((p) => ({ ...p, name: e.target.value }))} />
+            <button className="mx-btn mx-btn-primary" onClick={saveHoliday} disabled={saving === 'holiday'}>{saving === 'holiday' ? 'กำลังบันทึก...' : 'บันทึก'}</button>
+          </div>
+        </div>
+        <div className="grid gap-3">
+          {filteredHolidays.slice(0, 80).map((holiday) => (
+            <div key={holiday.id || holiday.holiday_date} className="mx-data-card">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <div className="font-bold">{holiday.name}</div>
+                  <div className="mt-1 text-sm text-[var(--mx-muted)]">{holiday.holiday_date} / {holiday.is_active ? 'Active' : 'Inactive'}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editHoliday(holiday)}>แก้ไข</button>
+                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeHoliday(holiday.id)} disabled={!holiday.id}>ลบ</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Panel>
+  );
+
+  const MaintenancePanel = () => (
+    <Panel title="ดูแลระบบ" subtitle="สั่งงานระบบผ่านเครื่องมือที่ควบคุมได้ โดยไม่แตะข้อมูลหลังบ้านโดยตรง">
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="mx-muted-card rounded-lg p-4">
+          <div className="text-sm font-extrabold">คำนวณกำหนดส่งใหม่</div>
+          <div className="mt-1 text-sm text-[var(--mx-muted)]">ใช้หลังจากปรับกฎ KPI หรือวันหยุด การทำงานจะผ่าน API และควรตรวจสอบย้อนหลังได้จาก audit log</div>
+          <button className="mx-btn mx-btn-primary mt-4" onClick={recalc} disabled={saving === 'recalc'}>
+            <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังทำงาน...' : 'คำนวณกำหนดส่งใหม่'}
+          </button>
+        </div>
+        <div className="mx-muted-card rounded-lg p-4">
+          <div className="text-sm font-extrabold">นโยบายการใช้งาน</div>
+          <div className="mt-2 grid gap-2 text-sm text-[var(--mx-muted)]">
+            <div>ห้ามแก้ไขฐานข้อมูลโดยตรง</div>
+            <div>การแก้ไข master data ต้องผ่าน System Control เท่านั้น</div>
+            <div>ทุก action ควรผ่าน API validation และมี audit log ตรวจสอบได้</div>
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+
+  const AuditPanel = () => (
+    <Panel title="ประวัติการแก้ไข" subtitle="ตรวจสอบการเปลี่ยนแปลงของระบบโดยไม่ต้องเข้า backend">
+      <div className="grid gap-3">
+        {logs.slice(0, 80).map((log) => (
+          <div key={log.id || `${log.action}-${log.timestamp}`} className="mx-data-card">
+            <div className="font-bold text-sm">{log.action || 'Activity'}</div>
+            <div className="mt-2 text-sm text-[var(--mx-muted)]">{log.details || '-'}</div>
+            <div className="mt-2 text-xs text-[var(--mx-muted)]">{log.by_user || '-'} / {formatDate(log.timestamp, true)}</div>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
 
   return (
     <div className="grid gap-5">
-      <Panel title="Admin Studio" subtitle="จัดการทุกอย่างผ่านระบบใหม่ โดยไม่ต้องแตะ database">
-        <div className="mx-grid-auto">
-          <MetricCard label="Users" value={adminData?.staff?.length || 0} sub="ผู้ใช้งานในระบบ" icon="fa-users" />
-          <MetricCard label="Teams" value={adminData?.teams?.length || 0} sub="ทีมที่บันทึกไว้" icon="fa-people-group" accent="var(--mx-teal)" />
-          <MetricCard label="Holidays" value={adminData?.holidays?.length || 0} sub="วันหยุดในปฏิทิน SLA" icon="fa-calendar-days" accent="var(--mx-amber)" />
-          <MetricCard label="Audit Logs" value={adminData?.logs?.length || 0} sub="log ล่าสุดในระบบ" icon="fa-shield-halved" accent="var(--mx-blue)" />
-        </div>
-      </Panel>
-
-      <div className="grid xl:grid-cols-2 gap-5">
-        <Panel title="Create / Update User" subtitle="จัดการผู้ใช้จากภายในระบบ">
-          <div className="grid gap-3">
-            <input className="mx-input" placeholder="Emp ID" value={userForm.empid} onChange={(e) => setUserForm((p) => ({ ...p, empid: e.target.value }))} />
-            <input className="mx-input" placeholder="Name" value={userForm.name} onChange={(e) => setUserForm((p) => ({ ...p, name: e.target.value }))} />
-            <input className="mx-input" placeholder="Team" value={userForm.team} onChange={(e) => setUserForm((p) => ({ ...p, team: e.target.value }))} />
-            <select className="mx-select" value={userForm.role} onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value }))}>
-              <option value="Staff">Staff</option>
-              <option value="Lead">Lead</option>
-              <option value="Manager">Manager</option>
-              <option value="Admin">Admin</option>
-            </select>
-            <input className="mx-input" placeholder="Avatar URL (optional)" value={userForm.pigurl} onChange={(e) => setUserForm((p) => ({ ...p, pigurl: e.target.value }))} />
-            <button className="mx-btn mx-btn-primary" onClick={saveUser}>Save User</button>
+        <Panel
+          title={sectionItems.find((item) => item.id === adminSection)?.label || 'System Control'}
+          subtitle="ทุกการแก้ไขในหน้านี้ต้องผ่านระบบและ API เท่านั้น ห้ามแก้ข้อมูลโดยตรง"
+          actions={[
+            <button key="refresh" className="mx-btn mx-btn-soft" onClick={onRefresh} disabled={!!saving}>
+              <i className="fa-solid fa-arrows-rotate mr-2"></i>Refresh
+            </button>,
+          ]}
+        >
+          <div className="grid lg:grid-cols-[1fr_360px] gap-4 lg:items-center">
+            <div>
+              <div className="text-sm font-extrabold">กติกาควบคุมระบบ</div>
+              <div className="mt-1 text-sm text-[var(--mx-muted)]">
+                ห้ามแก้ฐานข้อมูลโดยตรง การแก้ master data, กฎ SLA, ปฏิทิน และงานดูแลระบบต้องผ่าน System Control เท่านั้น
+              </div>
+            </div>
+            <input className="mx-input" placeholder="ค้นหาในหมวดนี้..." value={adminSearch} onChange={(e) => setAdminSearch(e.target.value)} />
           </div>
         </Panel>
 
-        <Panel title="Organization Controls" subtitle="ทีม, KPI, วันหยุด และการคำนวณ SLA">
-          <div className="grid gap-4">
-            <div className="mx-muted-card rounded-lg p-4">
-              <div className="flex flex-col lg:flex-row lg:items-end gap-3">
-                <div className="flex-1">
-                  <div className="text-sm font-extrabold">Team</div>
-                  <div className="mt-1 text-xs text-[var(--mx-muted)]">เพิ่มทีมใหม่สำหรับจัดกลุ่มผู้ใช้งานและ KPI</div>
-                  <input className="mx-input mt-3" placeholder="New Team Name" value={teamName} onChange={(e) => setTeamName(e.target.value)} />
-                </div>
-                <button className="mx-btn mx-btn-soft lg:w-36" onClick={saveTeam}>Save Team</button>
-              </div>
+        {adminSection === 'overview' && (
+          <>
+            <div className="mx-grid-auto">
+              <MetricCard label="ผู้ใช้" value={staff.length} sub="บัญชีที่จัดการในระบบ" icon="fa-users" />
+              <MetricCard label="ทีม" value={teams.length} sub="กลุ่มงานปฏิบัติการ" icon="fa-people-group" accent="var(--mx-teal)" />
+              <MetricCard label="กฎ KPI/SLA" value={kpis.length} sub="วัน SLA และน้ำหนักคะแนน" icon="fa-scale-balanced" accent="var(--mx-indigo)" />
+              <MetricCard label="วันหยุด" value={holidays.length} sub="ข้อมูลในปฏิทิน SLA" icon="fa-calendar-days" accent="var(--mx-amber)" />
             </div>
+            <div className="grid xl:grid-cols-2 gap-5">
+              <MaintenancePanel />
+              <AuditPanel />
+            </div>
+          </>
+        )}
 
-            <div className="mx-muted-card rounded-lg p-4">
-              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2 mb-3">
-                <div>
-                  <div className="text-sm font-extrabold">KPI Definition</div>
-                  <div className="mt-1 text-xs text-[var(--mx-muted)]">กำหนด SLA days และ Weight ที่ใช้คำนวณคะแนนแบบถ่วงน้ำหนัก</div>
-                </div>
-                <span className="mx-badge mx-status-process">Weight affects score</span>
-              </div>
-              <div className="grid md:grid-cols-2 gap-3">
-                <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
-                  Main KPI
-                  <input className="mx-input" placeholder="Main KPI" value={kpiForm.main} onChange={(e) => setKpiForm((p) => ({ ...p, main: e.target.value }))} />
-                </label>
-                <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
-                  Sub KPI
-                  <input className="mx-input" placeholder="Sub KPI" value={kpiForm.sub} onChange={(e) => setKpiForm((p) => ({ ...p, sub: e.target.value }))} />
-                </label>
-                <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
-                  Team
-                  <input className="mx-input" placeholder="Team" value={kpiForm.team} onChange={(e) => setKpiForm((p) => ({ ...p, team: e.target.value }))} />
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
-                    SLA Days
-                    <input className="mx-input" type="number" min="1" placeholder="1" value={kpiForm.days} onChange={(e) => setKpiForm((p) => ({ ...p, days: e.target.value }))} />
-                  </label>
-                  <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
-                    Weight
-                    <input className="mx-input" type="number" min="1" step="0.1" placeholder="1" value={kpiForm.main_weight} onChange={(e) => setKpiForm((p) => ({ ...p, main_weight: e.target.value }))} />
-                  </label>
-                </div>
-              </div>
-              <button className="mx-btn mx-btn-soft w-full mt-3" onClick={saveKpi}>Save KPI</button>
-            </div>
-
-            <div className="mx-muted-card rounded-lg p-4">
-              <div className="text-sm font-extrabold">Holiday Calendar</div>
-              <div className="mt-1 text-xs text-[var(--mx-muted)]">วันหยุดจะถูกใช้ตอนคำนวณ deadline และ SLA</div>
-              <div className="grid md:grid-cols-[180px_1fr_auto] gap-3 mt-3">
-                <input className="mx-input" type="date" value={holidayForm.holiday_date} onChange={(e) => setHolidayForm((p) => ({ ...p, holiday_date: e.target.value }))} />
-                <input className="mx-input" placeholder="Holiday Name" value={holidayForm.name} onChange={(e) => setHolidayForm((p) => ({ ...p, name: e.target.value }))} />
-                <button className="mx-btn mx-btn-soft md:w-36" onClick={saveHoliday}>Save Holiday</button>
-              </div>
-            </div>
-
-            <div className="mx-muted-card rounded-lg p-4">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                <div>
-                  <div className="text-sm font-extrabold">Maintenance</div>
-                  <div className="mt-1 text-xs text-[var(--mx-muted)]">ใช้เมื่อมีการปรับ KPI หรือวันหยุด แล้วต้องคำนวณ deadline ใหม่</div>
-                </div>
-                <button className="mx-btn mx-btn-primary lg:w-60" onClick={recalc}>
-                  <i className="fa-solid fa-rotate mr-2"></i>Recalculate Deadlines
-                </button>
-              </div>
-            </div>
-          </div>
-        </Panel>
+        {adminSection === 'users' && <div className="grid xl:grid-cols-[0.85fr_1.15fr] gap-5"><UserEditor /><UsersList /></div>}
+        {adminSection === 'teams' && <TeamControls />}
+        {adminSection === 'kpi' && <KpiControls />}
+        {adminSection === 'calendar' && <CalendarControls />}
+        {adminSection === 'maintenance' && <MaintenancePanel />}
+        {adminSection === 'audit' && <AuditPanel />}
       </div>
-
-      <div className="grid xl:grid-cols-2 gap-5">
-        <Panel title="Teams" subtitle="รายการทีมจากระบบเดิม">
-          <div className="grid gap-3">
-            {(adminData?.teams || []).map((team) => (
-              <div key={team.id || team.name} className="mx-data-card flex items-center justify-between gap-3">
-                <div className="font-bold">{team.name}</div>
-                <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeTeam(team.id)}>Delete</button>
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <Panel title="Latest Audit Logs" subtitle="ดูประวัติการเปลี่ยนแปลงโดยไม่ต้องเข้า backend">
-          <div className="grid gap-3">
-            {(adminData?.logs || []).slice(0, 12).map((log) => (
-              <div key={log.id} className="mx-data-card">
-                <div className="font-bold text-sm">{log.action || 'Activity'}</div>
-                <div className="mt-2 text-sm text-[var(--mx-muted)]">{log.details || '-'}</div>
-                <div className="mt-2 text-xs text-[var(--mx-muted)]">{log.by_user || '-'} • {formatDate(log.timestamp, true)}</div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
-
-      <div className="grid xl:grid-cols-3 gap-5">
-        <Panel title="Users" subtitle="จัดการผู้ใช้งานจากระบบใหม่">
-          <div className="grid gap-3">
-            {(adminData?.staff || []).slice(0, 15).map((s) => (
-              <div key={s.empId} className="mx-data-card">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-bold">{s.name}</div>
-                    <div className="mt-1 text-sm text-[var(--mx-muted)]">{s.empId} • {s.team} • {s.role}</div>
-                  </div>
-                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeUser(s.empId)}>Delete</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <Panel title="KPI Catalog" subtitle="เห็นและลบ KPI ได้จากในระบบ">
-          <div className="grid gap-3">
-            {(adminData?.kpis || []).slice(0, 15).map((kpi) => (
-              <div key={kpi.id} className="mx-data-card">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-bold">{kpi.main} / {kpi.sub}</div>
-                    <div className="mt-1 text-sm text-[var(--mx-muted)]">{kpi.team} • {kpi.days} day(s) • weight {kpi.main_weight}</div>
-                  </div>
-                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeKpi(kpi.id)}>Delete</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <Panel title="Holiday Calendar" subtitle="ดูและลบวันหยุดโดยไม่ออกจากระบบ">
-          <div className="grid gap-3">
-            {(adminData?.holidays || []).slice(0, 15).map((holiday) => (
-              <div key={holiday.id} className="mx-data-card">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-bold">{holiday.name}</div>
-                    <div className="mt-1 text-sm text-[var(--mx-muted)]">
-                      {holiday.holiday_date} • {holiday.is_active ? 'Active' : 'Inactive'}
-                    </div>
-                  </div>
-                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeHoliday(holiday.id)}>Delete</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
-    </div>
   );
 }
 
@@ -2513,6 +2702,7 @@ function App() {
   const [actionLoading, setActionLoading] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
   const [showDashboardCreate, setShowDashboardCreate] = useState(false);
+  const [adminSection, setAdminSection] = useState('overview');
 
   const {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,
@@ -2745,7 +2935,7 @@ function App() {
       : view === 'assign' ? 'Assignment Center'
       : view === 'people' ? 'People Overview'
       : view === 'tracker' ? 'Job Tracker'
-      : view === 'admin' ? 'Admin Studio'
+      : view === 'admin' ? 'ควบคุมระบบ'
       : 'MAXIWA KPI';
   const pageSubtitle =
     view === 'executive' ? 'Board-ready view for SLA risk, weighted KPI health, team performance, and critical work.'
@@ -2753,7 +2943,7 @@ function App() {
     view === 'dashboard' ? 'KPI, SLA, งานค้าง และภาพรวมผลงานในช่วงเวลาที่เลือก'
       : view === 'tasks' ? 'จัดการรายการงาน ติดตามสถานะ และตรวจสอบ SLA'
       : view === 'tracker' ? 'ค้นหาและติดตามประวัติงานจากรหัสงาน'
-      : view === 'admin' ? 'ตั้งค่าทีม KPI วันหยุด และข้อมูลระบบ'
+      : view === 'admin' ? 'จัดการผู้ใช้ ทีม KPI/SLA วันหยุด งานดูแลระบบ และ audit log ผ่านระบบเดียว'
       : 'จัดการงานและข้อมูลที่เกี่ยวข้องกับบทบาทของคุณ';
   const activePeriodLabel = showFilterBar
     ? `${filterMonth === 0 ? 'ทุกเดือน' : MONTH_NAMES[filterMonth - 1]} ${filterYear}`
@@ -2762,7 +2952,15 @@ function App() {
   return (
     <div className="min-h-screen p-4 md:p-6">
       <div className="max-w-[1640px] mx-auto grid xl:grid-cols-[320px_1fr] gap-5 items-start">
-        <Sidebar user={user} view={view} setView={setView} onLogout={logout} notifCount={notifications.length} />
+        <Sidebar
+          user={user}
+          view={view}
+          setView={setView}
+          onLogout={logout}
+          notifCount={notifications.length}
+          adminSection={adminSection}
+          setAdminSection={setAdminSection}
+        />
 
         <main className="grid content-start gap-5">
           <header className="mx-shell-card overflow-visible">
@@ -2940,7 +3138,15 @@ function App() {
           )}
           {view === 'people' && <PeopleView user={user} people={state.people} onRefresh={reloadPeople} />}
           {view === 'tracker' && <TrackerViewNew />}
-          {view === 'admin' && <AdminStudio user={user} adminData={state.admin} onRefresh={reloadAdmin} />}
+          {view === 'admin' && (
+            <AdminStudio
+              user={user}
+              adminData={state.admin}
+              onRefresh={reloadAdmin}
+              adminSection={adminSection}
+              setAdminSection={setAdminSection}
+            />
+          )}
         </main>
       </div>
     </div>
