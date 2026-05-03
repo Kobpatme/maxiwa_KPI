@@ -800,6 +800,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
 
 function TeamDetailModal({ team, onClose }) {
   if (!team) return null;
+  const members = team.members || [];
   const kpiBreakdown = Object.entries(groupBy(team.items || [], mainKpi))
     .map(([name, items]) => ({
       name,
@@ -814,8 +815,10 @@ function TeamDetailModal({ team, onClose }) {
   const peopleBreakdown = Object.entries(groupBy(team.items || [], personName))
     .map(([name, items]) => {
       const portfolio = buildPortfolio(items);
+      const member = members.find((item) => item.name === name);
       return {
         name,
+        profile: member?.profile || items.find((task) => getPhotoUrl(task)) || null,
         total: items.length,
         active: portfolio.active.length,
         completed: portfolio.completed.length,
@@ -838,12 +841,24 @@ function TeamDetailModal({ team, onClose }) {
       <div className="modal-card team-modal-card" onClick={(event) => event.stopPropagation()}>
         <button className="modal-close no-print" onClick={onClose} aria-label="Close"><i className="fa-solid fa-xmark"></i></button>
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Team Drilldown</div>
             <h2 className="section-title mt-2 mb-1">{team.team}</h2>
             <div className="flex flex-wrap gap-2">
               <span className={`mx-badge ${healthClass(team.health)}`}>Health {team.health}</span>
               <span className="mx-badge status-neutral">Top KPI: {team.topKpi}</span>
+            </div>
+            <div className="team-member-strip mt-5" aria-label={`${team.team} members`}>
+              <div className="team-member-avatars">
+                {members.slice(0, 9).map((member) => (
+                  <Avatar key={member.key || member.name} item={member.profile || member} name={member.name} className="team-member-avatar" />
+                ))}
+                {members.length > 9 && <span className="team-member-more">+{members.length - 9}</span>}
+              </div>
+              <div className="team-member-copy">
+                <strong>{fmtNum(members.length)} team member{members.length === 1 ? '' : 's'}</strong>
+                <span>{members.slice(0, 4).map((member) => member.name).join(', ') || 'No member profile found'}</span>
+              </div>
             </div>
           </div>
           <div className="mini-metric-grid modal-metrics">
@@ -881,9 +896,12 @@ function TeamDetailModal({ team, onClose }) {
             <div className="mt-4 grid gap-3 team-modal-scroll">
               {peopleBreakdown.map((person, index) => (
                 <div key={person.name} className="team-person-row">
-                  <div>
-                    <div className="font-black truncate">{String(index + 1).padStart(2, '0')} {person.name}</div>
-                    <div className="mt-1 text-xs text-[var(--mx-muted)]">{fmtNum(person.active)} active / {fmtNum(person.overdue)} overdue</div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar item={person.profile || person} name={person.name} className="team-person-avatar" />
+                    <div className="min-w-0">
+                      <div className="font-black truncate">{String(index + 1).padStart(2, '0')} {person.name}</div>
+                      <div className="mt-1 text-xs text-[var(--mx-muted)]">{fmtNum(person.active)} active / {fmtNum(person.overdue)} overdue</div>
+                    </div>
                   </div>
                   <span className={`mx-badge ${healthClass(person.score)}`}>{fmtPct(person.score)}</span>
                 </div>
@@ -1446,8 +1464,21 @@ function App() {
   }, [staffDirectory, state.user]);
 
   const teamRows = useMemo(() => buildGroupRows(tasks, teamName)
-    .map((row) => ({ ...row, team: row.name }))
-    .sort((a, b) => ((b.overdue * 3 + b.risk + b.backlog / Math.max(b.total, 1)) - (a.overdue * 3 + a.risk + a.backlog / Math.max(a.total, 1))) || (b.total - a.total)), [tasks]);
+    .map((row) => {
+      const memberMap = {};
+      (row.items || []).forEach((task) => {
+        const name = personName(task);
+        const key = String(name || '').trim().toLowerCase();
+        if (!key || memberMap[key]) return;
+        const profile = staffByName[key]
+          || staffByName[String(task.empId || task.empid || task.assignedToEmpId || '').trim().toLowerCase()]
+          || (getPhotoUrl(task) ? task : null);
+        memberMap[key] = { key, name, profile };
+      });
+      const members = Object.values(memberMap).sort((a, b) => a.name.localeCompare(b.name));
+      return { ...row, team: row.name, members };
+    })
+    .sort((a, b) => ((b.overdue * 3 + b.risk + b.backlog / Math.max(b.total, 1)) - (a.overdue * 3 + a.risk + a.backlog / Math.max(a.total, 1))) || (b.total - a.total)), [tasks, staffByName]);
 
   const personRows = useMemo(() => buildGroupRows(tasks, (task) => `${personName(task)}|${teamName(task)}`)
     .map((row) => {
