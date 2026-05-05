@@ -2544,7 +2544,7 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
   const userDepartmentValue = (item) => {
     const explicitDepartment = item.department || item.departmentId || item.division || item.permissions?.department || item.permissions?.division;
     if (explicitDepartment) return explicitDepartment;
-    return roleRequiresDepartment(item.role) ? (item.team || '') : '';
+    return item.team || '';
   };
 
   const userTeamValue = (item) => {

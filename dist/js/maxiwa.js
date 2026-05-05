@@ -1555,7 +1555,7 @@ var MaxiwaKpiApp = (() => {
       var _a2, _b;
       const explicitDepartment = item.department || item.departmentId || item.division || ((_a2 = item.permissions) == null ? void 0 : _a2.department) || ((_b = item.permissions) == null ? void 0 : _b.division);
       if (explicitDepartment) return explicitDepartment;
-      return roleRequiresDepartment(item.role) ? item.team || "" : "";
+      return item.team || "";
     };
     const userTeamValue = (item) => {
       return roleRequiresTeam(item.role) ? item.team || "" : "";
