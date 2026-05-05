@@ -7,6 +7,27 @@ const MONTH_NAMES = [
 
 const STRATEGIC_VIEW_ROLES = ['SrManager', 'Director', 'Executive'];
 const TEAM_SCOPED_ROLES = ['Lead'];
+const EXEC_THEME_KEY = 'metrix-executive-theme';
+
+function getInitialExecutiveTheme() {
+  try {
+    const saved = localStorage.getItem(EXEC_THEME_KEY);
+    if (saved === 'dark' || saved === 'light') return saved;
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
+}
+
+function applyExecutiveTheme(theme) {
+  const nextTheme = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = nextTheme;
+  try {
+    localStorage.setItem(EXEC_THEME_KEY, nextTheme);
+  } catch {
+    // Theme selection is cosmetic; keep rendering if storage is unavailable.
+  }
+}
 
 function isTeamScopedRole(role) {
   return TEAM_SCOPED_ROLES.includes(role);
@@ -448,7 +469,7 @@ function LineChart({ months, series, mode = 'percent' }) {
         ))}
         {mode !== 'volume' && yMin <= 95 && yMax >= 95 && (
           <g>
-            <line x1={pad.left} x2={width - pad.right} y1={y(95)} y2={y(95)} stroke="rgba(15,122,79,.45)" strokeDasharray="7 7" strokeWidth="1.5" />
+            <line x1={pad.left} x2={width - pad.right} y1={y(95)} y2={y(95)} stroke="var(--mx-success)" opacity=".55" strokeDasharray="7 7" strokeWidth="1.5" />
             <text className="chart-label" x={width - pad.right - 70} y={y(95) - 7}>Target 95%</text>
           </g>
         )}
@@ -458,12 +479,12 @@ function LineChart({ months, series, mode = 'percent' }) {
         {months.map((month, index) => (
           <text key={month} className="chart-label" x={x(index)} y={height - 14} textAnchor="middle">{MONTH_NAMES[month].slice(0, 3)}</text>
         ))}
-        <polyline className="chart-line" points={points(mode === 'volume' ? series.total : series.sla)} stroke="var(--mx-info)" />
-        <polyline className="chart-line" points={points(mode === 'volume' ? series.completed : series.completion)} stroke="var(--mx-success)" />
-        <polyline className="chart-line" points={points(series.risk)} stroke="var(--mx-danger)" />
-        {(mode === 'volume' ? series.total : series.sla).map((value, index) => value !== null && <circle key={`s-${index}`} cx={x(index)} cy={y(value)} r="4" fill="var(--mx-info)" />)}
-        {(mode === 'volume' ? series.completed : series.completion).map((value, index) => value !== null && <circle key={`c-${index}`} cx={x(index)} cy={y(value)} r="4" fill="var(--mx-success)" />)}
-        {series.risk.map((value, index) => value !== null && <circle key={`r-${index}`} cx={x(index)} cy={y(value)} r="4" fill="var(--mx-danger)" />)}
+        <polyline className="chart-line" points={points(mode === 'volume' ? series.total : series.sla)} stroke={mode === 'volume' ? 'var(--mx-chart-total)' : 'var(--mx-info)'} />
+        <polyline className="chart-line" points={points(mode === 'volume' ? series.completed : series.completion)} stroke={mode === 'volume' ? 'var(--mx-chart-completed)' : 'var(--mx-success)'} />
+        <polyline className="chart-line" points={points(series.risk)} stroke="var(--mx-chart-risk)" />
+        {(mode === 'volume' ? series.total : series.sla).map((value, index) => value !== null && <circle key={`s-${index}`} cx={x(index)} cy={y(value)} r="4" fill={mode === 'volume' ? 'var(--mx-chart-total)' : 'var(--mx-info)'} />)}
+        {(mode === 'volume' ? series.completed : series.completion).map((value, index) => value !== null && <circle key={`c-${index}`} cx={x(index)} cy={y(value)} r="4" fill={mode === 'volume' ? 'var(--mx-chart-completed)' : 'var(--mx-success)'} />)}
+        {series.risk.map((value, index) => value !== null && <circle key={`r-${index}`} cx={x(index)} cy={y(value)} r="4" fill="var(--mx-chart-risk)" />)}
       </svg>
     </div>
   );
@@ -510,11 +531,11 @@ function DonutChart({ rows, total }) {
   const radius = 72;
   const circumference = 2 * Math.PI * radius;
   let offset = 0;
-  const colors = ['var(--mx-success)', 'var(--mx-info)', 'var(--mx-warning)', 'var(--mx-danger)', 'var(--mx-brass)', '#6b7280'];
+  const colors = ['var(--mx-chart-completed)', 'var(--mx-chart-total)', 'var(--mx-warning)', 'var(--mx-chart-risk)', 'var(--mx-brass)', 'var(--mx-muted)'];
   return (
     <div className="donut-wrap">
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Status distribution">
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(16,19,25,.08)" strokeWidth="22" />
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--mx-surface-strong)" strokeWidth="22" />
         {rows.map((row, index) => {
           const dash = total ? (row.total / total) * circumference : 0;
           const item = (
@@ -604,9 +625,9 @@ function PerformanceScatter({ rows }) {
             <text className="chart-label" x="12" y={y(tick) + 4}>{tick}</text>
           </g>
         ))}
-        <rect x={x(85)} y={pad.top} width={width - pad.right - x(85)} height={y(85) - pad.top} fill="rgba(15,122,79,.07)" />
-        <line x1={x(95)} x2={x(95)} y1={pad.top} y2={height - pad.bottom} stroke="rgba(15,122,79,.45)" strokeDasharray="6 6" />
-        <line x1={pad.left} x2={width - pad.right} y1={y(95)} y2={y(95)} stroke="rgba(15,122,79,.45)" strokeDasharray="6 6" />
+        <rect x={x(85)} y={pad.top} width={width - pad.right - x(85)} height={y(85) - pad.top} fill="var(--mx-success)" opacity=".08" />
+        <line x1={x(95)} x2={x(95)} y1={pad.top} y2={height - pad.bottom} stroke="var(--mx-success)" opacity=".55" strokeDasharray="6 6" />
+        <line x1={pad.left} x2={width - pad.right} y1={y(95)} y2={y(95)} stroke="var(--mx-success)" opacity=".55" strokeDasharray="6 6" />
         {scored.map((row, index) => {
           const tone = row.weightedScore >= 90 ? 'var(--mx-success)' : row.weightedScore >= 75 ? 'var(--mx-info)' : row.weightedScore >= 60 ? 'var(--mx-warning)' : 'var(--mx-danger)';
           return (
@@ -651,19 +672,19 @@ function RadarChart({ teamRows }) {
     <div className="radar-wrap">
       <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[360px]" role="img" aria-label="Performance balance radar">
         {[25, 50, 75, 100].map((ring) => (
-          <polygon key={ring} points={axes.map((_, index) => point(index, ring).join(',')).join(' ')} fill="none" stroke="rgba(16,19,25,.1)" />
+          <polygon key={ring} points={axes.map((_, index) => point(index, ring).join(',')).join(' ')} fill="none" stroke="var(--mx-line-strong)" opacity=".72" />
         ))}
         {axes.map((axis, index) => {
           const [x2, y2] = point(index, 100);
           const [lx, ly] = point(index, 116);
           return (
             <g key={axis}>
-              <line x1={center} y1={center} x2={x2} y2={y2} stroke="rgba(16,19,25,.12)" />
+              <line x1={center} y1={center} x2={x2} y2={y2} stroke="var(--mx-line-strong)" opacity=".72" />
               <text className="chart-label" x={lx} y={ly} textAnchor="middle">{axis}</text>
             </g>
           );
         })}
-        <polygon points={polygon} fill="rgba(17,109,143,.22)" stroke="var(--mx-info)" strokeWidth="3" />
+        <polygon points={polygon} fill="var(--mx-info)" fillOpacity=".18" stroke="var(--mx-info)" strokeWidth="3" />
         {values.map((value, index) => {
           const [cx, cy] = point(index, value);
           return <circle key={index} cx={cx} cy={cy} r="4" fill="var(--mx-info)" />;
@@ -1425,6 +1446,7 @@ function App() {
   const [personTeamFilter, setPersonTeamFilter] = useState('all');
   const [kpiSearch, setKpiSearch] = useState('');
   const [selectedPerson, setSelectedPerson] = useState(null);
+  const [theme, setTheme] = useState(getInitialExecutiveTheme);
   const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [], holidays: [] });
 
   const years = useMemo(() => {
@@ -1495,6 +1517,10 @@ function App() {
   useEffect(() => {
     if (initialEmpId) load(initialEmpId);
   }, [month, year]);
+
+  useEffect(() => {
+    applyExecutiveTheme(theme);
+  }, [theme]);
 
   const tasks = state.tasks || [];
   const staffDirectory = state.staff || [];
@@ -1590,7 +1616,7 @@ function App() {
             <div className="flex flex-wrap items-center gap-3">
               {state.user && <Avatar item={state.user} name={state.user.name || state.user.empId} className="header-avatar" />}
               <span className="mx-badge status-info"><i className="fa-solid fa-display"></i> Executive View</span>
-              <span className="mx-badge status-neutral">MAXIWA KPI</span>
+              <span className="mx-badge status-neutral">METRIX Verity</span>
               {state.user && <span className="mx-badge status-good">{state.user.role} / {state.user.team}</span>}
             </div>
             <h1 className="display-title mt-6 mb-0 break-words">
@@ -1612,6 +1638,16 @@ function App() {
             </select>
             <button className="mx-btn mx-btn-primary" onClick={() => load(empId)} disabled={state.loading}>
               <i className={`fa-solid ${state.loading ? 'fa-rotate-right fa-spin' : 'fa-arrows-rotate'} mr-2`}></i>โหลดข้อมูล
+            </button>
+            <button
+              className="mx-btn theme-toggle"
+              type="button"
+              onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+              aria-label="Toggle Executive View theme"
+              title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            >
+              <i className={`fa-solid ${theme === 'dark' ? 'fa-sun' : 'fa-moon'}`}></i>
+              <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
             </button>
             <button className="mx-btn print-btn" onClick={() => window.print()}><i className="fa-solid fa-print mr-2"></i>พิมพ์</button>
           </div>
