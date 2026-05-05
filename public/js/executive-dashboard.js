@@ -46,6 +46,22 @@ function isSelfScopedRole(role) {
   return role === 'Staff';
 }
 
+async function loadExecutiveTasksWithLegacyFallback(month, year, scope, empId) {
+  const scoped = await API.getAllTasks(month, year, scope, empId);
+  if (scope && scope !== 'all' && (!scoped.tasks || scoped.tasks.length === 0)) {
+    return API.getAllTasks(month, year, 'all', empId);
+  }
+  return scoped;
+}
+
+async function loadExecutiveStaffWithLegacyFallback(scope, empId) {
+  const scoped = await API.getAllStaffInTeam(scope, empId);
+  if (scope && scope !== 'all' && (!scoped.staff || scoped.staff.length === 0)) {
+    return API.getAllStaff(empId);
+  }
+  return scoped;
+}
+
 const TAB_ITEMS = [
   { id: 'overview', label: 'ภาพรวม', icon: 'fa-chart-line' },
   { id: 'teams', label: 'รายทีม', icon: 'fa-people-group' },
@@ -1480,7 +1496,9 @@ function App() {
         taskHolidays = res.holidays || [];
       } else {
         const team = (isTeamScopedRole(user.role) || isDepartmentScopedRole(user.role)) ? (user.team || 'all') : 'all';
-        const res = await API.getAllTasks(monthParam, year, team, user.empId);
+        const res = isDepartmentScopedRole(user.role)
+          ? await loadExecutiveTasksWithLegacyFallback(monthParam, year, team, user.empId)
+          : await API.getAllTasks(monthParam, year, team, user.empId);
         tasks = res.tasks || [];
         taskHolidays = res.holidays || [];
       }
@@ -1488,8 +1506,11 @@ function App() {
       try {
         if (isSelfScopedRole(user.role)) {
           staff = [user];
-        } else if (isTeamScopedRole(user.role) || isDepartmentScopedRole(user.role)) {
+        } else if (isTeamScopedRole(user.role)) {
           const staffRes = await API.getAllStaffInTeam(user.team, user.empId);
+          staff = staffRes.staff || [];
+        } else if (isDepartmentScopedRole(user.role)) {
+          const staffRes = await loadExecutiveStaffWithLegacyFallback(user.team, user.empId);
           staff = staffRes.staff || [];
         } else if (isStrategicViewRole(user.role) || user.role === 'Admin') {
           const staffRes = await API.getAllStaff(user.empId);

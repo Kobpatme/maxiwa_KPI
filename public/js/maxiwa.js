@@ -85,6 +85,29 @@ function taskScopeForUser(user) {
   return 'all';
 }
 
+async function loadScopedTasksWithLegacyFallback(month, year, scope, empId) {
+  const scoped = await API.getAllTasks(month, year, scope, empId);
+  if (scope && scope !== 'all' && (!scoped.tasks || scoped.tasks.length === 0)) {
+    return API.getAllTasks(month, year, 'all', empId);
+  }
+  return scoped;
+}
+
+async function loadScopedSummaryWithLegacyFallback(month, year, scope, empId, scopedTasks) {
+  if (scope && scope !== 'all' && (!scopedTasks || scopedTasks.length === 0)) {
+    return API.getSummaryReport(month, year, empId);
+  }
+  return API.getTeamSummaryReport(scope, month, year, empId);
+}
+
+async function loadScopedStaffWithLegacyFallback(scope, empId) {
+  const scoped = await API.getAllStaffInTeam(scope, empId);
+  if (scope && scope !== 'all' && (!scoped.staff || scoped.staff.length === 0)) {
+    return API.getAllStaff(empId);
+  }
+  return scoped;
+}
+
 const NAV_BY_ROLE = {
   Staff: [
     { id: 'dashboard', label: 'My Dashboard', icon: 'fa-chart-line', group: 'งานของฉัน' },
@@ -990,10 +1013,8 @@ function useAppData(user, view) {
       }
       if (isDepartmentManagerRole(user.role)) {
         const scope = taskScopeForUser(user);
-        const [summaryRes, tasksRes] = await Promise.all([
-          API.getTeamSummaryReport(scope, monthParam, filterYear, user.empId),
-          API.getAllTasks(monthParam, filterYear, scope, user.empId),
-        ]);
+        const tasksRes = await loadScopedTasksWithLegacyFallback(monthParam, filterYear, scope, user.empId);
+        const summaryRes = await loadScopedSummaryWithLegacyFallback(monthParam, filterYear, scope, user.empId, tasksRes.tasks || []);
         safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
         return;
       }
@@ -1029,7 +1050,9 @@ function useAppData(user, view) {
         return;
       }
       const team = taskScopeForUser(user);
-      const res = await API.getAllTasks(monthParam, filterYear, team, user.empId);
+      const res = isDepartmentManagerRole(user.role)
+        ? await loadScopedTasksWithLegacyFallback(monthParam, filterYear, team, user.empId)
+        : await API.getAllTasks(monthParam, filterYear, team, user.empId);
       safeSet({ tasks: res.tasks || [], loading: false });
     } catch (e) {
       safeSet({ loading: false, error: e.message || 'โหลด tasks ไม่สำเร็จ' });
@@ -1041,7 +1064,8 @@ function useAppData(user, view) {
     safeSet({ loading: true, error: '' });
     try {
       let res;
-      if (isTeamManagerRole(user.role) || isDepartmentManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
+      if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
+      else if (isDepartmentManagerRole(user.role)) res = await loadScopedStaffWithLegacyFallback(user.team, user.empId);
       else if (user.role === 'Staff') res = { staff: [user] };
       else res = await API.getAllStaff(user.empId);
       safeSet({ people: res.staff || [], loading: false });
