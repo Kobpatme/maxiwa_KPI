@@ -76,28 +76,7 @@ var MaxiwaKpiApp = (() => {
   }
   function taskScopeForUser(user) {
     if (isTeamManagerRole(user == null ? void 0 : user.role)) return (user == null ? void 0 : user.team) || "all";
-    if (isDepartmentManagerRole(user == null ? void 0 : user.role)) return (user == null ? void 0 : user.team) || "all";
     return "all";
-  }
-  async function loadScopedTasksWithLegacyFallback(month, year, scope, empId) {
-    const scoped = await API.getAllTasks(month, year, scope, empId);
-    if (scope && scope !== "all" && (!scoped.tasks || scoped.tasks.length === 0)) {
-      return API.getAllTasks(month, year, "all", empId);
-    }
-    return scoped;
-  }
-  async function loadScopedSummaryWithLegacyFallback(month, year, scope, empId, scopedTasks) {
-    if (scope && scope !== "all" && (!scopedTasks || scopedTasks.length === 0)) {
-      return API.getSummaryReport(month, year, empId);
-    }
-    return API.getTeamSummaryReport(scope, month, year, empId);
-  }
-  async function loadScopedStaffWithLegacyFallback(scope, empId) {
-    const scoped = await API.getAllStaffInTeam(scope, empId);
-    if (scope && scope !== "all" && (!scoped.staff || scoped.staff.length === 0)) {
-      return API.getAllStaff(empId);
-    }
-    return scoped;
   }
   const NAV_BY_ROLE = {
     Staff: [
@@ -678,14 +657,7 @@ var MaxiwaKpiApp = (() => {
           safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
           return;
         }
-        if (isDepartmentManagerRole(user.role)) {
-          const scope = taskScopeForUser(user);
-          const tasksRes = await loadScopedTasksWithLegacyFallback(monthParam, filterYear, scope, user.empId);
-          const summaryRes = await loadScopedSummaryWithLegacyFallback(monthParam, filterYear, scope, user.empId, tasksRes.tasks || []);
-          safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
-          return;
-        }
-        if (isStrategicViewRole(user.role)) {
+        if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
           const [summaryRes, tasksRes] = await Promise.all([
             API.getSummaryReport(monthParam, filterYear, user.empId),
             API.getAllTasks(monthParam, filterYear, "all", user.empId)
@@ -716,7 +688,7 @@ var MaxiwaKpiApp = (() => {
           return;
         }
         const team = taskScopeForUser(user);
-        const res = isDepartmentManagerRole(user.role) ? await loadScopedTasksWithLegacyFallback(monthParam, filterYear, team, user.empId) : await API.getAllTasks(monthParam, filterYear, team, user.empId);
+        const res = await API.getAllTasks(monthParam, filterYear, team, user.empId);
         safeSet({ tasks: res.tasks || [], loading: false });
       } catch (e) {
         safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14 tasks \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
@@ -728,7 +700,6 @@ var MaxiwaKpiApp = (() => {
       try {
         let res;
         if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
-        else if (isDepartmentManagerRole(user.role)) res = await loadScopedStaffWithLegacyFallback(user.team, user.empId);
         else if (user.role === "Staff") res = { staff: [user] };
         else res = await API.getAllStaff(user.empId);
         safeSet({ people: res.staff || [], loading: false });

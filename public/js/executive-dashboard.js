@@ -7,7 +7,6 @@ const MONTH_NAMES = [
 
 const STRATEGIC_VIEW_ROLES = ['SrManager', 'Director', 'Executive'];
 const TEAM_SCOPED_ROLES = ['Lead'];
-const DEPARTMENT_SCOPED_ROLES = ['Manager'];
 const EXEC_THEME_KEY = 'metrix-executive-theme';
 
 function getInitialExecutiveTheme() {
@@ -34,32 +33,12 @@ function isTeamScopedRole(role) {
   return TEAM_SCOPED_ROLES.includes(role);
 }
 
-function isDepartmentScopedRole(role) {
-  return DEPARTMENT_SCOPED_ROLES.includes(role);
-}
-
 function isStrategicViewRole(role) {
   return STRATEGIC_VIEW_ROLES.includes(role);
 }
 
 function isSelfScopedRole(role) {
   return role === 'Staff';
-}
-
-async function loadExecutiveTasksWithLegacyFallback(month, year, scope, empId) {
-  const scoped = await API.getAllTasks(month, year, scope, empId);
-  if (scope && scope !== 'all' && (!scoped.tasks || scoped.tasks.length === 0)) {
-    return API.getAllTasks(month, year, 'all', empId);
-  }
-  return scoped;
-}
-
-async function loadExecutiveStaffWithLegacyFallback(scope, empId) {
-  const scoped = await API.getAllStaffInTeam(scope, empId);
-  if (scope && scope !== 'all' && (!scoped.staff || scoped.staff.length === 0)) {
-    return API.getAllStaff(empId);
-  }
-  return scoped;
 }
 
 const TAB_ITEMS = [
@@ -1495,10 +1474,8 @@ function App() {
         tasks = res.tasks || res || [];
         taskHolidays = res.holidays || [];
       } else {
-        const team = (isTeamScopedRole(user.role) || isDepartmentScopedRole(user.role)) ? (user.team || 'all') : 'all';
-        const res = isDepartmentScopedRole(user.role)
-          ? await loadExecutiveTasksWithLegacyFallback(monthParam, year, team, user.empId)
-          : await API.getAllTasks(monthParam, year, team, user.empId);
+        const team = isTeamScopedRole(user.role) ? user.team : 'all';
+        const res = await API.getAllTasks(monthParam, year, team, user.empId);
         tasks = res.tasks || [];
         taskHolidays = res.holidays || [];
       }
@@ -1509,10 +1486,7 @@ function App() {
         } else if (isTeamScopedRole(user.role)) {
           const staffRes = await API.getAllStaffInTeam(user.team, user.empId);
           staff = staffRes.staff || [];
-        } else if (isDepartmentScopedRole(user.role)) {
-          const staffRes = await loadExecutiveStaffWithLegacyFallback(user.team, user.empId);
-          staff = staffRes.staff || [];
-        } else if (isStrategicViewRole(user.role) || user.role === 'Admin') {
+        } else if (isStrategicViewRole(user.role) || user.role === 'Manager' || user.role === 'Admin') {
           const staffRes = await API.getAllStaff(user.empId);
           staff = staffRes.staff || [];
         } else {

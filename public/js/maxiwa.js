@@ -81,31 +81,7 @@ function shouldUsePersonalWork(user, view) {
 
 function taskScopeForUser(user) {
   if (isTeamManagerRole(user?.role)) return user?.team || 'all';
-  if (isDepartmentManagerRole(user?.role)) return user?.team || 'all';
   return 'all';
-}
-
-async function loadScopedTasksWithLegacyFallback(month, year, scope, empId) {
-  const scoped = await API.getAllTasks(month, year, scope, empId);
-  if (scope && scope !== 'all' && (!scoped.tasks || scoped.tasks.length === 0)) {
-    return API.getAllTasks(month, year, 'all', empId);
-  }
-  return scoped;
-}
-
-async function loadScopedSummaryWithLegacyFallback(month, year, scope, empId, scopedTasks) {
-  if (scope && scope !== 'all' && (!scopedTasks || scopedTasks.length === 0)) {
-    return API.getSummaryReport(month, year, empId);
-  }
-  return API.getTeamSummaryReport(scope, month, year, empId);
-}
-
-async function loadScopedStaffWithLegacyFallback(scope, empId) {
-  const scoped = await API.getAllStaffInTeam(scope, empId);
-  if (scope && scope !== 'all' && (!scoped.staff || scoped.staff.length === 0)) {
-    return API.getAllStaff(empId);
-  }
-  return scoped;
 }
 
 const NAV_BY_ROLE = {
@@ -1011,14 +987,7 @@ function useAppData(user, view) {
         safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
         return;
       }
-      if (isDepartmentManagerRole(user.role)) {
-        const scope = taskScopeForUser(user);
-        const tasksRes = await loadScopedTasksWithLegacyFallback(monthParam, filterYear, scope, user.empId);
-        const summaryRes = await loadScopedSummaryWithLegacyFallback(monthParam, filterYear, scope, user.empId, tasksRes.tasks || []);
-        safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
-        return;
-      }
-      if (isStrategicViewRole(user.role)) {
+      if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
         const [summaryRes, tasksRes] = await Promise.all([
           API.getSummaryReport(monthParam, filterYear, user.empId),
           API.getAllTasks(monthParam, filterYear, 'all', user.empId),
@@ -1050,9 +1019,7 @@ function useAppData(user, view) {
         return;
       }
       const team = taskScopeForUser(user);
-      const res = isDepartmentManagerRole(user.role)
-        ? await loadScopedTasksWithLegacyFallback(monthParam, filterYear, team, user.empId)
-        : await API.getAllTasks(monthParam, filterYear, team, user.empId);
+      const res = await API.getAllTasks(monthParam, filterYear, team, user.empId);
       safeSet({ tasks: res.tasks || [], loading: false });
     } catch (e) {
       safeSet({ loading: false, error: e.message || 'โหลด tasks ไม่สำเร็จ' });
@@ -1065,7 +1032,6 @@ function useAppData(user, view) {
     try {
       let res;
       if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
-      else if (isDepartmentManagerRole(user.role)) res = await loadScopedStaffWithLegacyFallback(user.team, user.empId);
       else if (user.role === 'Staff') res = { staff: [user] };
       else res = await API.getAllStaff(user.empId);
       safeSet({ people: res.staff || [], loading: false });
