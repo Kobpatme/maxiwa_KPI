@@ -46,9 +46,19 @@ var MaxiwaKpiApp = (() => {
     return roleConfig(role).label || role || "-";
   }
   function roleScope(user) {
-    var _a;
     const role = typeof user === "string" ? user : user == null ? void 0 : user.role;
-    return (user == null ? void 0 : user.accessScope) || (user == null ? void 0 : user.scope) || ((_a = user == null ? void 0 : user.permissions) == null ? void 0 : _a.scope) || roleConfig(role).scope;
+    const permissions = userPermissions(user);
+    return (user == null ? void 0 : user.accessScope) || (user == null ? void 0 : user.scope) || permissions.scope || roleConfig(role).scope;
+  }
+  function userPermissions(user) {
+    const raw = user == null ? void 0 : user.permissions;
+    if (!raw) return {};
+    if (typeof raw === "string") return parseJsonSafe(raw, {}) || {};
+    return typeof raw === "object" ? raw : {};
+  }
+  function allowedTeamsForUser(user) {
+    const permissions = userPermissions(user);
+    return Array.isArray(permissions.allowedTeams) ? permissions.allowedTeams.map((team) => String(team || "").trim()).filter(Boolean) : [];
   }
   function isAdminRole(role) {
     return ADMIN_ROLES.includes(role);
@@ -77,6 +87,14 @@ var MaxiwaKpiApp = (() => {
   function taskScopeForUser(user) {
     if (isTeamManagerRole(user == null ? void 0 : user.role)) return (user == null ? void 0 : user.team) || "all";
     return "all";
+  }
+  function shouldApplyAllowedTeamFilter(user) {
+    return (isDepartmentManagerRole(user == null ? void 0 : user.role) || isStrategicViewRole(user == null ? void 0 : user.role)) && allowedTeamsForUser(user).length > 0;
+  }
+  function filterByAllowedTeams(user, items, getTeam = (item) => item == null ? void 0 : item.team) {
+    if (!shouldApplyAllowedTeamFilter(user)) return items || [];
+    const allowed = new Set(allowedTeamsForUser(user));
+    return (items || []).filter((item) => allowed.has(String(getTeam(item) || "").trim()));
   }
   const NAV_BY_ROLE = {
     Staff: [
@@ -662,7 +680,15 @@ var MaxiwaKpiApp = (() => {
             API.getSummaryReport(monthParam, filterYear, user.empId),
             API.getAllTasks(monthParam, filterYear, "all", user.empId)
           ]);
-          safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
+          safeSet({
+            dashboard: {
+              summary: filterByAllowedTeams(user, summaryRes.summary || []),
+              tasks: filterByAllowedTeams(user, tasksRes.tasks || []),
+              period: summaryRes.period,
+              holidays: tasksRes.holidays || summaryRes.holidays || []
+            },
+            loading: false
+          });
           return;
         }
         const [dashboardRes, staffRes] = await Promise.all([
@@ -689,7 +715,7 @@ var MaxiwaKpiApp = (() => {
         }
         const team = taskScopeForUser(user);
         const res = await API.getAllTasks(monthParam, filterYear, team, user.empId);
-        safeSet({ tasks: res.tasks || [], loading: false });
+        safeSet({ tasks: filterByAllowedTeams(user, res.tasks || []), loading: false });
       } catch (e) {
         safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14 tasks \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
       }
@@ -702,7 +728,7 @@ var MaxiwaKpiApp = (() => {
         if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
         else if (user.role === "Staff") res = { staff: [user] };
         else res = await API.getAllStaff(user.empId);
-        safeSet({ people: res.staff || [], loading: false });
+        safeSet({ people: filterByAllowedTeams(user, res.staff || []), loading: false });
       } catch (e) {
         safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
       }
@@ -1551,9 +1577,10 @@ var MaxiwaKpiApp = (() => {
     const filteredHolidays = holidays.filter((h) => matches(h.name, h.holiday_date, h.is_active ? "active" : "inactive"));
     const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
     const selectedRoleNeedsDepartment = roleRequiresDepartment(userForm.role);
+    const selectedRoleUsesTeamVisibility = isDepartmentManagerRole(userForm.role) || isStrategicViewRole(userForm.role);
     const userDepartmentValue = (item) => {
-      var _a2, _b;
-      const explicitDepartment = item.department || item.departmentId || item.division || ((_a2 = item.permissions) == null ? void 0 : _a2.department) || ((_b = item.permissions) == null ? void 0 : _b.division);
+      const permissions = userPermissions(item);
+      const explicitDepartment = item.department || item.departmentId || item.division || permissions.department || permissions.division;
       if (explicitDepartment) return explicitDepartment;
       return item.team || "";
     };
@@ -1579,18 +1606,25 @@ var MaxiwaKpiApp = (() => {
       }
     };
     const editUser = (item) => {
-      var _a2;
       setUserForm({
         empid: item.empId || item.empid || "",
         name: item.name || "",
         department: userDepartmentValue(item),
         team: userTeamValue(item),
         role: item.role || "Staff",
-        accessScope: item.accessScope || item.scope || ((_a2 = item.permissions) == null ? void 0 : _a2.scope) || roleScope(item.role || "Staff"),
+        accessScope: item.accessScope || item.scope || userPermissions(item).scope || roleScope(item.role || "Staff"),
         pigurl: item.pigurl || item.pigUrl || item.avatar || item.photoUrl || "",
-        permissions: item.permissions || { allowedTeams: [], allowedStaff: [] }
+        permissions: { allowedTeams: [], allowedStaff: [], ...userPermissions(item) }
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const toggleAllowedTeam = (teamName) => {
+      setUserForm((prev) => {
+        var _a2;
+        const current = Array.isArray((_a2 = prev.permissions) == null ? void 0 : _a2.allowedTeams) ? prev.permissions.allowedTeams : [];
+        const allowedTeams = current.includes(teamName) ? current.filter((team) => team !== teamName) : [...current, teamName];
+        return { ...prev, permissions: { ...prev.permissions || {}, allowedTeams } };
+      });
     };
     const editKpi = (item) => {
       setKpiForm({
@@ -1704,7 +1738,15 @@ var MaxiwaKpiApp = (() => {
       { id: "calendar", label: "\u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 SLA", icon: "fa-calendar-days", count: holidays.length },
       { id: "audit", label: "\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02", icon: "fa-shield-halved", count: logs.length }
     ];
-    const UserEditor = () => /* @__PURE__ */ React.createElement(Panel, { title: "\u0E40\u0E1E\u0E34\u0E48\u0E21 / \u0E41\u0E01\u0E49\u0E44\u0E02\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49", subtitle: "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E15\u0E31\u0E27\u0E15\u0E19 \u0E1A\u0E17\u0E1A\u0E32\u0E17 \u0E17\u0E35\u0E21 \u0E41\u0E25\u0E30\u0E23\u0E39\u0E1B\u0E42\u0E1B\u0E23\u0E44\u0E1F\u0E25\u0E4C\u0E1C\u0E48\u0E32\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "Emp ID", value: userForm.empid, onChange: (e) => setUserForm((p) => ({ ...p, empid: e.target.value.toUpperCase() })) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E0A\u0E37\u0E48\u0E2D\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49", value: userForm.name, onChange: (e) => setUserForm((p) => ({ ...p, name: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Department / Division ", selectedRoleNeedsDepartment ? /* @__PURE__ */ React.createElement("span", { className: "text-rose-500" }, "Required") : /* @__PURE__ */ React.createElement("span", null, "Optional"), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E40\u0E0A\u0E48\u0E19 IT Division, Operations, Service", value: userForm.department, onChange: (e) => setUserForm((p) => ({ ...p, department: e.target.value })) })), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Team ", selectedRoleNeedsTeam ? /* @__PURE__ */ React.createElement("span", { className: "text-rose-500" }, "Required") : /* @__PURE__ */ React.createElement("span", null, "Optional"), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: userForm.team, onChange: (e) => setUserForm((p) => ({ ...p, team: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, selectedRoleNeedsTeam ? "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E35\u0E21" : "\u0E44\u0E21\u0E48\u0E1C\u0E39\u0E01\u0E17\u0E35\u0E21\u0E40\u0E14\u0E35\u0E22\u0E27"), teams.map((team) => /* @__PURE__ */ React.createElement("option", { key: team.id || team.name, value: team.name }, team.name)))), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: userForm.role, onChange: (e) => setUserForm((p) => ({ ...p, role: e.target.value, accessScope: roleScope(e.target.value) })) }, ROLE_OPTIONS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option.value, value: option.value }, option.label))), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: userForm.accessScope, onChange: (e) => setUserForm((p) => ({ ...p, accessScope: e.target.value })) }, SCOPE_OPTIONS.map((scope) => /* @__PURE__ */ React.createElement("option", { key: scope, value: scope }, "Scope: ", scope))), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E25\u0E34\u0E07\u0E01\u0E4C\u0E23\u0E39\u0E1B\u0E42\u0E1B\u0E23\u0E44\u0E1F\u0E25\u0E4C (\u0E16\u0E49\u0E32\u0E21\u0E35)", value: userForm.pigurl, onChange: (e) => setUserForm((p) => ({ ...p, pigurl: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary", onClick: saveUser, disabled: saving === "user" }, saving === "user" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft", onClick: () => setUserForm({ empid: "", name: "", department: "", team: "", role: "Staff", accessScope: "Self", pigurl: "" }) }, "\u0E25\u0E49\u0E32\u0E07\u0E1F\u0E2D\u0E23\u0E4C\u0E21"))));
+    const UserEditor = () => {
+      var _a2, _b;
+      return /* @__PURE__ */ React.createElement(Panel, { title: "\u0E40\u0E1E\u0E34\u0E48\u0E21 / \u0E41\u0E01\u0E49\u0E44\u0E02\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49", subtitle: "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E15\u0E31\u0E27\u0E15\u0E19 \u0E1A\u0E17\u0E1A\u0E32\u0E17 \u0E17\u0E35\u0E21 \u0E41\u0E25\u0E30\u0E23\u0E39\u0E1B\u0E42\u0E1B\u0E23\u0E44\u0E1F\u0E25\u0E4C\u0E1C\u0E48\u0E32\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "Emp ID", value: userForm.empid, onChange: (e) => setUserForm((p) => ({ ...p, empid: e.target.value.toUpperCase() })) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E0A\u0E37\u0E48\u0E2D\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49", value: userForm.name, onChange: (e) => setUserForm((p) => ({ ...p, name: e.target.value })) }), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Department / Division ", selectedRoleNeedsDepartment ? /* @__PURE__ */ React.createElement("span", { className: "text-rose-500" }, "Required") : /* @__PURE__ */ React.createElement("span", null, "Optional"), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E40\u0E0A\u0E48\u0E19 IT Division, Operations, Service", value: userForm.department, onChange: (e) => setUserForm((p) => ({ ...p, department: e.target.value })) })), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Team ", selectedRoleNeedsTeam ? /* @__PURE__ */ React.createElement("span", { className: "text-rose-500" }, "Required") : /* @__PURE__ */ React.createElement("span", null, "Optional"), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: userForm.team, onChange: (e) => setUserForm((p) => ({ ...p, team: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, selectedRoleNeedsTeam ? "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E35\u0E21" : "\u0E44\u0E21\u0E48\u0E1C\u0E39\u0E01\u0E17\u0E35\u0E21\u0E40\u0E14\u0E35\u0E22\u0E27"), teams.map((team) => /* @__PURE__ */ React.createElement("option", { key: team.id || team.name, value: team.name }, team.name)))), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: userForm.role, onChange: (e) => setUserForm((p) => ({ ...p, role: e.target.value, accessScope: roleScope(e.target.value) })) }, ROLE_OPTIONS.map((option) => /* @__PURE__ */ React.createElement("option", { key: option.value, value: option.value }, option.label))), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: userForm.accessScope, onChange: (e) => setUserForm((p) => ({ ...p, accessScope: e.target.value })) }, SCOPE_OPTIONS.map((scope) => /* @__PURE__ */ React.createElement("option", { key: scope, value: scope }, "Scope: ", scope))), selectedRoleUsesTeamVisibility && /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold" }, "Team Visibility"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-xs text-[var(--mx-muted)]" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E35\u0E21\u0E17\u0E35\u0E48\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E19\u0E35\u0E49\u0E21\u0E2D\u0E07\u0E40\u0E2B\u0E47\u0E19 \u0E16\u0E49\u0E32\u0E44\u0E21\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E35\u0E21\u0E43\u0E14\u0E40\u0E25\u0E22\u0E08\u0E30\u0E40\u0E2B\u0E47\u0E19\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14")), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, ((_b = (_a2 = userForm.permissions) == null ? void 0 : _a2.allowedTeams) == null ? void 0 : _b.length) || 0, " teams")), /* @__PURE__ */ React.createElement("div", { className: "mt-3 grid sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1" }, teams.map((team) => {
+        var _a3;
+        const teamName = team.name || "";
+        const checked = (((_a3 = userForm.permissions) == null ? void 0 : _a3.allowedTeams) || []).includes(teamName);
+        return /* @__PURE__ */ React.createElement("label", { key: team.id || teamName, className: "flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2 text-sm font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked, onChange: () => toggleAllowedTeam(teamName) }), /* @__PURE__ */ React.createElement("span", { className: "truncate" }, teamName));
+      }), teams.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E17\u0E35\u0E21"))), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E25\u0E34\u0E07\u0E01\u0E4C\u0E23\u0E39\u0E1B\u0E42\u0E1B\u0E23\u0E44\u0E1F\u0E25\u0E4C (\u0E16\u0E49\u0E32\u0E21\u0E35)", value: userForm.pigurl, onChange: (e) => setUserForm((p) => ({ ...p, pigurl: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary", onClick: saveUser, disabled: saving === "user" }, saving === "user" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft", onClick: () => setUserForm({ empid: "", name: "", department: "", team: "", role: "Staff", accessScope: "Self", pigurl: "" }) }, "\u0E25\u0E49\u0E32\u0E07\u0E1F\u0E2D\u0E23\u0E4C\u0E21"))));
+    };
     const UsersList = () => /* @__PURE__ */ React.createElement(Panel, { title: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E41\u0E25\u0E30\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C", subtitle: "\u0E41\u0E01\u0E49\u0E44\u0E02\u0E2B\u0E23\u0E37\u0E2D\u0E25\u0E1A\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E1C\u0E48\u0E32\u0E19\u0E23\u0E30\u0E1A\u0E1A \u0E42\u0E14\u0E22\u0E44\u0E21\u0E48\u0E41\u0E15\u0E30 data source \u0E42\u0E14\u0E22\u0E15\u0E23\u0E07" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, filteredStaff.slice(0, 60).map((s) => {
       const department = userDepartmentValue(s) || "-";
       const team = userTeamValue(s) || "-";

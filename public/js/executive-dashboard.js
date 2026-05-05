@@ -41,6 +41,32 @@ function isSelfScopedRole(role) {
   return role === 'Staff';
 }
 
+function userPermissions(user) {
+  const raw = user?.permissions;
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+  return typeof raw === 'object' ? raw : {};
+}
+
+function allowedTeamsForUser(user) {
+  const permissions = userPermissions(user);
+  return Array.isArray(permissions.allowedTeams)
+    ? permissions.allowedTeams.map((team) => String(team || '').trim()).filter(Boolean)
+    : [];
+}
+
+function shouldApplyAllowedTeamFilter(user) {
+  return (user?.role === 'Manager' || isStrategicViewRole(user?.role)) && allowedTeamsForUser(user).length > 0;
+}
+
+function filterByAllowedTeams(user, items, getTeam = (item) => item?.team) {
+  if (!shouldApplyAllowedTeamFilter(user)) return items || [];
+  const allowed = new Set(allowedTeamsForUser(user));
+  return (items || []).filter((item) => allowed.has(String(getTeam(item) || '').trim()));
+}
+
 const TAB_ITEMS = [
   { id: 'overview', label: 'ภาพรวม', icon: 'fa-chart-line' },
   { id: 'teams', label: 'รายทีม', icon: 'fa-people-group' },
@@ -1476,7 +1502,7 @@ function App() {
       } else {
         const team = isTeamScopedRole(user.role) ? user.team : 'all';
         const res = await API.getAllTasks(monthParam, year, team, user.empId);
-        tasks = res.tasks || [];
+        tasks = filterByAllowedTeams(user, res.tasks || []);
         taskHolidays = res.holidays || [];
       }
       let staff = [];
@@ -1488,7 +1514,7 @@ function App() {
           staff = staffRes.staff || [];
         } else if (isStrategicViewRole(user.role) || user.role === 'Manager' || user.role === 'Admin') {
           const staffRes = await API.getAllStaff(user.empId);
-          staff = staffRes.staff || [];
+          staff = filterByAllowedTeams(user, staffRes.staff || []);
         } else {
           staff = [];
         }

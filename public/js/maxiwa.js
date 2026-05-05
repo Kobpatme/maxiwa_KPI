@@ -44,7 +44,22 @@ function roleLabel(role) {
 
 function roleScope(user) {
   const role = typeof user === 'string' ? user : user?.role;
-  return user?.accessScope || user?.scope || user?.permissions?.scope || roleConfig(role).scope;
+  const permissions = userPermissions(user);
+  return user?.accessScope || user?.scope || permissions.scope || roleConfig(role).scope;
+}
+
+function userPermissions(user) {
+  const raw = user?.permissions;
+  if (!raw) return {};
+  if (typeof raw === 'string') return parseJsonSafe(raw, {}) || {};
+  return typeof raw === 'object' ? raw : {};
+}
+
+function allowedTeamsForUser(user) {
+  const permissions = userPermissions(user);
+  return Array.isArray(permissions.allowedTeams)
+    ? permissions.allowedTeams.map((team) => String(team || '').trim()).filter(Boolean)
+    : [];
 }
 
 function isAdminRole(role) {
@@ -82,6 +97,16 @@ function shouldUsePersonalWork(user, view) {
 function taskScopeForUser(user) {
   if (isTeamManagerRole(user?.role)) return user?.team || 'all';
   return 'all';
+}
+
+function shouldApplyAllowedTeamFilter(user) {
+  return (isDepartmentManagerRole(user?.role) || isStrategicViewRole(user?.role)) && allowedTeamsForUser(user).length > 0;
+}
+
+function filterByAllowedTeams(user, items, getTeam = (item) => item?.team) {
+  if (!shouldApplyAllowedTeamFilter(user)) return items || [];
+  const allowed = new Set(allowedTeamsForUser(user));
+  return (items || []).filter((item) => allowed.has(String(getTeam(item) || '').trim()));
 }
 
 const NAV_BY_ROLE = {
@@ -992,7 +1017,15 @@ function useAppData(user, view) {
           API.getSummaryReport(monthParam, filterYear, user.empId),
           API.getAllTasks(monthParam, filterYear, 'all', user.empId),
         ]);
-        safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
+        safeSet({
+          dashboard: {
+            summary: filterByAllowedTeams(user, summaryRes.summary || []),
+            tasks: filterByAllowedTeams(user, tasksRes.tasks || []),
+            period: summaryRes.period,
+            holidays: tasksRes.holidays || summaryRes.holidays || [],
+          },
+          loading: false,
+        });
         return;
       }
       const [dashboardRes, staffRes] = await Promise.all([
@@ -1020,7 +1053,7 @@ function useAppData(user, view) {
       }
       const team = taskScopeForUser(user);
       const res = await API.getAllTasks(monthParam, filterYear, team, user.empId);
-      safeSet({ tasks: res.tasks || [], loading: false });
+      safeSet({ tasks: filterByAllowedTeams(user, res.tasks || []), loading: false });
     } catch (e) {
       safeSet({ loading: false, error: e.message || 'โหลด tasks ไม่สำเร็จ' });
     }
@@ -1034,7 +1067,7 @@ function useAppData(user, view) {
       if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
       else if (user.role === 'Staff') res = { staff: [user] };
       else res = await API.getAllStaff(user.empId);
-      safeSet({ people: res.staff || [], loading: false });
+      safeSet({ people: filterByAllowedTeams(user, res.staff || []), loading: false });
     } catch (e) {
       safeSet({ loading: false, error: e.message || 'โหลดรายชื่อไม่สำเร็จ' });
     }
@@ -2540,9 +2573,11 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
   const filteredHolidays = holidays.filter((h) => matches(h.name, h.holiday_date, h.is_active ? 'active' : 'inactive'));
   const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
   const selectedRoleNeedsDepartment = roleRequiresDepartment(userForm.role);
+  const selectedRoleUsesTeamVisibility = isDepartmentManagerRole(userForm.role) || isStrategicViewRole(userForm.role);
 
   const userDepartmentValue = (item) => {
-    const explicitDepartment = item.department || item.departmentId || item.division || item.permissions?.department || item.permissions?.division;
+    const permissions = userPermissions(item);
+    const explicitDepartment = item.department || item.departmentId || item.division || permissions.department || permissions.division;
     if (explicitDepartment) return explicitDepartment;
     return item.team || '';
   };
@@ -2578,11 +2613,21 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
       department: userDepartmentValue(item),
       team: userTeamValue(item),
       role: item.role || 'Staff',
-      accessScope: item.accessScope || item.scope || item.permissions?.scope || roleScope(item.role || 'Staff'),
+      accessScope: item.accessScope || item.scope || userPermissions(item).scope || roleScope(item.role || 'Staff'),
       pigurl: item.pigurl || item.pigUrl || item.avatar || item.photoUrl || '',
-      permissions: item.permissions || { allowedTeams: [], allowedStaff: [] },
+      permissions: { allowedTeams: [], allowedStaff: [], ...userPermissions(item) },
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const toggleAllowedTeam = (teamName) => {
+    setUserForm((prev) => {
+      const current = Array.isArray(prev.permissions?.allowedTeams) ? prev.permissions.allowedTeams : [];
+      const allowedTeams = current.includes(teamName)
+        ? current.filter((team) => team !== teamName)
+        : [...current, teamName];
+      return { ...prev, permissions: { ...(prev.permissions || {}), allowedTeams } };
+    });
   };
 
   const editKpi = (item) => {
@@ -2734,6 +2779,30 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
             <option key={scope} value={scope}>Scope: {scope}</option>
           ))}
         </select>
+        {selectedRoleUsesTeamVisibility && (
+          <div className="mx-muted-card rounded-lg p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-extrabold">Team Visibility</div>
+                <div className="mt-1 text-xs text-[var(--mx-muted)]">เลือกทีมที่ผู้ใช้นี้มองเห็น ถ้าไม่เลือกทีมใดเลยจะเห็นทั้งหมด</div>
+              </div>
+              <span className="mx-badge mx-status-process">{userForm.permissions?.allowedTeams?.length || 0} teams</span>
+            </div>
+            <div className="mt-3 grid sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+              {teams.map((team) => {
+                const teamName = team.name || '';
+                const checked = (userForm.permissions?.allowedTeams || []).includes(teamName);
+                return (
+                  <label key={team.id || teamName} className="flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2 text-sm font-bold">
+                    <input type="checkbox" checked={checked} onChange={() => toggleAllowedTeam(teamName)} />
+                    <span className="truncate">{teamName}</span>
+                  </label>
+                );
+              })}
+              {teams.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบทีม</div>}
+            </div>
+          </div>
+        )}
         <input className="mx-input" placeholder="ลิงก์รูปโปรไฟล์ (ถ้ามี)" value={userForm.pigurl} onChange={(e) => setUserForm((p) => ({ ...p, pigurl: e.target.value }))} />
         <div className="grid grid-cols-2 gap-3">
           <button className="mx-btn mx-btn-primary" onClick={saveUser} disabled={saving === 'user'}>{saving === 'user' ? 'กำลังบันทึก...' : 'บันทึกผู้ใช้'}</button>
