@@ -277,9 +277,10 @@ function clearActiveSessionLock() {
   if (!lock || lock.sessionId === getBrowserSessionId()) safeLocalRemove(SESSION_LOCK_KEY);
 }
 
-function isLoginLocked(empId) {
+function isSessionSuperseded(userOrEmpId) {
   const lock = getActiveSessionLock();
   if (!lock) return false;
+  const empId = typeof userOrEmpId === 'string' ? userOrEmpId : (userOrEmpId?.empId || userOrEmpId?.empid);
   return String(lock.empId).toLowerCase() === String(empId || '').trim().toLowerCase()
     && lock.sessionId !== getBrowserSessionId();
 }
@@ -3063,12 +3064,11 @@ function App() {
       safeSessionRemove(SESSION_KEY);
       return;
     }
-    const empId = user.empId || user.empid;
-    if (isLoginLocked(empId)) {
+    if (isSessionSuperseded(user)) {
       safeSessionRemove(SESSION_KEY);
       setUser(null);
       setView('dashboard');
-      setLoginError('บัญชีนี้กำลังเข้าสู่ระบบอยู่ กรุณาออกจากระบบจากหน้าต่างเดิมก่อน หรือรอให้ session หมดอายุ');
+      setLoginError('บัญชีนี้ถูกเข้าสู่ระบบจากหน้าต่างหรืออุปกรณ์อื่น ระบบจึงออกจากระบบให้อัตโนมัติ');
       return;
     }
     safeSessionSet(SESSION_KEY, JSON.stringify(user));
@@ -3077,13 +3077,28 @@ function App() {
 
   useEffect(() => {
     if (!user) return undefined;
-    if (isLoginLocked(user.empId || user.empid)) return undefined;
+    const forceLogoutIfSuperseded = () => {
+      if (!isSessionSuperseded(user)) return false;
+      safeSessionRemove(SESSION_KEY);
+      setUser(null);
+      setView('dashboard');
+      setLoginError('บัญชีนี้ถูกเข้าสู่ระบบจากหน้าต่างหรืออุปกรณ์อื่น ระบบจึงออกจากระบบให้อัตโนมัติ');
+      return true;
+    };
+    if (forceLogoutIfSuperseded()) return undefined;
     writeActiveSessionLock(user);
-    const timer = setInterval(() => writeActiveSessionLock(user), 15000);
+    const timer = setInterval(() => {
+      if (!forceLogoutIfSuperseded()) writeActiveSessionLock(user);
+    }, 15000);
+    const handleStorage = (event) => {
+      if (event.key === SESSION_LOCK_KEY) forceLogoutIfSuperseded();
+    };
     const handleBeforeUnload = () => clearActiveSessionLock();
+    window.addEventListener('storage', handleStorage);
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       clearInterval(timer);
+      window.removeEventListener('storage', handleStorage);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [user]);
@@ -3091,10 +3106,6 @@ function App() {
   const handleLogin = async (empId) => {
     const cleanEmpId = empId?.trim();
     if (!cleanEmpId) { setLoginError('กรุณาระบุรหัสพนักงาน'); return; }
-    if (isLoginLocked(cleanEmpId)) {
-      setLoginError('บัญชีนี้กำลังเข้าสู่ระบบอยู่ กรุณาออกจากระบบจากหน้าต่างเดิมก่อน หรือรอให้ session หมดอายุ');
-      return;
-    }
     setLoginLoading(true);
     setLoginError('');
     try {
@@ -3102,9 +3113,6 @@ function App() {
       if (res?.error) throw new Error(res.error);
       if (!res?.user) throw new Error('ไม่พบข้อมูลผู้ใช้งาน');
       const nextUser = { ...res.user, kpis: res.kpis || [] };
-      if (isLoginLocked(nextUser.empId || nextUser.empid || cleanEmpId)) {
-        throw new Error('บัญชีนี้กำลังเข้าสู่ระบบอยู่ กรุณาออกจากระบบจากหน้าต่างเดิมก่อน หรือรอให้ session หมดอายุ');
-      }
       writeActiveSessionLock(nextUser);
       setUser(nextUser);
       setView(ROLE_HOME[nextUser.role] || 'dashboard');

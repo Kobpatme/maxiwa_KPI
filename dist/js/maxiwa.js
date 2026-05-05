@@ -263,9 +263,10 @@ var MaxiwaKpiApp = (() => {
     const lock = getActiveSessionLock();
     if (!lock || lock.sessionId === getBrowserSessionId()) safeLocalRemove(SESSION_LOCK_KEY);
   }
-  function isLoginLocked(empId) {
+  function isSessionSuperseded(userOrEmpId) {
     const lock = getActiveSessionLock();
     if (!lock) return false;
+    const empId = typeof userOrEmpId === "string" ? userOrEmpId : (userOrEmpId == null ? void 0 : userOrEmpId.empId) || (userOrEmpId == null ? void 0 : userOrEmpId.empid);
     return String(lock.empId).toLowerCase() === String(empId || "").trim().toLowerCase() && lock.sessionId !== getBrowserSessionId();
   }
   function getStatusClass(status) {
@@ -1814,12 +1815,11 @@ var MaxiwaKpiApp = (() => {
         safeSessionRemove(SESSION_KEY);
         return;
       }
-      const empId = user.empId || user.empid;
-      if (isLoginLocked(empId)) {
+      if (isSessionSuperseded(user)) {
         safeSessionRemove(SESSION_KEY);
         setUser(null);
         setView("dashboard");
-        setLoginError("\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E01\u0E33\u0E25\u0E31\u0E07\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E2D\u0E22\u0E39\u0E48 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E32\u0E01\u0E2B\u0E19\u0E49\u0E32\u0E15\u0E48\u0E32\u0E07\u0E40\u0E14\u0E34\u0E21\u0E01\u0E48\u0E2D\u0E19 \u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2D\u0E43\u0E2B\u0E49 session \u0E2B\u0E21\u0E14\u0E2D\u0E32\u0E22\u0E38");
+        setLoginError("\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E32\u0E01\u0E2B\u0E19\u0E49\u0E32\u0E15\u0E48\u0E32\u0E07\u0E2B\u0E23\u0E37\u0E2D\u0E2D\u0E38\u0E1B\u0E01\u0E23\u0E13\u0E4C\u0E2D\u0E37\u0E48\u0E19 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E36\u0E07\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A\u0E43\u0E2B\u0E49\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34");
         return;
       }
       safeSessionSet(SESSION_KEY, JSON.stringify(user));
@@ -1827,13 +1827,28 @@ var MaxiwaKpiApp = (() => {
     }, [user]);
     useEffect(() => {
       if (!user) return void 0;
-      if (isLoginLocked(user.empId || user.empid)) return void 0;
+      const forceLogoutIfSuperseded = () => {
+        if (!isSessionSuperseded(user)) return false;
+        safeSessionRemove(SESSION_KEY);
+        setUser(null);
+        setView("dashboard");
+        setLoginError("\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E32\u0E01\u0E2B\u0E19\u0E49\u0E32\u0E15\u0E48\u0E32\u0E07\u0E2B\u0E23\u0E37\u0E2D\u0E2D\u0E38\u0E1B\u0E01\u0E23\u0E13\u0E4C\u0E2D\u0E37\u0E48\u0E19 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E36\u0E07\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A\u0E43\u0E2B\u0E49\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34");
+        return true;
+      };
+      if (forceLogoutIfSuperseded()) return void 0;
       writeActiveSessionLock(user);
-      const timer = setInterval(() => writeActiveSessionLock(user), 15e3);
+      const timer = setInterval(() => {
+        if (!forceLogoutIfSuperseded()) writeActiveSessionLock(user);
+      }, 15e3);
+      const handleStorage = (event) => {
+        if (event.key === SESSION_LOCK_KEY) forceLogoutIfSuperseded();
+      };
       const handleBeforeUnload = () => clearActiveSessionLock();
+      window.addEventListener("storage", handleStorage);
       window.addEventListener("beforeunload", handleBeforeUnload);
       return () => {
         clearInterval(timer);
+        window.removeEventListener("storage", handleStorage);
         window.removeEventListener("beforeunload", handleBeforeUnload);
       };
     }, [user]);
@@ -1843,10 +1858,6 @@ var MaxiwaKpiApp = (() => {
         setLoginError("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E30\u0E1A\u0E38\u0E23\u0E2B\u0E31\u0E2A\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19");
         return;
       }
-      if (isLoginLocked(cleanEmpId)) {
-        setLoginError("\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E01\u0E33\u0E25\u0E31\u0E07\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E2D\u0E22\u0E39\u0E48 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E32\u0E01\u0E2B\u0E19\u0E49\u0E32\u0E15\u0E48\u0E32\u0E07\u0E40\u0E14\u0E34\u0E21\u0E01\u0E48\u0E2D\u0E19 \u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2D\u0E43\u0E2B\u0E49 session \u0E2B\u0E21\u0E14\u0E2D\u0E32\u0E22\u0E38");
-        return;
-      }
       setLoginLoading(true);
       setLoginError("");
       try {
@@ -1854,9 +1865,6 @@ var MaxiwaKpiApp = (() => {
         if (res == null ? void 0 : res.error) throw new Error(res.error);
         if (!(res == null ? void 0 : res.user)) throw new Error("\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19");
         const nextUser = { ...res.user, kpis: res.kpis || [] };
-        if (isLoginLocked(nextUser.empId || nextUser.empid || cleanEmpId)) {
-          throw new Error("\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E01\u0E33\u0E25\u0E31\u0E07\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E2D\u0E22\u0E39\u0E48 \u0E01\u0E23\u0E38\u0E13\u0E32\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E32\u0E01\u0E2B\u0E19\u0E49\u0E32\u0E15\u0E48\u0E32\u0E07\u0E40\u0E14\u0E34\u0E21\u0E01\u0E48\u0E2D\u0E19 \u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2D\u0E43\u0E2B\u0E49 session \u0E2B\u0E21\u0E14\u0E2D\u0E32\u0E22\u0E38");
-        }
         writeActiveSessionLock(nextUser);
         setUser(nextUser);
         setView(ROLE_HOME[nextUser.role] || "dashboard");
