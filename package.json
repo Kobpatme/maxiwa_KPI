@@ -9,6 +9,7 @@
     "deploy": "npm run build && wrangler pages deploy dist --project-name maxiwa-kpi"
   },
   "devDependencies": {
+    "tailwindcss": "^3.4.17",
     "wrangler": "^4.10.0"
   },
   "dependencies": {

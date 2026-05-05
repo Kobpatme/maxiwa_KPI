@@ -193,7 +193,11 @@ async function adminPost(path, payload, empId) {
     headers: adminHeaders(empId),
     body: JSON.stringify(payload),
   });
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Request failed (${res.status})`);
+  }
+  return data;
 }
 
 async function adminDelete(path, empId) {
@@ -944,12 +948,22 @@ function LoginScreenPro({ onLogin, loading, error, theme, onToggleTheme }) {
 // ─── Data Hook ─────────────────────────────────────────────────────────────────
 function useAppData(user, view) {
   const [state, setState] = useState({
-    loading: false, error: '', dashboard: null, tasks: [], people: [], admin: null,
+    loading: false, error: '', dashboard: null, tasks: [], people: [], admin: null, holidays: [],
   });
   const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1); // 0 = ทุกเดือน
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
 
   const safeSet = (patch) => setState((prev) => ({ ...prev, ...patch }));
+
+  const loadHolidays = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await API.getHolidays({ 'x-admin-empid': user.empId || '' });
+      safeSet({ holidays: res.holidays || [] });
+    } catch {
+      // Some deployments restrict this endpoint to Admin only. Deadline displays still exclude weekends.
+    }
+  }, [user]);
 
   const loadDashboard = useCallback(async () => {
     if (!user) return;
@@ -958,7 +972,7 @@ function useAppData(user, view) {
     try {
       if (shouldUsePersonalWork(user, view)) {
         const res = await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
-        safeSet({ dashboard: { tasks: res.tasks || res || [] }, loading: false });
+        safeSet({ dashboard: { tasks: res.tasks || res || [], holidays: res.holidays || [] }, loading: false });
         return;
       }
       if (isTeamManagerRole(user.role)) {
@@ -966,7 +980,7 @@ function useAppData(user, view) {
           API.getTeamSummaryReport(user.team, monthParam, filterYear, user.empId),
           API.getAllTasks(monthParam, filterYear, user.team, user.empId),
         ]);
-        safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period }, loading: false });
+        safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
         return;
       }
       if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
@@ -974,7 +988,7 @@ function useAppData(user, view) {
           API.getSummaryReport(monthParam, filterYear, user.empId),
           API.getAllTasks(monthParam, filterYear, 'all', user.empId),
         ]);
-        safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period }, loading: false });
+        safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
         return;
       }
       const [dashboardRes, staffRes] = await Promise.all([
@@ -982,7 +996,7 @@ function useAppData(user, view) {
         API.getAllStaff(user.empId),
       ]);
       safeSet({
-        dashboard: { summary: dashboardRes.tasks || [], staff: staffRes.staff || [], kpis: dashboardRes.kpis || [] },
+        dashboard: { summary: dashboardRes.tasks || [], staff: staffRes.staff || [], kpis: dashboardRes.kpis || [], holidays: dashboardRes.holidays || [] },
         loading: false,
       });
     } catch (e) {
@@ -1042,6 +1056,7 @@ function useAppData(user, view) {
           kpis: dashboardRes.kpis || [],
           tasks: dashboardRes.tasks || [],
         },
+        holidays: holidays.holidays || [],
         loading: false,
       });
     } catch (e) {
@@ -1051,13 +1066,14 @@ function useAppData(user, view) {
 
   useEffect(() => {
     if (!user) return;
+    loadHolidays();
     if (view === 'executive') loadDashboard();
     if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard();
     if (['tasks', 'my-tasks'].includes(view)) loadTasks();
     if (view === 'people') loadPeople();
     if (view === 'assign') loadPeople();
     if (view === 'admin') loadAdmin();
-  }, [user, view, loadDashboard, loadTasks, loadPeople, loadAdmin]);
+  }, [user, view, loadDashboard, loadTasks, loadPeople, loadAdmin, loadHolidays]);
 
   // Realtime subscription
   useEffect(() => {
@@ -1089,14 +1105,58 @@ function isActiveTask(task) {
   return !['completed', 'cancelled'].includes(String(task?.status || '').toLowerCase());
 }
 
-function getDaysUntilDeadline(task) {
+function normalizeDateOnly(value) {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function dateKey(value) {
+  const date = normalizeDateOnly(value);
+  if (!date) return '';
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function isActiveHoliday(holiday) {
+  const active = holiday?.is_active ?? holiday?.active ?? true;
+  return active === true || active === 1 || String(active).toLowerCase() === 'true';
+}
+
+function buildHolidaySet(holidays = []) {
+  if (holidays instanceof Set) return holidays;
+  return new Set((holidays || [])
+    .filter(isActiveHoliday)
+    .map((holiday) => dateKey(holiday.holiday_date || holiday.date || holiday.day))
+    .filter(Boolean));
+}
+
+function isWorkingDay(date, holidaySet = new Set()) {
+  const day = date.getDay();
+  return day !== 0 && day !== 6 && !holidaySet.has(dateKey(date));
+}
+
+function businessDaysBetween(startValue, endValue, holidays = []) {
+  const start = normalizeDateOnly(startValue);
+  const end = normalizeDateOnly(endValue);
+  if (!start || !end) return null;
+  if (start.getTime() === end.getTime()) return 0;
+  const holidaySet = buildHolidaySet(holidays);
+  const direction = end > start ? 1 : -1;
+  const cursor = new Date(start);
+  let count = 0;
+  while (cursor.getTime() !== end.getTime()) {
+    cursor.setDate(cursor.getDate() + direction);
+    if (isWorkingDay(cursor, holidaySet)) count += direction;
+  }
+  return count;
+}
+
+function getDaysUntilDeadline(task, holidays = []) {
   if (!task?.deadline) return null;
-  const deadline = new Date(task.deadline);
-  if (Number.isNaN(deadline.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  deadline.setHours(0, 0, 0, 0);
-  return Math.ceil((deadline - today) / 86400000);
+  return businessDaysBetween(new Date(), task.deadline, holidays);
 }
 
 function getExecutiveHealthClass(value) {
@@ -1107,7 +1167,7 @@ function getExecutiveHealthClass(value) {
   return 'mx-status-hold';
 }
 
-function ExecutiveView({ data, filterMonth, filterYear, onNavigate }) {
+function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigate }) {
   if (!data) {
     return (
       <Panel title="Executive View" subtitle="Preparing executive summary...">
@@ -1117,14 +1177,15 @@ function ExecutiveView({ data, filterMonth, filterYear, onNavigate }) {
   }
 
   const tasks = getExecutiveTasks(data);
+  const holidaySet = useMemo(() => buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]), [holidays, data]);
   const activeTasks = tasks.filter(isActiveTask);
   const completedTasks = tasks.filter((task) => String(task.status || '').toLowerCase() === 'completed');
   const overdueTasks = activeTasks.filter((task) => {
-    const days = getDaysUntilDeadline(task);
+    const days = getDaysUntilDeadline(task, holidaySet);
     return days !== null && days < 0;
   });
   const atRiskTasks = activeTasks.filter((task) => {
-    const days = getDaysUntilDeadline(task);
+    const days = getDaysUntilDeadline(task, holidaySet);
     return days !== null && days >= 0 && days <= 3;
   });
   const scores = calcTaskWeightedScores(tasks);
@@ -1143,11 +1204,11 @@ function ExecutiveView({ data, filterMonth, filterYear, onNavigate }) {
     const teamScores = calcTaskWeightedScores(teamTasks);
     const active = teamTasks.filter(isActiveTask);
     const overdue = active.filter((task) => {
-      const days = getDaysUntilDeadline(task);
+      const days = getDaysUntilDeadline(task, holidaySet);
       return days !== null && days < 0;
     }).length;
     const atRisk = active.filter((task) => {
-      const days = getDaysUntilDeadline(task);
+      const days = getDaysUntilDeadline(task, holidaySet);
       return days !== null && days >= 0 && days <= 3;
     }).length;
     const teamCompletion = teamScores.completion ?? (teamTasks.length ? Math.round((teamTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed').length / teamTasks.length) * 100) : null);
@@ -1156,7 +1217,7 @@ function ExecutiveView({ data, filterMonth, filterYear, onNavigate }) {
   }).sort((a, b) => (a.overdue - b.overdue) || (a.atRisk - b.atRisk) || (b.health - a.health));
 
   const criticalQueue = activeTasks
-    .map((task) => ({ task, days: getDaysUntilDeadline(task), weight: getTaskWeight(task) }))
+    .map((task) => ({ task, days: getDaysUntilDeadline(task, holidaySet), weight: getTaskWeight(task) }))
     .filter((item) => item.days !== null)
     .sort((a, b) => {
       const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;
@@ -1167,7 +1228,7 @@ function ExecutiveView({ data, filterMonth, filterYear, onNavigate }) {
 
   const insights = [];
   if (overdueTasks.length > 0) insights.push(`${overdueTasks.length} overdue task(s) need executive attention before status review.`);
-  if (atRiskTasks.length > 0) insights.push(`${atRiskTasks.length} task(s) are due within 3 days and may affect SLA.`);
+  if (atRiskTasks.length > 0) insights.push(`${atRiskTasks.length} task(s) are due within 3 business days and may affect SLA.`);
   if (teamRows[0]) insights.push(`${teamRows[0].team} is the highest risk team in the current scope.`);
   if (sla !== null) insights.push(`Current weighted SLA is ${sla}%, with completion at ${completion ?? '-'}%.`);
   if (insights.length === 0) insights.push('No critical SLA risk is visible in the current scope.');
@@ -1179,8 +1240,8 @@ function ExecutiveView({ data, filterMonth, filterYear, onNavigate }) {
       <div className="grid md:grid-cols-2 2xl:grid-cols-5 gap-4">
         <MetricCard label="Overall SLA" value={formatScorePercent(sla)} sub="Weighted on-time performance" icon="fa-stopwatch" accent="var(--mx-info)" />
         <MetricCard label="Completion" value={formatScorePercent(completion)} sub={`${completedTasks.length}/${tasks.length} task(s) completed`} icon="fa-circle-check" accent="var(--mx-success)" />
-        <MetricCard label="Overdue" value={overdueTasks.length} sub="Active tasks past deadline" icon="fa-triangle-exclamation" accent="var(--mx-danger)" />
-        <MetricCard label="At Risk" value={atRiskTasks.length} sub="Due within 3 days" icon="fa-clock" accent="var(--mx-warning)" />
+        <MetricCard label="Overdue" value={overdueTasks.length} sub="Active tasks past deadline (business days)" icon="fa-triangle-exclamation" accent="var(--mx-danger)" />
+        <MetricCard label="At Risk" value={atRiskTasks.length} sub="Due within 3 business days" icon="fa-clock" accent="var(--mx-warning)" />
         <MetricCard label="Weighted Score" value={formatScorePercent(weightedScore)} sub="SLA and completion blend" icon="fa-ranking-star" accent="var(--mx-accent-2)" />
       </div>
 
@@ -1281,7 +1342,7 @@ function ExecutiveView({ data, filterMonth, filterYear, onNavigate }) {
                     <div className="mt-1 text-sm text-[var(--mx-muted)] line-clamp-2">{task.job || '-'}</div>
                   </div>
                   <span className={cn('mx-badge flex-shrink-0', days < 0 ? 'mx-status-hold' : days <= 3 ? 'mx-status-pending' : 'mx-status-process')}>
-                    {days < 0 ? `${Math.abs(days)}d late` : `${days}d left`}
+                    {days < 0 ? `${Math.abs(days)} bd late` : `${days} bd left`}
                   </span>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -1301,7 +1362,7 @@ function ExecutiveView({ data, filterMonth, filterYear, onNavigate }) {
   );
 }
 
-function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatusChange, onNavigate }) {
+function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onAccept, onStatusChange, onNavigate }) {
   if (!data) {
     return (
       <Panel title="Executive Overview" subtitle="กำลังเตรียมข้อมูล...">
@@ -1314,7 +1375,7 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
     const tasks = data.tasks || [];
     const completed = tasks.filter((t) => t.status === 'Completed').length;
     const active = tasks.filter((t) => ['On Process', 'Pending', 'On Hold'].includes(t.status)).length;
-    const now = new Date();
+    const holidaySet = buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]);
 
     const scores = calcTaskWeightedScores(tasks);
 
@@ -1430,8 +1491,7 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
           <div className="grid gap-3">
             {activeTasks.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มีงานที่ต้องดำเนินการ</div>}
             {activeTasks.map((task) => {
-              const dl = task.deadline ? new Date(task.deadline) : null;
-              const daysLeft = dl ? Math.ceil((dl - now) / 86400000) : null;
+              const daysLeft = getDaysUntilDeadline(task, holidaySet);
               const isOverdue = daysLeft !== null && daysLeft < 0;
               return (
                 <div key={task.id} className="mx-data-card">
@@ -1452,8 +1512,8 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
                       </div>
                       <div className="mt-1 text-sm text-[var(--mx-muted)]">
                         Deadline {formatDate(task.deadline)}
-                        {isOverdue && <span className="ml-2 text-red-400 font-bold">เกิน {Math.abs(daysLeft)} วัน</span>}
-                        {!isOverdue && daysLeft !== null && daysLeft <= 3 && <span className="ml-2 text-[var(--mx-warning)] font-bold">อีก {daysLeft} วัน</span>}
+                        {isOverdue && <span className="ml-2 text-red-400 font-bold">เกิน {Math.abs(daysLeft)} วันทำการ</span>}
+                        {!isOverdue && daysLeft !== null && daysLeft <= 3 && <span className="ml-2 text-[var(--mx-warning)] font-bold">อีก {daysLeft} วันทำการ</span>}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 flex-shrink-0 items-start">
@@ -2477,6 +2537,12 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
   const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
   const selectedRoleNeedsDepartment = roleRequiresDepartment(userForm.role);
 
+  const toPositiveNumber = (value, fallback = 1) => {
+    const normalized = String(value ?? '').trim().replace(',', '.');
+    const number = Number(normalized);
+    return Number.isFinite(number) && number > 0 ? number : fallback;
+  };
+
   const runAdminAction = async (key, action, successMessage) => {
     setSaving(key);
     try {
@@ -2550,8 +2616,24 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
   };
 
   const saveKpi = async () => {
-    if (!kpiForm.main || !kpiForm.sub || !kpiForm.team) return alert('กรุณากรอก Main KPI, Sub KPI และทีมให้ครบ');
-    await runAdminAction('kpi', async () => adminPost('admin/saveKpi', { ...kpiForm, days: Number(kpiForm.days), main_weight: Number(kpiForm.main_weight) }, user.empId), 'บันทึก KPI สำเร็จ');
+    const main = kpiForm.main.trim();
+    const sub = kpiForm.sub.trim();
+    const team = kpiForm.team.trim();
+    const days = Math.round(toPositiveNumber(kpiForm.days, 1));
+    const mainWeight = toPositiveNumber(kpiForm.main_weight, 1);
+    if (!main || !sub || !team) return alert('กรุณากรอก Main KPI, Sub KPI และทีมให้ครบ');
+    if (!days || days < 1) return alert('SLA Days ต้องมากกว่า 0');
+    if (!mainWeight || mainWeight <= 0) return alert('Weight ต้องมากกว่า 0');
+    const payload = {
+      ...(kpiForm.id ? { id: kpiForm.id } : {}),
+      main,
+      sub,
+      team,
+      days,
+      main_weight: mainWeight,
+      mainWeight,
+    };
+    await runAdminAction('kpi', async () => adminPost('admin/saveKpi', payload, user.empId), 'บันทึก KPI สำเร็จ');
     setKpiForm({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
   };
 
@@ -2938,7 +3020,7 @@ function App() {
   // Notifications computed from tasks
   const notifications = useMemo(() => {
     if (!state.tasks || !state.tasks.length) return [];
-    const now = new Date();
+    const holidaySet = buildHolidaySet(state.holidays || []);
     const result = [];
     state.tasks.forEach((task) => {
       const st = (task.status || '').toLowerCase();
@@ -2952,15 +3034,15 @@ function App() {
         });
       }
       if (['on process', 'pending', 'on hold'].includes(st) && task.deadline) {
-        const dl = new Date(task.deadline);
-        const daysLeft = Math.ceil((dl - now) / 86400000);
+        const daysLeft = getDaysUntilDeadline(task, holidaySet);
+        if (daysLeft === null) return;
         if (daysLeft < 0) {
           result.push({
             id: `overdue-${task.id}`,
             type: 'overdue',
             icon: 'fa-triangle-exclamation',
             color: '#ef4444',
-            message: `เกิน deadline ${Math.abs(daysLeft)} วัน: ${(task.job || '').substring(0, 28)}`,
+            message: `เกิน deadline ${Math.abs(daysLeft)} วันทำการ: ${(task.job || '').substring(0, 28)}`,
           });
         } else if (daysLeft <= 3) {
           result.push({
@@ -2968,13 +3050,13 @@ function App() {
             type: 'deadline',
             icon: 'fa-clock',
             color: '#f59e0b',
-            message: `อีก ${daysLeft} วัน: ${(task.job || '').substring(0, 30)}`,
+            message: `อีก ${daysLeft} วันทำการ: ${(task.job || '').substring(0, 30)}`,
           });
         }
       }
     });
     return result;
-  }, [state.tasks]);
+  }, [state.tasks, state.holidays]);
 
   useEffect(() => {
     if (!user) {
@@ -3325,6 +3407,7 @@ function App() {
               data={state.dashboard}
               filterMonth={filterMonth}
               filterYear={filterYear}
+              holidays={state.holidays}
               onNavigate={handleNavigate}
             />
           )}
@@ -3334,6 +3417,7 @@ function App() {
               data={state.dashboard}
               filterMonth={filterMonth}
               filterYear={filterYear}
+              holidays={state.holidays}
               onAccept={handleAccept}
               onStatusChange={handleStatusChange}
               onNavigate={handleNavigate}
@@ -3345,6 +3429,7 @@ function App() {
               data={state.dashboard}
               filterMonth={filterMonth}
               filterYear={filterYear}
+              holidays={state.holidays}
               onAccept={handleAccept}
               onStatusChange={handleStatusChange}
               onNavigate={handleNavigate}

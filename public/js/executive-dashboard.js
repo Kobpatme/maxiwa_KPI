@@ -124,14 +124,58 @@ function isCompletedLate(task) {
   return Boolean(deadline && completedAt && !Number.isNaN(deadline.getTime()) && !Number.isNaN(completedAt.getTime()) && completedAt > deadline);
 }
 
-function daysUntil(task) {
+function normalizeDateOnly(value) {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function dateKey(value) {
+  const date = normalizeDateOnly(value);
+  if (!date) return '';
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function isActiveHoliday(holiday) {
+  const active = holiday?.is_active ?? holiday?.active ?? true;
+  return active === true || active === 1 || String(active).toLowerCase() === 'true';
+}
+
+function buildHolidaySet(holidays = []) {
+  if (holidays instanceof Set) return holidays;
+  return new Set((holidays || [])
+    .filter(isActiveHoliday)
+    .map((holiday) => dateKey(holiday.holiday_date || holiday.date || holiday.day))
+    .filter(Boolean));
+}
+
+function isWorkingDay(date, holidaySet = new Set()) {
+  const day = date.getDay();
+  return day !== 0 && day !== 6 && !holidaySet.has(dateKey(date));
+}
+
+function businessDaysBetween(startValue, endValue, holidays = []) {
+  const start = normalizeDateOnly(startValue);
+  const end = normalizeDateOnly(endValue);
+  if (!start || !end) return null;
+  if (start.getTime() === end.getTime()) return 0;
+  const holidaySet = buildHolidaySet(holidays);
+  const direction = end > start ? 1 : -1;
+  const cursor = new Date(start);
+  let count = 0;
+  while (cursor.getTime() !== end.getTime()) {
+    cursor.setDate(cursor.getDate() + direction);
+    if (isWorkingDay(cursor, holidaySet)) count += direction;
+  }
+  return count;
+}
+
+function daysUntil(task, holidays = []) {
   if (!task?.deadline) return null;
-  const d = new Date(task.deadline);
-  if (Number.isNaN(d.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  d.setHours(0, 0, 0, 0);
-  return Math.ceil((d - today) / 86400000);
+  return businessDaysBetween(new Date(), task.deadline, holidays);
 }
 
 function extractJobCode(job) {
@@ -165,9 +209,9 @@ function statusClass(status) {
 
 function riskBadge(days) {
   if (days === null) return ['No deadline', 'status-neutral'];
-  if (days < 0) return [`${Math.abs(days)}d late`, 'status-bad'];
-  if (days <= 3) return [`${days}d left`, 'status-warn'];
-  return [`${days}d left`, 'status-info'];
+  if (days < 0) return [`${Math.abs(days)} bd late`, 'status-bad'];
+  if (days <= 3) return [`${days} bd left`, 'status-warn'];
+  return [`${days} bd left`, 'status-info'];
 }
 
 function groupBy(items, getKey) {
@@ -230,16 +274,16 @@ function getTaskMonth(task) {
   return d.getMonth();
 }
 
-function buildPortfolio(tasks) {
+function buildPortfolio(tasks, holidays = []) {
   const active = tasks.filter(isActive);
   const completed = tasks.filter(isCompleted);
   const onProcess = tasks.filter(isOnProcess);
   const overdue = active.filter((task) => {
-    const days = daysUntil(task);
+    const days = daysUntil(task, holidays);
     return days !== null && days < 0;
   });
   const atRisk = active.filter((task) => {
-    const days = daysUntil(task);
+    const days = daysUntil(task, holidays);
     return days !== null && days >= 0 && days <= 3;
   });
   const slaPass = tasks.filter(isCompletedOnTime);
@@ -253,9 +297,9 @@ function buildPortfolio(tasks) {
   return { active, completed, onProcess, overdue, atRisk, slaPass, slaFail, scores, completion, weightedScore };
 }
 
-function buildGroupRows(tasks, getKey) {
+function buildGroupRows(tasks, getKey, holidays = []) {
   return Object.entries(groupBy(tasks, getKey)).map(([name, items]) => {
-    const portfolio = buildPortfolio(items);
+    const portfolio = buildPortfolio(items, holidays);
     const topKpiEntry = Object.entries(groupBy(items, mainKpi)).sort((a, b) => b[1].length - a[1].length)[0];
     const health = Math.round(((portfolio.scores.sla ?? portfolio.completion ?? 0) + (portfolio.completion ?? portfolio.scores.sla ?? 0)) / 2)
       - portfolio.overdue.length * 5
@@ -666,7 +710,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
   const strongestTeam = [...teamRows].sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
   const insights = [
     portfolio.overdue.length ? `${portfolio.overdue.length} overdue task(s) require executive attention.` : 'No overdue active tasks in the current scope.',
-    portfolio.atRisk.length ? `${portfolio.atRisk.length} task(s) are due within 3 days and may affect SLA confidence.` : 'Short-term delivery risk is currently contained.',
+    portfolio.atRisk.length ? `${portfolio.atRisk.length} task(s) are due within 3 business days and may affect SLA confidence.` : 'Short-term delivery risk is currently contained.',
     highestRisk ? `${highestRisk.team} carries the most visible operational pressure.` : 'No team pressure data is available yet.',
     strongestTeam ? `${strongestTeam.team} is the current SLA benchmark at ${fmtPct(strongestTeam.sla)}.` : 'No SLA benchmark is available yet.',
   ];
@@ -798,7 +842,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
   );
 }
 
-function TeamDetailModal({ team, onClose }) {
+function TeamDetailModal({ team, holidays = [], onClose }) {
   if (!team) return null;
   const members = team.members || [];
   const kpiBreakdown = Object.entries(groupBy(team.items || [], mainKpi))
@@ -814,7 +858,7 @@ function TeamDetailModal({ team, onClose }) {
     .slice(0, 12);
   const peopleBreakdown = Object.entries(groupBy(team.items || [], personName))
     .map(([name, items]) => {
-      const portfolio = buildPortfolio(items);
+      const portfolio = buildPortfolio(items, holidays);
       const member = members.find((item) => item.name === name);
       return {
         name,
@@ -831,7 +875,7 @@ function TeamDetailModal({ team, onClose }) {
     .slice(0, 10);
   const urgent = (team.items || [])
     .filter(isActive)
-    .map((task) => ({ task, days: daysUntil(task), weight: taskWeight(task) }))
+    .map((task) => ({ task, days: daysUntil(task, holidays), weight: taskWeight(task) }))
     .filter((item) => item.days !== null)
     .sort((a, b) => a.days - b.days || b.weight - a.weight)
     .slice(0, 10);
@@ -945,7 +989,7 @@ function TeamDetailModal({ team, onClose }) {
   );
 }
 
-function TeamsPanel({ teamRows }) {
+function TeamsPanel({ teamRows, holidays = [] }) {
   const [selectedTeam, setSelectedTeam] = useState(null);
   return (
     <div className="grid gap-6">
@@ -1001,19 +1045,19 @@ function TeamsPanel({ teamRows }) {
           </tbody>
         </DataTable>
       </section>
-      <TeamDetailModal team={selectedTeam} onClose={() => setSelectedTeam(null)} />
+      <TeamDetailModal team={selectedTeam} holidays={holidays} onClose={() => setSelectedTeam(null)} />
     </div>
   );
 }
 
-function EmployeeDetailModal({ person, onClose }) {
+function EmployeeDetailModal({ person, holidays = [], onClose }) {
   if (!person) return null;
   const kpiBreakdown = Object.entries(groupBy(person.items, mainKpi))
     .map(([name, items]) => ({ name, total: items.length, scores: calcWeightedScores(items), completed: items.filter(isCompleted).length, fail: items.filter(isCompletedLate).length }))
     .sort((a, b) => b.total - a.total);
   const urgent = person.items
     .filter(isActive)
-    .map((task) => ({ task, days: daysUntil(task), weight: taskWeight(task) }))
+    .map((task) => ({ task, days: daysUntil(task, holidays), weight: taskWeight(task) }))
     .filter((item) => item.days !== null)
     .sort((a, b) => a.days - b.days || b.weight - a.weight)
     .slice(0, 8);
@@ -1083,7 +1127,7 @@ function EmployeeDetailModal({ person, onClose }) {
   );
 }
 
-function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilter, tasks, selectedPerson, setSelectedPerson }) {
+function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilter, tasks, selectedPerson, setSelectedPerson, holidays = [] }) {
   const filtered = personTeamFilter === 'all' ? personRows : personRows.filter((row) => row.team === personTeamFilter);
   return (
     <div className="grid gap-6">
@@ -1153,7 +1197,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
           </tbody>
         </DataTable>
       </section>
-      <EmployeeDetailModal person={selectedPerson} onClose={() => setSelectedPerson(null)} />
+      <EmployeeDetailModal person={selectedPerson} holidays={holidays} onClose={() => setSelectedPerson(null)} />
     </div>
   );
 }
@@ -1381,7 +1425,7 @@ function App() {
   const [personTeamFilter, setPersonTeamFilter] = useState('all');
   const [kpiSearch, setKpiSearch] = useState('');
   const [selectedPerson, setSelectedPerson] = useState(null);
-  const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [] });
+  const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [], holidays: [] });
 
   const years = useMemo(() => {
     const now = new Date().getFullYear();
@@ -1402,13 +1446,16 @@ function App() {
       const user = { ...initial.user, kpis: initial.kpis || [] };
       const monthParam = month === 0 ? null : month;
       let tasks = [];
+      let taskHolidays = [];
       if (isSelfScopedRole(user.role)) {
         const res = await API.getEmployeeTasks(user, monthParam, year, month === 0, user.empId);
         tasks = res.tasks || res || [];
+        taskHolidays = res.holidays || [];
       } else {
         const team = isTeamScopedRole(user.role) ? user.team : 'all';
         const res = await API.getAllTasks(monthParam, year, team, user.empId);
         tasks = res.tasks || [];
+        taskHolidays = res.holidays || [];
       }
       let staff = [];
       try {
@@ -1427,7 +1474,14 @@ function App() {
         console.warn('Executive View staff image load failed:', staffError);
         staff = [];
       }
-      setState({ loading: false, error: '', user, tasks, staff });
+      let holidays = taskHolidays;
+      try {
+        const holidayRes = await API.getHolidays({ 'x-admin-empid': user.empId || '' });
+        holidays = holidayRes.holidays || holidays;
+      } catch {
+        // If holiday access is restricted, risk displays still use weekend-aware business days.
+      }
+      setState({ loading: false, error: '', user, tasks, staff, holidays });
       const url = new URL(window.location.href);
       url.searchParams.set('empId', cleanEmpId);
       url.searchParams.set('month', String(month));
@@ -1444,7 +1498,8 @@ function App() {
 
   const tasks = state.tasks || [];
   const staffDirectory = state.staff || [];
-  const portfolio = useMemo(() => buildPortfolio(tasks), [tasks]);
+  const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
+  const portfolio = useMemo(() => buildPortfolio(tasks, holidaySet), [tasks, holidaySet]);
   const periodLabel = `${month === 0 ? 'ทุกเดือน' : MONTH_NAMES[month - 1]} ${year}`;
   const staffByName = useMemo(() => {
     const map = {};
@@ -1463,7 +1518,7 @@ function App() {
     return map;
   }, [staffDirectory, state.user]);
 
-  const teamRows = useMemo(() => buildGroupRows(tasks, teamName)
+  const teamRows = useMemo(() => buildGroupRows(tasks, teamName, holidaySet)
     .map((row) => {
       const memberMap = {};
       (row.items || []).forEach((task) => {
@@ -1478,9 +1533,9 @@ function App() {
       const members = Object.values(memberMap).sort((a, b) => a.name.localeCompare(b.name));
       return { ...row, team: row.name, members };
     })
-    .sort((a, b) => ((b.overdue * 3 + b.risk + b.backlog / Math.max(b.total, 1)) - (a.overdue * 3 + a.risk + a.backlog / Math.max(a.total, 1))) || (b.total - a.total)), [tasks, staffByName]);
+    .sort((a, b) => ((b.overdue * 3 + b.risk + b.backlog / Math.max(b.total, 1)) - (a.overdue * 3 + a.risk + a.backlog / Math.max(a.total, 1))) || (b.total - a.total)), [tasks, staffByName, holidaySet]);
 
-  const personRows = useMemo(() => buildGroupRows(tasks, (task) => `${personName(task)}|${teamName(task)}`)
+  const personRows = useMemo(() => buildGroupRows(tasks, (task) => `${personName(task)}|${teamName(task)}`, holidaySet)
     .map((row) => {
       const [person, team] = row.name.split('|');
       const profile = staffByName[String(person || '').trim().toLowerCase()]
@@ -1488,7 +1543,7 @@ function App() {
         || null;
       return { ...row, person, team, profile };
     })
-    .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total), [tasks, staffByName]);
+    .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total), [tasks, staffByName, holidaySet]);
 
   const statusRows = useMemo(() => Object.entries(groupBy(tasks, (task) => task.status || 'Unknown'))
     .map(([status, items]) => ({ status, total: items.length, pct: tasks.length ? Math.round((items.length / tasks.length) * 1000) / 10 : 0 }))
@@ -1507,7 +1562,7 @@ function App() {
     const completed = [];
     months.forEach((monthIndex) => {
       const monthTasks = tasks.filter((task) => getTaskMonth(task) === monthIndex);
-      const monthPortfolio = buildPortfolio(monthTasks);
+      const monthPortfolio = buildPortfolio(monthTasks, holidaySet);
       sla.push(monthTasks.length ? monthPortfolio.scores.sla : null);
       trendCompletion.push(monthTasks.length ? monthPortfolio.completion : null);
       risk.push(monthTasks.length ? (monthPortfolio.overdue.length + monthPortfolio.atRisk.length) : 0);
@@ -1515,17 +1570,17 @@ function App() {
       completed.push(monthPortfolio.completed.length);
     });
     return { months, series: { sla, completion: trendCompletion, risk, total, completed } };
-  }, [tasks, month]);
+  }, [tasks, month, holidaySet]);
 
   const criticalQueue = useMemo(() => portfolio.active
-    .map((task) => ({ task, days: daysUntil(task), weight: taskWeight(task) }))
+    .map((task) => ({ task, days: daysUntil(task, holidaySet), weight: taskWeight(task) }))
     .filter((item) => item.days !== null)
     .sort((a, b) => {
       const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;
       const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
       return (riskA - riskB) || (a.days - b.days) || (b.weight - a.weight);
     })
-    .slice(0, 12), [portfolio.active]);
+    .slice(0, 12), [portfolio.active, holidaySet]);
 
   return (
     <Shell>
@@ -1573,7 +1628,7 @@ function App() {
           <div className="grid sm:grid-cols-3 gap-5">
             <Metric label="งานทั้งหมด" value={fmtNum(tasks.length)} sub={periodLabel} icon="fa-clipboard-list" tone="status-neutral" />
             <Metric label="เกินกำหนด" value={fmtNum(portfolio.overdue.length)} sub="งานที่ยัง active และเลย deadline" icon="fa-triangle-exclamation" tone={portfolio.overdue.length ? 'status-bad' : 'status-good'} />
-            <Metric label="เสี่ยงใกล้ครบกำหนด" value={fmtNum(portfolio.atRisk.length)} sub="ครบกำหนดภายใน 3 วัน" icon="fa-clock" tone={portfolio.atRisk.length ? 'status-warn' : 'status-good'} />
+            <Metric label="เสี่ยงใกล้ครบกำหนด" value={fmtNum(portfolio.atRisk.length)} sub="ครบกำหนดภายใน 3 วันทำการ" icon="fa-clock" tone={portfolio.atRisk.length ? 'status-warn' : 'status-good'} />
           </div>
         </div>
       </section>
@@ -1581,8 +1636,8 @@ function App() {
       <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
 
       {activeTab === 'overview' && <OverviewPanel portfolio={portfolio} teamRows={teamRows} kpiRows={kpiRows} statusRows={statusRows} criticalQueue={criticalQueue} monthlyTrend={monthlyTrend} periodLabel={periodLabel} user={state.user} empId={empId} tasks={tasks} />}
-      {activeTab === 'teams' && <TeamsPanel teamRows={teamRows} />}
-      {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} selectedPerson={selectedPerson} setSelectedPerson={setSelectedPerson} />}
+      {activeTab === 'teams' && <TeamsPanel teamRows={teamRows} holidays={holidaySet} />}
+      {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} selectedPerson={selectedPerson} setSelectedPerson={setSelectedPerson} holidays={holidaySet} />}
       {activeTab === 'kpi' && <KpiAnalysisPanel kpiRows={kpiRows} personRows={personRows} teamRows={teamRows} />}
       {activeTab === 'weights' && <KpiWeightsPanel kpiWeightRows={kpiWeightRows} kpiSearch={kpiSearch} setKpiSearch={setKpiSearch} />}
     </Shell>

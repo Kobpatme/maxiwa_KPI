@@ -1,8 +1,11 @@
+import { execFile } from "node:child_process";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
+const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
@@ -11,6 +14,18 @@ const distDir = path.join(root, "dist");
 await rm(distDir, { recursive: true, force: true });
 await mkdir(distDir, { recursive: true });
 await cp(publicDir, distDir, { recursive: true });
+await mkdir(path.join(distDir, "css"), { recursive: true });
+
+await execFileAsync(process.execPath, [
+  path.join(root, "node_modules", "tailwindcss", "lib", "cli.js"),
+  "-c",
+  path.join(root, "tailwind.config.cjs"),
+  "-i",
+  path.join(root, "src", "tailwind.css"),
+  "-o",
+  path.join(distDir, "css", "tailwind.css"),
+  "--minify",
+], { cwd: root });
 
 const apiBase = process.env.MAXIWA_API_BASE || "https://spds-1.kobpatme.workers.dev/api";
 const configPath = path.join(distDir, "config.js");
