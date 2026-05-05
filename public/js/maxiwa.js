@@ -8,6 +8,9 @@ const THEME_KEY = 'maxiwa-kpi-theme';
 const RUNTIME_SESSION_ID = (typeof crypto !== 'undefined' && crypto.randomUUID)
   ? crypto.randomUUID()
   : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const APP_NAME = 'METRIX Verity';
+const APP_TAGLINE = 'Executive Performance System';
+const APP_LOGO_URL = 'https://img2.pic.in.th/Logo40f6c473c9a46acd.png';
 const MONTH_NAMES = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
@@ -146,6 +149,28 @@ const ROLE_HOME = {
 
 function cn(...values) {
   return values.filter(Boolean).join(' ');
+}
+
+function BrandLogo({ className = 'w-14 h-14', imgClassName = '' }) {
+  return (
+    <div className={cn('mx-brand-mark rounded-lg overflow-hidden grid place-items-center flex-shrink-0 bg-white', className)}>
+      <img
+        src={APP_LOGO_URL}
+        alt={`${APP_NAME} logo`}
+        className={cn('w-full h-full object-contain p-1.5', imgClassName)}
+        referrerPolicy="no-referrer"
+      />
+    </div>
+  );
+}
+
+function BrandPill({ className = '' }) {
+  return (
+    <div className={cn('mx-brand-pill inline-flex items-center gap-2 rounded-lg font-extrabold', className)}>
+      <img src={APP_LOGO_URL} alt="" className="w-5 h-5 object-contain" referrerPolicy="no-referrer" />
+      {APP_NAME}
+    </div>
+  );
 }
 
 // ─── URL Helpers ───────────────────────────────────────────────────────────────
@@ -659,10 +684,10 @@ function Sidebar({ user, view, setView, onLogout, notifCount = 0, adminSection =
   return (
     <aside className="mx-shell-card rounded-[28px] p-5 md:p-6 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto">
       <div className="flex items-center gap-4 mb-7">
-        <div className="mx-brand-mark w-14 h-14 rounded-lg grid place-items-center text-xl font-black">M</div>
+        <BrandLogo className="w-14 h-14" />
         <div>
-          <div className="text-xl font-extrabold tracking-[0.02em]">MAXIWA KPI</div>
-          <div className="text-sm text-[var(--mx-muted)]">Executive Performance System</div>
+          <div className="text-xl font-extrabold tracking-[0.02em]">{APP_NAME}</div>
+          <div className="text-sm text-[var(--mx-muted)]">{APP_TAGLINE}</div>
         </div>
       </div>
 
@@ -777,23 +802,21 @@ function LoginScreen({ onLogin, loading, error, theme, onToggleTheme }) {
       <div className="w-full max-w-[1120px] grid lg:grid-cols-[1.15fr_0.85fr] gap-6">
         <div className="mx-shell-card rounded-[34px] p-8 md:p-10">
           <div className="flex items-center justify-between gap-3">
-            <div className="mx-brand-pill inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-extrabold uppercase tracking-[0.12em]">
-              <i className="fa-solid fa-gauge-high"></i> MAXIWA KPI
-            </div>
+            <BrandPill className="px-4 py-2 text-xs tracking-[0.12em]" />
             <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           </div>
           <h1 className="mt-6 text-[42px] md:text-[58px] leading-[1.02] tracking-normal font-extrabold mb-0">
             ระบบใหม่ที่ดูดี ใช้ง่าย และต่อของเดิมได้ทันที
           </h1>
           <p className="mt-5 mb-0 text-[15px] leading-8 text-[var(--mx-muted)] max-w-[60ch]">
-            MAXIWA KPI ถูกออกแบบใหม่สำหรับผู้บริหารและทีมปฏิบัติการยุคใหม่ โดยยังเชื่อมต่อกับฐานข้อมูลและ backend เดิมโดยตรง
+            {APP_NAME} ถูกออกแบบใหม่สำหรับผู้บริหารและทีมปฏิบัติการยุคใหม่ โดยยังเชื่อมต่อกับฐานข้อมูลและ backend เดิมโดยตรง
             ไม่ต้องแก้หลังบ้าน และไม่ต้องให้ใครไปแตะ database เพื่อใช้งานประจำวัน
           </p>
         </div>
 
         <div className="mx-shell-card rounded-[34px] p-8 md:p-10 flex flex-col justify-center">
-          <div className="mx-brand-mark w-16 h-16 rounded-lg grid place-items-center text-2xl font-black">M</div>
-          <h2 className="mt-6 text-[30px] tracking-normal font-extrabold mb-0">Sign in to MAXIWA KPI</h2>
+          <BrandLogo className="w-16 h-16" />
+          <h2 className="mt-6 text-[30px] tracking-normal font-extrabold mb-0">Sign in to {APP_NAME}</h2>
           <p className="mt-3 mb-0 text-[var(--mx-muted)]">กรอกรหัสพนักงานเพื่อเข้าสู่ระบบใหม่</p>
           <div className="mt-7">
             <label className="block mb-2 text-[12px] font-extrabold uppercase tracking-[0.16em] text-[var(--mx-muted)]">Employee ID</label>
@@ -820,7 +843,7 @@ function LoginScreenPro({ onLogin, loading, error, theme, onToggleTheme }) {
   const accessHighlights = [
     ['fa-chart-line', 'Weighted KPI', 'คำนวณคะแนนตามน้ำหนัก KPI ของแต่ละงาน'],
     ['fa-clock', 'SLA Monitoring', 'เห็นงานเสี่ยง งานค้าง และ deadline ที่ต้องติดตาม'],
-    ['fa-building-user', 'Role Based View', 'แสดงข้อมูลตามสิทธิ์ Staff, Lead, Manager และ Admin'],
+    ['fa-building-user', 'Role Based View', 'แสดงข้อมูลตามสิทธิ์'],
   ];
 
   return (
@@ -829,9 +852,7 @@ function LoginScreenPro({ onLogin, loading, error, theme, onToggleTheme }) {
         <div className="grid lg:grid-cols-[0.95fr_1.05fr]">
           <section className="p-6 md:p-9 border-b lg:border-b-0 lg:border-r border-[var(--mx-line)] bg-[var(--mx-surface)]">
             <div className="flex items-center justify-between gap-3">
-              <div className="mx-brand-pill inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-extrabold uppercase tracking-[0.14em]">
-                <i className="fa-solid fa-gauge-high"></i> MAXIWA KPI
-              </div>
+              <BrandPill className="px-4 py-2 text-xs tracking-[0.14em]" />
               <ThemeToggle theme={theme} onToggle={onToggleTheme} />
             </div>
 
@@ -863,7 +884,7 @@ function LoginScreenPro({ onLogin, loading, error, theme, onToggleTheme }) {
           <section className="p-6 md:p-10 lg:p-12 flex items-center">
             <div className="w-full max-w-[460px] mx-auto">
               <div className="flex items-center gap-4">
-                <div className="mx-brand-mark w-14 h-14 rounded-lg grid place-items-center text-xl font-black">M</div>
+                <BrandLogo className="w-14 h-14" />
                 <div>
                   <div className="text-[12px] uppercase tracking-[0.18em] text-[var(--mx-muted)] font-extrabold">Secure Access</div>
                   <h2 className="mt-1 mb-0 text-[28px] md:text-[34px] tracking-normal font-extrabold">เข้าสู่ระบบ</h2>
@@ -871,7 +892,7 @@ function LoginScreenPro({ onLogin, loading, error, theme, onToggleTheme }) {
               </div>
 
               <p className="mt-5 mb-0 text-[var(--mx-muted)] leading-7">
-                กรอกรหัสพนักงานเพื่อเข้าสู่ MAXIWA KPI ระบบจะโหลดข้อมูลและสิทธิ์ของคุณโดยอัตโนมัติ
+                กรอกรหัสพนักงานเพื่อเข้าสู่ {APP_NAME} ระบบจะโหลดข้อมูลและสิทธิ์ของคุณโดยอัตโนมัติ
               </p>
 
               <div className="mt-8">
@@ -1567,7 +1588,7 @@ function DashboardView({ user, data, filterMonth, filterYear, onAccept, onStatus
       </div>
       <Panel title="System Overview" subtitle="ภาพรวมสำหรับผู้ดูแลระบบ">
         <div className="text-sm text-[var(--mx-muted)]">
-          MAXIWA KPI ใช้ backend เดิมและฐานข้อมูลเดิมโดยตรง แต่เปลี่ยนประสบการณ์การใช้งานให้ชัดเจนและเป็นระบบมากขึ้น
+          {APP_NAME} ใช้ backend เดิมและฐานข้อมูลเดิมโดยตรง แต่เปลี่ยนประสบการณ์การใช้งานให้ชัดเจนและเป็นระบบมากขึ้น
         </div>
       </Panel>
     </div>
@@ -3131,7 +3152,7 @@ function App() {
       : view === 'people' ? 'People Overview'
       : view === 'tracker' ? 'Job Tracker'
       : view === 'admin' ? 'ควบคุมระบบ'
-      : 'MAXIWA KPI';
+      : APP_NAME;
   const pageSubtitle =
     view === 'executive' ? 'Board-ready view for SLA risk, weighted KPI health, team performance, and critical work.'
       :
@@ -3166,9 +3187,7 @@ function App() {
               <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="mx-brand-pill inline-flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-[0.16em]">
-                      <i className="fa-solid fa-gauge-high"></i> MAXIWA KPI
-                    </div>
+                    <BrandPill className="px-3 py-2 text-[11px] tracking-[0.16em]" />
                     <span className="mx-badge mx-status-process"><i className="fa-solid fa-user"></i>{currentRoleLabel}</span>
                     <span className="mx-badge mx-status-pending"><i className="fa-solid fa-layer-group"></i>{currentScopeLabel}</span>
                     <span className="mx-badge mx-status-completed"><i className="fa-solid fa-building-user"></i>{user.team}</span>
