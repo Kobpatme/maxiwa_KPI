@@ -81,6 +81,7 @@ function shouldUsePersonalWork(user, view) {
 
 function taskScopeForUser(user) {
   if (isTeamManagerRole(user?.role)) return user?.team || 'all';
+  if (isDepartmentManagerRole(user?.role)) return user?.team || 'all';
   return 'all';
 }
 
@@ -987,7 +988,16 @@ function useAppData(user, view) {
         safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
         return;
       }
-      if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
+      if (isDepartmentManagerRole(user.role)) {
+        const scope = taskScopeForUser(user);
+        const [summaryRes, tasksRes] = await Promise.all([
+          API.getTeamSummaryReport(scope, monthParam, filterYear, user.empId),
+          API.getAllTasks(monthParam, filterYear, scope, user.empId),
+        ]);
+        safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
+        return;
+      }
+      if (isStrategicViewRole(user.role)) {
         const [summaryRes, tasksRes] = await Promise.all([
           API.getSummaryReport(monthParam, filterYear, user.empId),
           API.getAllTasks(monthParam, filterYear, 'all', user.empId),
@@ -1031,7 +1041,7 @@ function useAppData(user, view) {
     safeSet({ loading: true, error: '' });
     try {
       let res;
-      if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
+      if (isTeamManagerRole(user.role) || isDepartmentManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
       else if (user.role === 'Staff') res = { staff: [user] };
       else res = await API.getAllStaff(user.empId);
       safeSet({ people: res.staff || [], loading: false });

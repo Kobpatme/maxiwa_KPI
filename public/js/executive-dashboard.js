@@ -7,6 +7,7 @@ const MONTH_NAMES = [
 
 const STRATEGIC_VIEW_ROLES = ['SrManager', 'Director', 'Executive'];
 const TEAM_SCOPED_ROLES = ['Lead'];
+const DEPARTMENT_SCOPED_ROLES = ['Manager'];
 const EXEC_THEME_KEY = 'metrix-executive-theme';
 
 function getInitialExecutiveTheme() {
@@ -31,6 +32,10 @@ function applyExecutiveTheme(theme) {
 
 function isTeamScopedRole(role) {
   return TEAM_SCOPED_ROLES.includes(role);
+}
+
+function isDepartmentScopedRole(role) {
+  return DEPARTMENT_SCOPED_ROLES.includes(role);
 }
 
 function isStrategicViewRole(role) {
@@ -1474,7 +1479,7 @@ function App() {
         tasks = res.tasks || res || [];
         taskHolidays = res.holidays || [];
       } else {
-        const team = isTeamScopedRole(user.role) ? user.team : 'all';
+        const team = (isTeamScopedRole(user.role) || isDepartmentScopedRole(user.role)) ? (user.team || 'all') : 'all';
         const res = await API.getAllTasks(monthParam, year, team, user.empId);
         tasks = res.tasks || [];
         taskHolidays = res.holidays || [];
@@ -1483,10 +1488,10 @@ function App() {
       try {
         if (isSelfScopedRole(user.role)) {
           staff = [user];
-        } else if (isTeamScopedRole(user.role)) {
+        } else if (isTeamScopedRole(user.role) || isDepartmentScopedRole(user.role)) {
           const staffRes = await API.getAllStaffInTeam(user.team, user.empId);
           staff = staffRes.staff || [];
-        } else if (isStrategicViewRole(user.role) || user.role === 'Manager' || user.role === 'Admin') {
+        } else if (isStrategicViewRole(user.role) || user.role === 'Admin') {
           const staffRes = await API.getAllStaff(user.empId);
           staff = staffRes.staff || [];
         } else {
