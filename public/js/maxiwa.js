@@ -2541,6 +2541,16 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
   const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
   const selectedRoleNeedsDepartment = roleRequiresDepartment(userForm.role);
 
+  const userDepartmentValue = (item) => {
+    const explicitDepartment = item.department || item.departmentId || item.division || item.permissions?.department || item.permissions?.division;
+    if (explicitDepartment) return explicitDepartment;
+    return roleRequiresDepartment(item.role) ? (item.team || '') : '';
+  };
+
+  const userTeamValue = (item) => {
+    return roleRequiresTeam(item.role) ? (item.team || '') : '';
+  };
+
   const toPositiveNumber = (value, fallback = 1) => {
     const normalized = String(value ?? '').trim().replace(',', '.');
     const number = Number(normalized);
@@ -2565,8 +2575,8 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
     setUserForm({
       empid: item.empId || item.empid || '',
       name: item.name || '',
-      department: item.department || item.departmentId || item.division || '',
-      team: item.team || '',
+      department: userDepartmentValue(item),
+      team: userTeamValue(item),
       role: item.role || 'Staff',
       accessScope: item.accessScope || item.scope || item.permissions?.scope || roleScope(item.role || 'Staff'),
       pigurl: item.pigurl || item.pigUrl || item.avatar || item.photoUrl || '',
@@ -2606,6 +2616,7 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
     const permissions = {
       ...(userForm.permissions || {}),
       scope: accessScope,
+      department: String(userForm.department || '').trim(),
       allowedTeams: userForm.permissions?.allowedTeams || [],
       allowedStaff: userForm.permissions?.allowedStaff || [],
     };
@@ -2735,12 +2746,15 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
   const UsersList = () => (
     <Panel title="ผู้ใช้และสิทธิ์" subtitle="แก้ไขหรือลบสิทธิ์ผู้ใช้ผ่านระบบ โดยไม่แตะ data source โดยตรง">
       <div className="grid gap-3">
-        {filteredStaff.slice(0, 60).map((s) => (
+        {filteredStaff.slice(0, 60).map((s) => {
+          const department = userDepartmentValue(s) || '-';
+          const team = userTeamValue(s) || '-';
+          return (
           <div key={s.empId || s.empid} className="mx-data-card">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div>
                 <div className="font-bold">{s.name}</div>
-                <div className="mt-1 text-sm text-[var(--mx-muted)]">{s.empId || s.empid} / {s.department || s.departmentId || '-'} / {s.team} / {roleLabel(s.role)} / Scope: {roleScope(s)}</div>
+                <div className="mt-1 text-sm text-[var(--mx-muted)]">{s.empId || s.empid} / {department} / {team} / {roleLabel(s.role)} / Scope: {roleScope(s)}</div>
               </div>
               <div className="flex gap-2">
                 <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editUser(s)}>แก้ไข</button>
@@ -2748,7 +2762,8 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
               </div>
             </div>
           </div>
-        ))}
+        );
+        })}
         {filteredStaff.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบผู้ใช้</div>}
       </div>
     </Panel>
