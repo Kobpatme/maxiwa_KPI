@@ -174,7 +174,10 @@ var MaxiwaKpiApp = (() => {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.error || `Request failed (${res.status})`);
+      const error = new Error(data.error || `Request failed (${res.status})`);
+      error.status = res.status;
+      error.data = data;
+      throw error;
     }
     return data;
   }
@@ -1613,7 +1616,24 @@ var MaxiwaKpiApp = (() => {
         allowedTeams: ((_a2 = userForm.permissions) == null ? void 0 : _a2.allowedTeams) || [],
         allowedStaff: ((_b = userForm.permissions) == null ? void 0 : _b.allowedStaff) || []
       };
-      await runAdminAction("user", async () => adminPost("admin/saveUser", { ...userForm, team: legacyTeam, accessScope, permissions }, user.empId), "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
+      const basePayload = {
+        empid: String(userForm.empid || "").trim().toUpperCase(),
+        name: String(userForm.name || "").trim(),
+        role: userForm.role,
+        team: legacyTeam,
+        pigurl: String(userForm.pigurl || "").trim()
+      };
+      const payload = { ...basePayload, permissions };
+      await runAdminAction("user", async () => {
+        try {
+          return await adminPost("admin/saveUser", payload, user.empId);
+        } catch (error) {
+          if (error.status >= 500) {
+            return adminPost("admin/saveUser", basePayload, user.empId);
+          }
+          throw error;
+        }
+      }, "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
       setUserForm({ empid: "", name: "", department: "", team: "", role: "Staff", accessScope: "Self", pigurl: "" });
     };
     const saveTeam = async () => {

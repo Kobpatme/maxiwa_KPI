@@ -195,7 +195,10 @@ async function adminPost(path, payload, empId) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || `Request failed (${res.status})`);
+    const error = new Error(data.error || `Request failed (${res.status})`);
+    error.status = res.status;
+    error.data = data;
+    throw error;
   }
   return data;
 }
@@ -2606,7 +2609,24 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
       allowedTeams: userForm.permissions?.allowedTeams || [],
       allowedStaff: userForm.permissions?.allowedStaff || [],
     };
-    await runAdminAction('user', async () => adminPost('admin/saveUser', { ...userForm, team: legacyTeam, accessScope, permissions }, user.empId), 'บันทึกผู้ใช้สำเร็จ');
+    const basePayload = {
+      empid: String(userForm.empid || '').trim().toUpperCase(),
+      name: String(userForm.name || '').trim(),
+      role: userForm.role,
+      team: legacyTeam,
+      pigurl: String(userForm.pigurl || '').trim(),
+    };
+    const payload = { ...basePayload, permissions };
+    await runAdminAction('user', async () => {
+      try {
+        return await adminPost('admin/saveUser', payload, user.empId);
+      } catch (error) {
+        if (error.status >= 500) {
+          return adminPost('admin/saveUser', basePayload, user.empId);
+        }
+        throw error;
+      }
+    }, 'บันทึกผู้ใช้สำเร็จ');
     setUserForm({ empid: '', name: '', department: '', team: '', role: 'Staff', accessScope: 'Self', pigurl: '' });
   };
 
