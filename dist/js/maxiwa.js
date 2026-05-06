@@ -193,12 +193,8 @@ var MaxiwaKpiApp = (() => {
   }
   async function saveSystemLinksToApi(links, empId) {
     const normalized = normalizeSystemLinks(links);
-    try {
-      return await adminPost("admin/saveSystemLinks", { systemLinks: normalized }, empId);
-    } catch (apiError) {
-      if (window.saveSupabaseSystemLinks) return window.saveSupabaseSystemLinks(normalized);
-      throw apiError;
-    }
+    if (window.saveSupabaseSystemLinks) return window.saveSupabaseSystemLinks(normalized);
+    throw new Error("Supabase system links save helper is not available");
   }
   function systemVisibleToUser(system, user) {
     const item = normalizeSystemLink(system);

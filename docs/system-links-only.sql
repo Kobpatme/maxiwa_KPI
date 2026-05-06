@@ -84,13 +84,15 @@ for select
 to anon, authenticated
 using (is_active = true and status <> 'Hidden');
 
--- Direct browser writes require authenticated Supabase users.
--- Keep this disabled if you will save through a backend/Edge Function.
+-- Direct browser writes for the current Emp ID based app.
+-- This app does not sign users into Supabase Auth, so browser requests use
+-- the anon role. Use this only for this low-risk link registry, or replace it
+-- with a backend/Edge Function service-role route for stricter production.
 drop policy if exists app_system_links_browser_write on public.app_system_links;
 create policy app_system_links_browser_write
 on public.app_system_links
 for all
-to authenticated
+to anon
 using (true)
 with check (true);
 

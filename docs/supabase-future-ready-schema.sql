@@ -423,15 +423,15 @@ for select
 to anon, authenticated
 using (is_active = true and status <> 'Hidden');
 
--- Temporary browser-admin write policy:
--- Enable this only if you accept direct browser writes with the anon key.
--- The safer production path is POST /api/admin/saveSystemLinks through a
--- service-role backend or Supabase Edge Function.
+-- Temporary browser-admin write policy for the current Emp ID based app.
+-- The browser uses the Supabase anon role because the app does not sign users
+-- into Supabase Auth. The safer production path is POST /api/admin/saveSystemLinks
+-- through a service-role backend or Supabase Edge Function.
 drop policy if exists app_system_links_browser_write on public.app_system_links;
 create policy app_system_links_browser_write
 on public.app_system_links
 for all
-to authenticated
+to anon
 using (true)
 with check (true);
 
