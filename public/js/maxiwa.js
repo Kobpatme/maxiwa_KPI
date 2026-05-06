@@ -3564,16 +3564,14 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
           </div>
         </Panel>
 
-        {adminSection === 'overview' && (
-          <AdminOverview />
-        )}
+        {adminSection === 'overview' && AdminOverview()}
 
-        {adminSection === 'users' && <div className="grid xl:grid-cols-[0.85fr_1.15fr] gap-5"><UserEditor /><UsersList /></div>}
-        {adminSection === 'systems' && <SystemsControls />}
-        {adminSection === 'teams' && <TeamControls />}
-        {adminSection === 'kpi' && <KpiControls />}
-        {adminSection === 'calendar' && <CalendarControls />}
-        {adminSection === 'audit' && <AuditPanel />}
+        {adminSection === 'users' && <div className="grid xl:grid-cols-[0.85fr_1.15fr] gap-5">{UserEditor()}{UsersList()}</div>}
+        {adminSection === 'systems' && SystemsControls()}
+        {adminSection === 'teams' && TeamControls()}
+        {adminSection === 'kpi' && KpiControls()}
+        {adminSection === 'calendar' && CalendarControls()}
+        {adminSection === 'audit' && AuditPanel()}
       </div>
   );
 }
