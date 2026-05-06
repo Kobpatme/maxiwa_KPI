@@ -5,6 +5,7 @@ const SESSION_ID_KEY = 'maxiwa-kpi-session-id';
 const SESSION_LOCK_KEY = 'maxiwa-kpi-active-session';
 const SESSION_LOCK_TTL = 45000;
 const THEME_KEY = 'maxiwa-kpi-theme';
+const SYSTEM_LINKS_KEY = 'maxiwa-system-links';
 const RUNTIME_SESSION_ID = (typeof crypto !== 'undefined' && crypto.randomUUID)
   ? crypto.randomUUID()
   : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -33,6 +34,48 @@ const TEAM_MANAGER_ROLES = ['Lead'];
 const DEPARTMENT_MANAGER_ROLES = ['Manager'];
 const STRATEGIC_VIEW_ROLES = ['SrManager', 'Director', 'Executive'];
 const EXECUTIVE_VIEW_ROLES = ['Manager', 'SrManager', 'Director', 'Executive', 'Admin'];
+
+const DEFAULT_SYSTEM_LINKS = [
+  {
+    id: 'maxiwa-kpi',
+    name: 'METRIX Verity',
+    description: 'KPI, SLA, task tracking, and executive performance dashboard',
+    url: './maxiwa.html',
+    icon: 'fa-chart-line',
+    status: 'Active',
+    visibleToAll: true,
+    allowedRoles: [],
+    allowedTeams: [],
+    allowedEmpIds: [],
+    isActive: true,
+  },
+  {
+    id: 'executive-view',
+    name: 'Executive Dashboard',
+    description: 'Portfolio, risk, SLA, and weighted KPI view for management',
+    url: './dashboard.html',
+    icon: 'fa-display',
+    status: 'Active',
+    visibleToAll: false,
+    allowedRoles: EXECUTIVE_VIEW_ROLES,
+    allowedTeams: [],
+    allowedEmpIds: [],
+    isActive: true,
+  },
+  {
+    id: 'pr-system',
+    name: 'PR System',
+    description: 'Create and track purchase request work outside MAXIWA',
+    url: '',
+    icon: 'fa-file-invoice',
+    status: 'Coming Soon',
+    visibleToAll: false,
+    allowedRoles: ['Staff', 'Lead', 'Manager', 'Admin'],
+    allowedTeams: [],
+    allowedEmpIds: [],
+    isActive: true,
+  },
+];
 
 function roleConfig(role) {
   return ROLE_DEFINITIONS[role] || ROLE_DEFINITIONS.Staff;
@@ -109,6 +152,53 @@ function filterByAllowedTeams(user, items, getTeam = (item) => item?.team) {
   return (items || []).filter((item) => allowed.has(String(getTeam(item) || '').trim()));
 }
 
+function normalizeList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean);
+  return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function normalizeSystemLink(item = {}) {
+  const id = String(item.id || item.name || `system-${Date.now()}`).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return {
+    id,
+    name: String(item.name || '').trim(),
+    description: String(item.description || '').trim(),
+    url: String(item.url || '').trim(),
+    icon: String(item.icon || 'fa-up-right-from-square').trim(),
+    status: item.status || 'Active',
+    visibleToAll: item.visibleToAll === true || String(item.visibleToAll).toLowerCase() === 'true',
+    allowedRoles: normalizeList(item.allowedRoles),
+    allowedTeams: normalizeList(item.allowedTeams),
+    allowedEmpIds: normalizeList(item.allowedEmpIds).map((empId) => empId.toUpperCase()),
+    isActive: item.isActive !== false,
+  };
+}
+
+function normalizeSystemLinks(links, fallback = DEFAULT_SYSTEM_LINKS) {
+  const source = Array.isArray(links) ? links : fallback;
+  return source.map(normalizeSystemLink).filter((item) => item.name);
+}
+
+function loadSystemLinks() {
+  return normalizeSystemLinks(parseJsonSafe(safeLocalGet(SYSTEM_LINKS_KEY), DEFAULT_SYSTEM_LINKS));
+}
+
+function systemVisibleToUser(system, user) {
+  const item = normalizeSystemLink(system);
+  if (!item.isActive || item.status === 'Hidden') return false;
+  if (isAdminRole(user?.role)) return true;
+  const empId = String(user?.empId || user?.empid || '').trim().toUpperCase();
+  if (item.visibleToAll) return true;
+  if (item.allowedEmpIds.includes(empId)) return true;
+  if (item.allowedRoles.includes(user?.role)) return true;
+  if (item.allowedTeams.includes(String(user?.team || '').trim())) return true;
+  return false;
+}
+
+function visibleSystemLinksForUser(links, user) {
+  return normalizeSystemLinks(links).filter((item) => systemVisibleToUser(item, user));
+}
+
 const NAV_BY_ROLE = {
   Staff: [
     { id: 'dashboard', label: 'My Dashboard', icon: 'fa-chart-line', group: 'งานของฉัน' },
@@ -171,6 +261,15 @@ const ROLE_HOME = {
   Executive: 'executive',
   Admin: 'dashboard',
 };
+
+function navItemsForUser(user) {
+  const base = NAV_BY_ROLE[user?.role] || NAV_BY_ROLE.Staff;
+  if (base.some((item) => item.id === 'systems')) return base;
+  const systemsItem = { id: 'systems', label: 'Systems', icon: 'fa-table-cells-large', group: 'Tools' };
+  const adminIndex = base.findIndex((item) => item.id === 'admin');
+  if (adminIndex < 0) return [...base, systemsItem];
+  return [...base.slice(0, adminIndex), systemsItem, ...base.slice(adminIndex)];
+}
 
 function cn(...values) {
   return values.filter(Boolean).join(' ');
@@ -700,6 +799,7 @@ function StatusChangeModal({ task, onSave, onClose }) {
 const SYSTEM_CONTROL_SECTIONS = [
   { id: 'overview', label: 'ภาพรวมระบบ', icon: 'fa-gauge-high' },
   { id: 'users', label: 'ผู้ใช้และสิทธิ์', icon: 'fa-users-gear' },
+  { id: 'systems', label: 'Systems', icon: 'fa-table-cells-large' },
   { id: 'teams', label: 'ทีมงาน', icon: 'fa-people-group' },
   { id: 'kpi', label: 'กฎ KPI/SLA', icon: 'fa-scale-balanced' },
   { id: 'calendar', label: 'ปฏิทิน SLA', icon: 'fa-calendar-days' },
@@ -707,7 +807,7 @@ const SYSTEM_CONTROL_SECTIONS = [
 ];
 
 function Sidebar({ user, view, setView, onLogout, notifCount = 0, adminSection = 'overview', setAdminSection = () => {} }) {
-  const navItems = NAV_BY_ROLE[user?.role] || NAV_BY_ROLE.Staff;
+  const navItems = navItemsForUser(user);
   const [expanded, setExpanded] = useState(() => view === 'admin');
 
   useEffect(() => {
@@ -2677,11 +2777,70 @@ function PeopleView({ user, people, onRefresh }) {
 }
 
 // ─── Admin Studio ──────────────────────────────────────────────────────────────
-function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', setAdminSection = () => {} }) {
+function SystemsView({ user, systemLinks }) {
+  const systems = visibleSystemLinksForUser(systemLinks, user);
+  const statusClass = (status) => {
+    if (status === 'Active') return 'mx-status-completed';
+    if (status === 'Maintenance') return 'mx-status-pending';
+    if (status === 'Coming Soon') return 'mx-status-process';
+    return 'mx-status-cancelled';
+  };
+
+  const openSystem = (system) => {
+    if (!system.url || system.status === 'Coming Soon' || system.status === 'Hidden') return;
+    window.open(system.url, '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <Panel
+      title="Systems"
+      subtitle="ระบบงานที่บัญชีนี้มีสิทธิ์ใช้งาน"
+      actions={[<span key="count" className="mx-badge mx-status-process">{systems.length} systems</span>]}
+    >
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {systems.map((system) => {
+          const disabled = !system.url || system.status === 'Coming Soon' || system.status === 'Hidden';
+          return (
+            <div key={system.id} className="mx-data-card">
+              <div className="flex items-start gap-3">
+                <span className="w-10 h-10 rounded-lg grid place-items-center bg-[var(--mx-surface)] border border-[var(--mx-line)] flex-shrink-0">
+                  <i className={`fa-solid ${system.icon || 'fa-up-right-from-square'} text-[var(--mx-accent)]`}></i>
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-extrabold truncate">{system.name}</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className={cn('mx-badge', statusClass(system.status))}>{system.status}</span>
+                    {!system.visibleToAll && <span className="mx-badge mx-status-cancelled">Restricted</span>}
+                  </div>
+                  <div className="mt-3 text-sm text-[var(--mx-muted)] leading-6">{system.description || '-'}</div>
+                </div>
+              </div>
+              <button
+                className={cn('mx-btn w-full mt-4', disabled ? 'mx-btn-soft opacity-60 cursor-not-allowed' : 'mx-btn-primary')}
+                disabled={disabled}
+                onClick={() => openSystem(system)}
+              >
+                <i className="fa-solid fa-up-right-from-square mr-2"></i>{disabled ? 'Unavailable' : 'Open System'}
+              </button>
+            </div>
+          );
+        })}
+        {systems.length === 0 && (
+          <div className="text-sm text-[var(--mx-muted)]">ยังไม่มีระบบงานที่เปิดให้บัญชีนี้ใช้งาน</div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefresh, adminSection = 'overview', setAdminSection = () => {} }) {
   const [userForm, setUserForm] = useState({ empid: '', name: '', department: '', team: '', role: 'Staff', accessScope: 'Self', pigurl: '' });
   const [teamForm, setTeamForm] = useState({ id: '', name: '' });
   const [kpiForm, setKpiForm] = useState({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
   const [holidayForm, setHolidayForm] = useState({ holiday_date: '', name: '', is_active: true });
+  const emptySystemForm = { id: '', name: '', description: '', url: '', icon: 'fa-up-right-from-square', status: 'Active', visibleToAll: false, allowedRoles: [], allowedTeams: [], allowedEmpIds: '', isActive: true };
+  const [systemForm, setSystemForm] = useState(emptySystemForm);
+  const [previewEmpId, setPreviewEmpId] = useState('');
   const [adminSearch, setAdminSearch] = useState('');
   const [saving, setSaving] = useState('');
 
@@ -2695,6 +2854,8 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
   const filteredStaff = staff.filter((s) => matches(s.name, s.empId, s.empid, s.department, s.departmentId, s.team, s.role, roleScope(s)));
   const filteredKpis = kpis.filter((k) => matches(k.main, k.sub, k.team, k.days, k.main_weight));
   const filteredHolidays = holidays.filter((h) => matches(h.name, h.holiday_date, h.is_active ? 'active' : 'inactive'));
+  const normalizedSystemLinks = normalizeSystemLinks(systemLinks);
+  const filteredSystems = normalizedSystemLinks.filter((s) => matches(s.name, s.description, s.url, s.status, s.allowedRoles.join(' '), s.allowedTeams.join(' '), s.allowedEmpIds.join(' ')));
   const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
   const selectedRoleNeedsDepartment = roleRequiresDepartment(userForm.role);
   const selectedRoleUsesTeamVisibility = isDepartmentManagerRole(userForm.role) || isStrategicViewRole(userForm.role);
@@ -2753,6 +2914,65 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
       return { ...prev, permissions: { ...(prev.permissions || {}), allowedTeams } };
     });
   };
+
+  const persistSystemLinks = (nextLinks) => {
+    const normalized = normalizeSystemLinks(nextLinks);
+    safeLocalSet(SYSTEM_LINKS_KEY, JSON.stringify(normalized));
+    onSystemLinksChange?.(normalized);
+  };
+
+  const toggleSystemRole = (role) => {
+    setSystemForm((prev) => {
+      const current = normalizeList(prev.allowedRoles);
+      return {
+        ...prev,
+        allowedRoles: current.includes(role) ? current.filter((item) => item !== role) : [...current, role],
+      };
+    });
+  };
+
+  const toggleSystemTeam = (teamName) => {
+    setSystemForm((prev) => {
+      const current = normalizeList(prev.allowedTeams);
+      return {
+        ...prev,
+        allowedTeams: current.includes(teamName) ? current.filter((item) => item !== teamName) : [...current, teamName],
+      };
+    });
+  };
+
+  const editSystem = (item) => {
+    setSystemForm({
+      ...normalizeSystemLink(item),
+      allowedEmpIds: normalizeList(item.allowedEmpIds).join(', '),
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const saveSystem = () => {
+    if (!systemForm.name.trim()) return alert('กรุณากรอกชื่อระบบ');
+    const next = normalizeSystemLink({
+      ...systemForm,
+      id: systemForm.id || systemForm.name,
+      allowedEmpIds: normalizeList(systemForm.allowedEmpIds),
+    });
+    const others = normalizedSystemLinks.filter((item) => item.id !== next.id);
+    persistSystemLinks([...others, next]);
+    setSystemForm(emptySystemForm);
+  };
+
+  const duplicateSystem = (item) => {
+    const copy = normalizeSystemLink({ ...item, id: `${item.id}-copy`, name: `${item.name} Copy` });
+    persistSystemLinks([...normalizedSystemLinks, copy]);
+  };
+
+  const removeSystem = (id) => {
+    if (!window.confirm('ยืนยันการลบระบบนี้?')) return;
+    persistSystemLinks(normalizedSystemLinks.filter((item) => item.id !== id));
+  };
+
+  const previewUser = (staff || []).find((person) => String(person.empId || person.empid || '').toUpperCase() === previewEmpId.trim().toUpperCase());
+  const previewSystems = previewUser ? visibleSystemLinksForUser(normalizedSystemLinks, previewUser) : [];
 
   const editKpi = (item) => {
     setKpiForm({
@@ -2871,6 +3091,7 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
   const sectionItems = [
     { id: 'overview', label: 'ภาพรวมระบบ', icon: 'fa-gauge-high', count: staff.length + teams.length + kpis.length + holidays.length },
     { id: 'users', label: 'ผู้ใช้และสิทธิ์', icon: 'fa-users-gear', count: staff.length },
+    { id: 'systems', label: 'Systems', icon: 'fa-table-cells-large', count: normalizedSystemLinks.length },
     { id: 'teams', label: 'ทีมงาน', icon: 'fa-people-group', count: teams.length },
     { id: 'kpi', label: 'กฎ KPI/SLA', icon: 'fa-scale-balanced', count: kpis.length },
     { id: 'calendar', label: 'ปฏิทิน SLA', icon: 'fa-calendar-days', count: holidays.length },
@@ -3112,9 +3333,113 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
     </Panel>
   );
 
+  const SystemsControls = () => (
+    <div className="grid xl:grid-cols-[0.9fr_1.1fr] gap-5">
+      <Panel title="System Link Editor" subtitle="เพิ่ม แก้ไข และกำหนดสิทธิ์ระบบงานที่ผู้ใช้เห็นใน Sidebar">
+        <div className="grid gap-3">
+          <input className="mx-input" placeholder="System name" value={systemForm.name} onChange={(e) => setSystemForm((p) => ({ ...p, name: e.target.value }))} />
+          <textarea className="mx-textarea min-h-[80px]" placeholder="Description" value={systemForm.description} onChange={(e) => setSystemForm((p) => ({ ...p, description: e.target.value }))} />
+          <input className="mx-input" placeholder="URL" value={systemForm.url} onChange={(e) => setSystemForm((p) => ({ ...p, url: e.target.value }))} />
+          <div className="grid md:grid-cols-2 gap-3">
+            <input className="mx-input" placeholder="FontAwesome icon เช่น fa-file-invoice" value={systemForm.icon} onChange={(e) => setSystemForm((p) => ({ ...p, icon: e.target.value }))} />
+            <select className="mx-select" value={systemForm.status} onChange={(e) => setSystemForm((p) => ({ ...p, status: e.target.value }))}>
+              {['Active', 'Maintenance', 'Coming Soon', 'Hidden'].map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </div>
+          <label className="flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-3 text-sm font-bold">
+            <input type="checkbox" checked={systemForm.visibleToAll} onChange={(e) => setSystemForm((p) => ({ ...p, visibleToAll: e.target.checked }))} />
+            <span>Visible to all users</span>
+          </label>
+          <div className="mx-muted-card rounded-lg p-4">
+            <div className="text-sm font-extrabold mb-3">Allowed Roles</div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {ROLE_OPTIONS.map((role) => (
+                <label key={role.value} className="flex items-center gap-2 text-sm font-bold">
+                  <input type="checkbox" checked={normalizeList(systemForm.allowedRoles).includes(role.value)} onChange={() => toggleSystemRole(role.value)} />
+                  <span>{role.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="mx-muted-card rounded-lg p-4">
+            <div className="text-sm font-extrabold mb-3">Allowed Teams</div>
+            <div className="grid sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto">
+              {teams.map((team) => {
+                const teamName = team.name || '';
+                return (
+                  <label key={team.id || teamName} className="flex items-center gap-2 text-sm font-bold">
+                    <input type="checkbox" checked={normalizeList(systemForm.allowedTeams).includes(teamName)} onChange={() => toggleSystemTeam(teamName)} />
+                    <span className="truncate">{teamName}</span>
+                  </label>
+                );
+              })}
+              {teams.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบทีม</div>}
+            </div>
+          </div>
+          <textarea className="mx-textarea min-h-[70px]" placeholder="Allowed Emp IDs คั่นด้วย comma เช่น EMP001, EMP002" value={systemForm.allowedEmpIds} onChange={(e) => setSystemForm((p) => ({ ...p, allowedEmpIds: e.target.value }))} />
+          <div className="grid grid-cols-2 gap-3">
+            <button className="mx-btn mx-btn-primary" onClick={saveSystem}>Save System</button>
+            <button className="mx-btn mx-btn-soft" onClick={() => setSystemForm(emptySystemForm)}>Clear</button>
+          </div>
+        </div>
+      </Panel>
+
+      <div className="grid gap-5">
+        <Panel title="Systems Registry" subtitle="รายการระบบที่พร้อมแสดงให้ผู้ใช้ตามสิทธิ์">
+          <div className="grid gap-3">
+            {filteredSystems.map((system) => (
+              <div key={system.id} className="mx-data-card">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <i className={`fa-solid ${system.icon} text-[var(--mx-accent)]`}></i>
+                      <div className="font-extrabold truncate">{system.name}</div>
+                    </div>
+                    <div className="mt-2 text-sm text-[var(--mx-muted)]">{system.description || '-'}</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="mx-badge mx-status-process">{system.status}</span>
+                      {system.visibleToAll && <span className="mx-badge mx-status-completed">All users</span>}
+                      {system.allowedRoles.length > 0 && <span className="mx-badge mx-status-cancelled">{system.allowedRoles.length} roles</span>}
+                      {system.allowedTeams.length > 0 && <span className="mx-badge mx-status-cancelled">{system.allowedTeams.length} teams</span>}
+                      {system.allowedEmpIds.length > 0 && <span className="mx-badge mx-status-cancelled">{system.allowedEmpIds.length} emp</span>}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editSystem(system)}>แก้ไข</button>
+                    <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => duplicateSystem(system)}>Duplicate</button>
+                    <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeSystem(system.id)}>ลบ</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {filteredSystems.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบระบบงาน</div>}
+          </div>
+        </Panel>
+
+        <Panel title="Preview As User" subtitle="ใส่ Emp ID เพื่อดูว่าผู้ใช้นั้นจะเห็นระบบอะไร">
+          <div className="grid gap-3">
+            <input className="mx-input" placeholder="EMP ID" value={previewEmpId} onChange={(e) => setPreviewEmpId(e.target.value.toUpperCase())} />
+            {previewUser ? (
+              <div className="grid gap-2">
+                <div className="text-sm font-extrabold">{previewUser.name} / {roleLabel(previewUser.role)} / {previewUser.team}</div>
+                <div className="flex flex-wrap gap-2">
+                  {previewSystems.map((system) => <span key={system.id} className="mx-badge mx-status-process">{system.name}</span>)}
+                  {previewSystems.length === 0 && <span className="text-sm text-[var(--mx-muted)]">ไม่พบระบบที่เห็นได้</span>}
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-[var(--mx-muted)]">เลือกหรือกรอก Emp ID ที่มีในระบบ</div>
+            )}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+
   const AdminOverview = () => {
     const setupItems = [
       { id: 'users', label: 'ผู้ใช้และสิทธิ์', value: staff.length, icon: 'fa-users-gear', detail: 'จัดการบัญชี บทบาท ทีม และ scope' },
+      { id: 'systems', label: 'Systems', value: normalizedSystemLinks.length, icon: 'fa-table-cells-large', detail: 'จัดการลิงก์ระบบงานและสิทธิ์การมองเห็น' },
       { id: 'teams', label: 'ทีมงาน', value: teams.length, icon: 'fa-people-group', detail: 'จัดการทีมที่ใช้ในงานและ KPI' },
       { id: 'kpi', label: 'กฎ KPI/SLA', value: kpis.length, icon: 'fa-scale-balanced', detail: 'กำหนด SLA days และน้ำหนัก KPI' },
       { id: 'calendar', label: 'ปฏิทิน SLA', value: holidays.length, icon: 'fa-calendar-days', detail: 'จัดการวันหยุดและ recalculation' },
@@ -3200,6 +3525,7 @@ function AdminStudio({ user, adminData, onRefresh, adminSection = 'overview', se
         )}
 
         {adminSection === 'users' && <div className="grid xl:grid-cols-[0.85fr_1.15fr] gap-5"><UserEditor /><UsersList /></div>}
+        {adminSection === 'systems' && <SystemsControls />}
         {adminSection === 'teams' && <TeamControls />}
         {adminSection === 'kpi' && <KpiControls />}
         {adminSection === 'calendar' && <CalendarControls />}
@@ -3225,6 +3551,7 @@ function App() {
   const [showNotif, setShowNotif] = useState(false);
   const [showDashboardCreate, setShowDashboardCreate] = useState(false);
   const [adminSection, setAdminSection] = useState('overview');
+  const [systemLinks, setSystemLinks] = useState(loadSystemLinks);
 
   const {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,
@@ -3483,6 +3810,7 @@ function App() {
       : view === 'assign' ? 'Assignment Center'
       : view === 'people' ? 'People Overview'
       : view === 'tracker' ? 'Job Tracker'
+      : view === 'systems' ? 'Systems'
       : view === 'admin' ? 'ควบคุมระบบ'
       : APP_NAME;
   const pageSubtitle =
@@ -3494,6 +3822,7 @@ function App() {
     view === 'dashboard' ? 'KPI, SLA, งานค้าง และภาพรวมผลงานในช่วงเวลาที่เลือก'
       : view === 'tasks' ? 'จัดการรายการงาน ติดตามสถานะ และตรวจสอบ SLA'
       : view === 'tracker' ? 'ค้นหาและติดตามประวัติงานจากรหัสงาน'
+      : view === 'systems' ? 'ระบบงานที่บัญชีนี้มีสิทธิ์ใช้งาน กดเปิดระบบที่เกี่ยวข้องได้จากที่เดียว'
       : view === 'admin' ? 'จัดการผู้ใช้ ทีม KPI/SLA วันหยุด งานดูแลระบบ และ audit log ผ่านระบบเดียว'
       : 'จัดการงานและข้อมูลที่เกี่ยวข้องกับบทบาทของคุณ';
   const activePeriodLabel = showFilterBar
@@ -3715,10 +4044,13 @@ function App() {
           )}
           {view === 'people' && <PeopleView user={user} people={state.people} onRefresh={reloadPeople} />}
           {view === 'tracker' && <TrackerViewNew />}
+          {view === 'systems' && <SystemsView user={user} systemLinks={systemLinks} />}
           {view === 'admin' && (
             <AdminStudio
               user={user}
               adminData={state.admin}
+              systemLinks={systemLinks}
+              onSystemLinksChange={setSystemLinks}
               onRefresh={reloadAdmin}
               adminSection={adminSection}
               setAdminSection={setAdminSection}

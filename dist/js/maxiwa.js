@@ -5,6 +5,7 @@ var MaxiwaKpiApp = (() => {
   const SESSION_LOCK_KEY = "maxiwa-kpi-active-session";
   const SESSION_LOCK_TTL = 45e3;
   const THEME_KEY = "maxiwa-kpi-theme";
+  const SYSTEM_LINKS_KEY = "maxiwa-system-links";
   const RUNTIME_SESSION_ID = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const APP_NAME = "METRIX Verity";
   const APP_TAGLINE = "Executive Performance System";
@@ -39,6 +40,47 @@ var MaxiwaKpiApp = (() => {
   const DEPARTMENT_MANAGER_ROLES = ["Manager"];
   const STRATEGIC_VIEW_ROLES = ["SrManager", "Director", "Executive"];
   const EXECUTIVE_VIEW_ROLES = ["Manager", "SrManager", "Director", "Executive", "Admin"];
+  const DEFAULT_SYSTEM_LINKS = [
+    {
+      id: "maxiwa-kpi",
+      name: "METRIX Verity",
+      description: "KPI, SLA, task tracking, and executive performance dashboard",
+      url: "./maxiwa.html",
+      icon: "fa-chart-line",
+      status: "Active",
+      visibleToAll: true,
+      allowedRoles: [],
+      allowedTeams: [],
+      allowedEmpIds: [],
+      isActive: true
+    },
+    {
+      id: "executive-view",
+      name: "Executive Dashboard",
+      description: "Portfolio, risk, SLA, and weighted KPI view for management",
+      url: "./dashboard.html",
+      icon: "fa-display",
+      status: "Active",
+      visibleToAll: false,
+      allowedRoles: EXECUTIVE_VIEW_ROLES,
+      allowedTeams: [],
+      allowedEmpIds: [],
+      isActive: true
+    },
+    {
+      id: "pr-system",
+      name: "PR System",
+      description: "Create and track purchase request work outside MAXIWA",
+      url: "",
+      icon: "fa-file-invoice",
+      status: "Coming Soon",
+      visibleToAll: false,
+      allowedRoles: ["Staff", "Lead", "Manager", "Admin"],
+      allowedTeams: [],
+      allowedEmpIds: [],
+      isActive: true
+    }
+  ];
   function roleConfig(role) {
     return ROLE_DEFINITIONS[role] || ROLE_DEFINITIONS.Staff;
   }
@@ -95,6 +137,47 @@ var MaxiwaKpiApp = (() => {
     if (!shouldApplyAllowedTeamFilter(user)) return items || [];
     const allowed = new Set(allowedTeamsForUser(user));
     return (items || []).filter((item) => allowed.has(String(getTeam(item) || "").trim()));
+  }
+  function normalizeList(value) {
+    if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+    return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  function normalizeSystemLink(item = {}) {
+    const id = String(item.id || item.name || `system-${Date.now()}`).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    return {
+      id,
+      name: String(item.name || "").trim(),
+      description: String(item.description || "").trim(),
+      url: String(item.url || "").trim(),
+      icon: String(item.icon || "fa-up-right-from-square").trim(),
+      status: item.status || "Active",
+      visibleToAll: item.visibleToAll === true || String(item.visibleToAll).toLowerCase() === "true",
+      allowedRoles: normalizeList(item.allowedRoles),
+      allowedTeams: normalizeList(item.allowedTeams),
+      allowedEmpIds: normalizeList(item.allowedEmpIds).map((empId) => empId.toUpperCase()),
+      isActive: item.isActive !== false
+    };
+  }
+  function normalizeSystemLinks(links, fallback = DEFAULT_SYSTEM_LINKS) {
+    const source = Array.isArray(links) ? links : fallback;
+    return source.map(normalizeSystemLink).filter((item) => item.name);
+  }
+  function loadSystemLinks() {
+    return normalizeSystemLinks(parseJsonSafe(safeLocalGet(SYSTEM_LINKS_KEY), DEFAULT_SYSTEM_LINKS));
+  }
+  function systemVisibleToUser(system, user) {
+    const item = normalizeSystemLink(system);
+    if (!item.isActive || item.status === "Hidden") return false;
+    if (isAdminRole(user == null ? void 0 : user.role)) return true;
+    const empId = String((user == null ? void 0 : user.empId) || (user == null ? void 0 : user.empid) || "").trim().toUpperCase();
+    if (item.visibleToAll) return true;
+    if (item.allowedEmpIds.includes(empId)) return true;
+    if (item.allowedRoles.includes(user == null ? void 0 : user.role)) return true;
+    if (item.allowedTeams.includes(String((user == null ? void 0 : user.team) || "").trim())) return true;
+    return false;
+  }
+  function visibleSystemLinksForUser(links, user) {
+    return normalizeSystemLinks(links).filter((item) => systemVisibleToUser(item, user));
   }
   const NAV_BY_ROLE = {
     Staff: [
@@ -157,6 +240,14 @@ var MaxiwaKpiApp = (() => {
     Executive: "executive",
     Admin: "dashboard"
   };
+  function navItemsForUser(user) {
+    const base = NAV_BY_ROLE[user == null ? void 0 : user.role] || NAV_BY_ROLE.Staff;
+    if (base.some((item) => item.id === "systems")) return base;
+    const systemsItem = { id: "systems", label: "Systems", icon: "fa-table-cells-large", group: "Tools" };
+    const adminIndex = base.findIndex((item) => item.id === "admin");
+    if (adminIndex < 0) return [...base, systemsItem];
+    return [...base.slice(0, adminIndex), systemsItem, ...base.slice(adminIndex)];
+  }
   function cn(...values) {
     return values.filter(Boolean).join(" ");
   }
@@ -552,6 +643,7 @@ var MaxiwaKpiApp = (() => {
   const SYSTEM_CONTROL_SECTIONS = [
     { id: "overview", label: "\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E23\u0E30\u0E1A\u0E1A", icon: "fa-gauge-high" },
     { id: "users", label: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E41\u0E25\u0E30\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C", icon: "fa-users-gear" },
+    { id: "systems", label: "Systems", icon: "fa-table-cells-large" },
     { id: "teams", label: "\u0E17\u0E35\u0E21\u0E07\u0E32\u0E19", icon: "fa-people-group" },
     { id: "kpi", label: "\u0E01\u0E0E KPI/SLA", icon: "fa-scale-balanced" },
     { id: "calendar", label: "\u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 SLA", icon: "fa-calendar-days" },
@@ -559,7 +651,7 @@ var MaxiwaKpiApp = (() => {
   ];
   function Sidebar({ user, view, setView, onLogout, notifCount = 0, adminSection = "overview", setAdminSection = () => {
   } }) {
-    const navItems = NAV_BY_ROLE[user == null ? void 0 : user.role] || NAV_BY_ROLE.Staff;
+    const navItems = navItemsForUser(user);
     const [expanded, setExpanded] = useState(() => view === "admin");
     useEffect(() => {
       if (view === "admin") setExpanded(true);
@@ -1649,13 +1741,50 @@ var MaxiwaKpiApp = (() => {
       /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 xl:grid-cols-3 gap-3" }, (people || []).map((person) => /* @__PURE__ */ React.createElement("div", { key: `${person.empId}-${person.name}`, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, person.name), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, person.department || person.departmentId || "-", " \u2022 ", person.team, " \u2022 ", roleLabel(person.role)), /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-xs text-[var(--mx-muted)]" }, "Emp ID: ", person.empId))), (!people || people.length === 0) && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D"))
     );
   }
-  function AdminStudio({ user, adminData, onRefresh, adminSection = "overview", setAdminSection = () => {
+  function SystemsView({ user, systemLinks }) {
+    const systems = visibleSystemLinksForUser(systemLinks, user);
+    const statusClass = (status) => {
+      if (status === "Active") return "mx-status-completed";
+      if (status === "Maintenance") return "mx-status-pending";
+      if (status === "Coming Soon") return "mx-status-process";
+      return "mx-status-cancelled";
+    };
+    const openSystem = (system) => {
+      if (!system.url || system.status === "Coming Soon" || system.status === "Hidden") return;
+      window.open(system.url, "_blank", "noopener,noreferrer");
+    };
+    return /* @__PURE__ */ React.createElement(
+      Panel,
+      {
+        title: "Systems",
+        subtitle: "\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19",
+        actions: [/* @__PURE__ */ React.createElement("span", { key: "count", className: "mx-badge mx-status-process" }, systems.length, " systems")]
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 xl:grid-cols-3 gap-3" }, systems.map((system) => {
+        const disabled = !system.url || system.status === "Coming Soon" || system.status === "Hidden";
+        return /* @__PURE__ */ React.createElement("div", { key: system.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "w-10 h-10 rounded-lg grid place-items-center bg-[var(--mx-surface)] border border-[var(--mx-line)] flex-shrink-0" }, /* @__PURE__ */ React.createElement("i", { className: `fa-solid ${system.icon || "fa-up-right-from-square"} text-[var(--mx-accent)]` })), /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "font-extrabold truncate" }, system.name), /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", statusClass(system.status)) }, system.status), !system.visibleToAll && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Restricted")), /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-sm text-[var(--mx-muted)] leading-6" }, system.description || "-"))), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            className: cn("mx-btn w-full mt-4", disabled ? "mx-btn-soft opacity-60 cursor-not-allowed" : "mx-btn-primary"),
+            disabled,
+            onClick: () => openSystem(system)
+          },
+          /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-up-right-from-square mr-2" }),
+          disabled ? "Unavailable" : "Open System"
+        ));
+      }), systems.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E21\u0E35\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E40\u0E1B\u0E34\u0E14\u0E43\u0E2B\u0E49\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19"))
+    );
+  }
+  function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefresh, adminSection = "overview", setAdminSection = () => {
   } }) {
     var _a;
     const [userForm, setUserForm] = useState({ empid: "", name: "", department: "", team: "", role: "Staff", accessScope: "Self", pigurl: "" });
     const [teamForm, setTeamForm] = useState({ id: "", name: "" });
     const [kpiForm, setKpiForm] = useState({ main: "", sub: "", team: "", days: 1, main_weight: 1 });
     const [holidayForm, setHolidayForm] = useState({ holiday_date: "", name: "", is_active: true });
+    const emptySystemForm = { id: "", name: "", description: "", url: "", icon: "fa-up-right-from-square", status: "Active", visibleToAll: false, allowedRoles: [], allowedTeams: [], allowedEmpIds: "", isActive: true };
+    const [systemForm, setSystemForm] = useState(emptySystemForm);
+    const [previewEmpId, setPreviewEmpId] = useState("");
     const [adminSearch, setAdminSearch] = useState("");
     const [saving, setSaving] = useState("");
     const teams = (adminData == null ? void 0 : adminData.teams) || [];
@@ -1668,6 +1797,8 @@ var MaxiwaKpiApp = (() => {
     const filteredStaff = staff.filter((s) => matches(s.name, s.empId, s.empid, s.department, s.departmentId, s.team, s.role, roleScope(s)));
     const filteredKpis = kpis.filter((k) => matches(k.main, k.sub, k.team, k.days, k.main_weight));
     const filteredHolidays = holidays.filter((h) => matches(h.name, h.holiday_date, h.is_active ? "active" : "inactive"));
+    const normalizedSystemLinks = normalizeSystemLinks(systemLinks);
+    const filteredSystems = normalizedSystemLinks.filter((s) => matches(s.name, s.description, s.url, s.status, s.allowedRoles.join(" "), s.allowedTeams.join(" "), s.allowedEmpIds.join(" ")));
     const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
     const selectedRoleNeedsDepartment = roleRequiresDepartment(userForm.role);
     const selectedRoleUsesTeamVisibility = isDepartmentManagerRole(userForm.role) || isStrategicViewRole(userForm.role);
@@ -1719,6 +1850,57 @@ var MaxiwaKpiApp = (() => {
         return { ...prev, permissions: { ...prev.permissions || {}, allowedTeams } };
       });
     };
+    const persistSystemLinks = (nextLinks) => {
+      const normalized = normalizeSystemLinks(nextLinks);
+      safeLocalSet(SYSTEM_LINKS_KEY, JSON.stringify(normalized));
+      onSystemLinksChange == null ? void 0 : onSystemLinksChange(normalized);
+    };
+    const toggleSystemRole = (role) => {
+      setSystemForm((prev) => {
+        const current = normalizeList(prev.allowedRoles);
+        return {
+          ...prev,
+          allowedRoles: current.includes(role) ? current.filter((item) => item !== role) : [...current, role]
+        };
+      });
+    };
+    const toggleSystemTeam = (teamName) => {
+      setSystemForm((prev) => {
+        const current = normalizeList(prev.allowedTeams);
+        return {
+          ...prev,
+          allowedTeams: current.includes(teamName) ? current.filter((item) => item !== teamName) : [...current, teamName]
+        };
+      });
+    };
+    const editSystem = (item) => {
+      setSystemForm({
+        ...normalizeSystemLink(item),
+        allowedEmpIds: normalizeList(item.allowedEmpIds).join(", ")
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const saveSystem = () => {
+      if (!systemForm.name.trim()) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E01\u0E23\u0E2D\u0E01\u0E0A\u0E37\u0E48\u0E2D\u0E23\u0E30\u0E1A\u0E1A");
+      const next = normalizeSystemLink({
+        ...systemForm,
+        id: systemForm.id || systemForm.name,
+        allowedEmpIds: normalizeList(systemForm.allowedEmpIds)
+      });
+      const others = normalizedSystemLinks.filter((item) => item.id !== next.id);
+      persistSystemLinks([...others, next]);
+      setSystemForm(emptySystemForm);
+    };
+    const duplicateSystem = (item) => {
+      const copy = normalizeSystemLink({ ...item, id: `${item.id}-copy`, name: `${item.name} Copy` });
+      persistSystemLinks([...normalizedSystemLinks, copy]);
+    };
+    const removeSystem = (id) => {
+      if (!window.confirm("\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E01\u0E32\u0E23\u0E25\u0E1A\u0E23\u0E30\u0E1A\u0E1A\u0E19\u0E35\u0E49?")) return;
+      persistSystemLinks(normalizedSystemLinks.filter((item) => item.id !== id));
+    };
+    const previewUser = (staff || []).find((person) => String(person.empId || person.empid || "").toUpperCase() === previewEmpId.trim().toUpperCase());
+    const previewSystems = previewUser ? visibleSystemLinksForUser(normalizedSystemLinks, previewUser) : [];
     const editKpi = (item) => {
       setKpiForm({
         id: item.id,
@@ -1826,6 +2008,7 @@ var MaxiwaKpiApp = (() => {
     const sectionItems = [
       { id: "overview", label: "\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E23\u0E30\u0E1A\u0E1A", icon: "fa-gauge-high", count: staff.length + teams.length + kpis.length + holidays.length },
       { id: "users", label: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E41\u0E25\u0E30\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C", icon: "fa-users-gear", count: staff.length },
+      { id: "systems", label: "Systems", icon: "fa-table-cells-large", count: normalizedSystemLinks.length },
       { id: "teams", label: "\u0E17\u0E35\u0E21\u0E07\u0E32\u0E19", icon: "fa-people-group", count: teams.length },
       { id: "kpi", label: "\u0E01\u0E0E KPI/SLA", icon: "fa-scale-balanced", count: kpis.length },
       { id: "calendar", label: "\u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 SLA", icon: "fa-calendar-days", count: holidays.length },
@@ -1869,9 +2052,14 @@ var MaxiwaKpiApp = (() => {
       /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-[180px_1fr_150px] gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", type: "date", value: holidayForm.holiday_date, onChange: (e) => setHolidayForm((p) => ({ ...p, holiday_date: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E0A\u0E37\u0E48\u0E2D\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14", value: holidayForm.name, onChange: (e) => setHolidayForm((p) => ({ ...p, name: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary", onClick: saveHoliday, disabled: saving === "holiday" }, saving === "holiday" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01"))), /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, filteredHolidays.slice(0, 80).map((holiday) => /* @__PURE__ */ React.createElement("div", { key: holiday.id || holiday.holiday_date, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, holiday.name), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, holiday.holiday_date, " / ", holiday.is_active ? "Active" : "Inactive")), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => editHoliday(holiday) }, "\u0E41\u0E01\u0E49\u0E44\u0E02"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => removeHoliday(holiday.id), disabled: !holiday.id }, "\u0E25\u0E1A"))))), filteredHolidays.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14")))
     );
     const AuditPanel = () => /* @__PURE__ */ React.createElement(Panel, { title: "\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02", subtitle: "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E01\u0E32\u0E23\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E41\u0E1B\u0E25\u0E07\u0E02\u0E2D\u0E07\u0E23\u0E30\u0E1A\u0E1A\u0E42\u0E14\u0E22\u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E02\u0E49\u0E32 backend" }, /* @__PURE__ */ React.createElement("div", { className: "admin-audit-scroll grid gap-3" }, logs.slice(0, 80).map((log) => /* @__PURE__ */ React.createElement("div", { key: log.id || `${log.action}-${log.timestamp}`, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-sm" }, log.action || "Activity"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, log.details || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, log.by_user || "-", " / ", formatDate(log.timestamp, true)))), logs.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E21\u0E35\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02")));
+    const SystemsControls = () => /* @__PURE__ */ React.createElement("div", { className: "grid xl:grid-cols-[0.9fr_1.1fr] gap-5" }, /* @__PURE__ */ React.createElement(Panel, { title: "System Link Editor", subtitle: "\u0E40\u0E1E\u0E34\u0E48\u0E21 \u0E41\u0E01\u0E49\u0E44\u0E02 \u0E41\u0E25\u0E30\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E40\u0E2B\u0E47\u0E19\u0E43\u0E19 Sidebar" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "System name", value: systemForm.name, onChange: (e) => setSystemForm((p) => ({ ...p, name: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "mx-textarea min-h-[80px]", placeholder: "Description", value: systemForm.description, onChange: (e) => setSystemForm((p) => ({ ...p, description: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "URL", value: systemForm.url, onChange: (e) => setSystemForm((p) => ({ ...p, url: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "FontAwesome icon \u0E40\u0E0A\u0E48\u0E19 fa-file-invoice", value: systemForm.icon, onChange: (e) => setSystemForm((p) => ({ ...p, icon: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: systemForm.status, onChange: (e) => setSystemForm((p) => ({ ...p, status: e.target.value })) }, ["Active", "Maintenance", "Coming Soon", "Hidden"].map((status) => /* @__PURE__ */ React.createElement("option", { key: status, value: status }, status)))), /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-3 text-sm font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: systemForm.visibleToAll, onChange: (e) => setSystemForm((p) => ({ ...p, visibleToAll: e.target.checked })) }), /* @__PURE__ */ React.createElement("span", null, "Visible to all users")), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold mb-3" }, "Allowed Roles"), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" }, ROLE_OPTIONS.map((role) => /* @__PURE__ */ React.createElement("label", { key: role.value, className: "flex items-center gap-2 text-sm font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: normalizeList(systemForm.allowedRoles).includes(role.value), onChange: () => toggleSystemRole(role.value) }), /* @__PURE__ */ React.createElement("span", null, role.label))))), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold mb-3" }, "Allowed Teams"), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto" }, teams.map((team) => {
+      const teamName = team.name || "";
+      return /* @__PURE__ */ React.createElement("label", { key: team.id || teamName, className: "flex items-center gap-2 text-sm font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: normalizeList(systemForm.allowedTeams).includes(teamName), onChange: () => toggleSystemTeam(teamName) }), /* @__PURE__ */ React.createElement("span", { className: "truncate" }, teamName));
+    }), teams.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E17\u0E35\u0E21"))), /* @__PURE__ */ React.createElement("textarea", { className: "mx-textarea min-h-[70px]", placeholder: "Allowed Emp IDs \u0E04\u0E31\u0E48\u0E19\u0E14\u0E49\u0E27\u0E22 comma \u0E40\u0E0A\u0E48\u0E19 EMP001, EMP002", value: systemForm.allowedEmpIds, onChange: (e) => setSystemForm((p) => ({ ...p, allowedEmpIds: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary", onClick: saveSystem }, "Save System"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft", onClick: () => setSystemForm(emptySystemForm) }, "Clear")))), /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement(Panel, { title: "Systems Registry", subtitle: "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E23\u0E30\u0E1A\u0E1A\u0E17\u0E35\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E41\u0E2A\u0E14\u0E07\u0E43\u0E2B\u0E49\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E15\u0E32\u0E21\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, filteredSystems.map((system) => /* @__PURE__ */ React.createElement("div", { key: system.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-start md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("i", { className: `fa-solid ${system.icon} text-[var(--mx-accent)]` }), /* @__PURE__ */ React.createElement("div", { className: "font-extrabold truncate" }, system.name)), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, system.description || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, system.status), system.visibleToAll && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-completed" }, "All users"), system.allowedRoles.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, system.allowedRoles.length, " roles"), system.allowedTeams.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, system.allowedTeams.length, " teams"), system.allowedEmpIds.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, system.allowedEmpIds.length, " emp"))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => editSystem(system) }, "\u0E41\u0E01\u0E49\u0E44\u0E02"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => duplicateSystem(system) }, "Duplicate"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => removeSystem(system.id) }, "\u0E25\u0E1A"))))), filteredSystems.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19"))), /* @__PURE__ */ React.createElement(Panel, { title: "Preview As User", subtitle: "\u0E43\u0E2A\u0E48 Emp ID \u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E14\u0E39\u0E27\u0E48\u0E32\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E19\u0E31\u0E49\u0E19\u0E08\u0E30\u0E40\u0E2B\u0E47\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E2D\u0E30\u0E44\u0E23" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "EMP ID", value: previewEmpId, onChange: (e) => setPreviewEmpId(e.target.value.toUpperCase()) }), previewUser ? /* @__PURE__ */ React.createElement("div", { className: "grid gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold" }, previewUser.name, " / ", roleLabel(previewUser.role), " / ", previewUser.team), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, previewSystems.map((system) => /* @__PURE__ */ React.createElement("span", { key: system.id, className: "mx-badge mx-status-process" }, system.name)), previewSystems.length === 0 && /* @__PURE__ */ React.createElement("span", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E30\u0E1A\u0E1A\u0E17\u0E35\u0E48\u0E40\u0E2B\u0E47\u0E19\u0E44\u0E14\u0E49"))) : /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E23\u0E37\u0E2D\u0E01\u0E23\u0E2D\u0E01 Emp ID \u0E17\u0E35\u0E48\u0E21\u0E35\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A")))));
     const AdminOverview = () => {
       const setupItems = [
         { id: "users", label: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E41\u0E25\u0E30\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C", value: staff.length, icon: "fa-users-gear", detail: "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1A\u0E31\u0E0D\u0E0A\u0E35 \u0E1A\u0E17\u0E1A\u0E32\u0E17 \u0E17\u0E35\u0E21 \u0E41\u0E25\u0E30 scope" },
+        { id: "systems", label: "Systems", value: normalizedSystemLinks.length, icon: "fa-table-cells-large", detail: "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E25\u0E34\u0E07\u0E01\u0E4C\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19\u0E41\u0E25\u0E30\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E01\u0E32\u0E23\u0E21\u0E2D\u0E07\u0E40\u0E2B\u0E47\u0E19" },
         { id: "teams", label: "\u0E17\u0E35\u0E21\u0E07\u0E32\u0E19", value: teams.length, icon: "fa-people-group", detail: "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E17\u0E35\u0E21\u0E17\u0E35\u0E48\u0E43\u0E0A\u0E49\u0E43\u0E19\u0E07\u0E32\u0E19\u0E41\u0E25\u0E30 KPI" },
         { id: "kpi", label: "\u0E01\u0E0E KPI/SLA", value: kpis.length, icon: "fa-scale-balanced", detail: "\u0E01\u0E33\u0E2B\u0E19\u0E14 SLA days \u0E41\u0E25\u0E30\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01 KPI" },
         { id: "calendar", label: "\u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 SLA", value: holidays.length, icon: "fa-calendar-days", detail: "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14\u0E41\u0E25\u0E30 recalculation" },
@@ -1898,7 +2086,7 @@ var MaxiwaKpiApp = (() => {
         ]
       },
       /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-[1fr_360px] gap-4 lg:items-center" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold" }, "\u0E01\u0E15\u0E34\u0E01\u0E32\u0E04\u0E27\u0E1A\u0E04\u0E38\u0E21\u0E23\u0E30\u0E1A\u0E1A"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, "\u0E2B\u0E49\u0E32\u0E21\u0E41\u0E01\u0E49\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E42\u0E14\u0E22\u0E15\u0E23\u0E07 \u0E01\u0E32\u0E23\u0E41\u0E01\u0E49 master data, \u0E01\u0E0E SLA, \u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 \u0E41\u0E25\u0E30\u0E07\u0E32\u0E19\u0E14\u0E39\u0E41\u0E25\u0E23\u0E30\u0E1A\u0E1A\u0E15\u0E49\u0E2D\u0E07\u0E1C\u0E48\u0E32\u0E19 System Control \u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19")), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E43\u0E19\u0E2B\u0E21\u0E27\u0E14\u0E19\u0E35\u0E49...", value: adminSearch, onChange: (e) => setAdminSearch(e.target.value) }))
-    ), adminSection === "overview" && /* @__PURE__ */ React.createElement(AdminOverview, null), adminSection === "users" && /* @__PURE__ */ React.createElement("div", { className: "grid xl:grid-cols-[0.85fr_1.15fr] gap-5" }, /* @__PURE__ */ React.createElement(UserEditor, null), /* @__PURE__ */ React.createElement(UsersList, null)), adminSection === "teams" && /* @__PURE__ */ React.createElement(TeamControls, null), adminSection === "kpi" && /* @__PURE__ */ React.createElement(KpiControls, null), adminSection === "calendar" && /* @__PURE__ */ React.createElement(CalendarControls, null), adminSection === "audit" && /* @__PURE__ */ React.createElement(AuditPanel, null));
+    ), adminSection === "overview" && /* @__PURE__ */ React.createElement(AdminOverview, null), adminSection === "users" && /* @__PURE__ */ React.createElement("div", { className: "grid xl:grid-cols-[0.85fr_1.15fr] gap-5" }, /* @__PURE__ */ React.createElement(UserEditor, null), /* @__PURE__ */ React.createElement(UsersList, null)), adminSection === "systems" && /* @__PURE__ */ React.createElement(SystemsControls, null), adminSection === "teams" && /* @__PURE__ */ React.createElement(TeamControls, null), adminSection === "kpi" && /* @__PURE__ */ React.createElement(KpiControls, null), adminSection === "calendar" && /* @__PURE__ */ React.createElement(CalendarControls, null), adminSection === "audit" && /* @__PURE__ */ React.createElement(AuditPanel, null));
   }
   function App() {
     var _a, _b;
@@ -1917,6 +2105,7 @@ var MaxiwaKpiApp = (() => {
     const [showNotif, setShowNotif] = useState(false);
     const [showDashboardCreate, setShowDashboardCreate] = useState(false);
     const [adminSection, setAdminSection] = useState("overview");
+    const [systemLinks, setSystemLinks] = useState(loadSystemLinks);
     const {
       state,
       filterMonth,
@@ -2160,8 +2349,8 @@ var MaxiwaKpiApp = (() => {
     const personalWorkUser = user.role === "Lead" ? { ...user, role: "Staff" } : user;
     const currentRoleLabel = roleLabel(user.role);
     const currentScopeLabel = roleScope(user);
-    const pageTitle = view === "executive" ? "Executive View" : view === "my-dashboard" ? "My Dashboard" : view === "my-tasks" ? "My Tasks" : view === "dashboard" ? isStrategicViewRole(user.role) ? "Strategic Performance Dashboard" : user.role === "Manager" ? "Executive Dashboard" : user.role === "Lead" ? "Team Command Center" : isAdminRole(user.role) ? "System Control Center" : "My Work Dashboard" : view === "tasks" ? "Task Center" : view === "create" ? "Create Task" : view === "assign" ? "Assignment Center" : view === "people" ? "People Overview" : view === "tracker" ? "Job Tracker" : view === "admin" ? "\u0E04\u0E27\u0E1A\u0E04\u0E38\u0E21\u0E23\u0E30\u0E1A\u0E1A" : APP_NAME;
-    const pageSubtitle = view === "executive" ? "Board-ready view for SLA risk, weighted KPI health, team performance, and critical work." : view === "my-dashboard" ? "\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A Lead \u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19 Staff: KPI, SLA, \u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07 \u0E41\u0E25\u0E30 action \u0E1B\u0E23\u0E30\u0E08\u0E33\u0E27\u0E31\u0E19" : view === "my-tasks" ? "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07 \u0E1E\u0E23\u0E49\u0E2D\u0E21 action \u0E41\u0E1A\u0E1A\u0E1C\u0E39\u0E49\u0E1B\u0E0F\u0E34\u0E1A\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19" : view === "dashboard" ? "KPI, SLA, \u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07 \u0E41\u0E25\u0E30\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E1C\u0E25\u0E07\u0E32\u0E19\u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32\u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01" : view === "tasks" ? "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19 \u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E2A\u0E16\u0E32\u0E19\u0E30 \u0E41\u0E25\u0E30\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A SLA" : view === "tracker" ? "\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E41\u0E25\u0E30\u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19\u0E08\u0E32\u0E01\u0E23\u0E2B\u0E31\u0E2A\u0E07\u0E32\u0E19" : view === "admin" ? "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 \u0E17\u0E35\u0E21 KPI/SLA \u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14 \u0E07\u0E32\u0E19\u0E14\u0E39\u0E41\u0E25\u0E23\u0E30\u0E1A\u0E1A \u0E41\u0E25\u0E30 audit log \u0E1C\u0E48\u0E32\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E40\u0E14\u0E35\u0E22\u0E27" : "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19\u0E41\u0E25\u0E30\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E17\u0E35\u0E48\u0E40\u0E01\u0E35\u0E48\u0E22\u0E27\u0E02\u0E49\u0E2D\u0E07\u0E01\u0E31\u0E1A\u0E1A\u0E17\u0E1A\u0E32\u0E17\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13";
+    const pageTitle = view === "executive" ? "Executive View" : view === "my-dashboard" ? "My Dashboard" : view === "my-tasks" ? "My Tasks" : view === "dashboard" ? isStrategicViewRole(user.role) ? "Strategic Performance Dashboard" : user.role === "Manager" ? "Executive Dashboard" : user.role === "Lead" ? "Team Command Center" : isAdminRole(user.role) ? "System Control Center" : "My Work Dashboard" : view === "tasks" ? "Task Center" : view === "create" ? "Create Task" : view === "assign" ? "Assignment Center" : view === "people" ? "People Overview" : view === "tracker" ? "Job Tracker" : view === "systems" ? "Systems" : view === "admin" ? "\u0E04\u0E27\u0E1A\u0E04\u0E38\u0E21\u0E23\u0E30\u0E1A\u0E1A" : APP_NAME;
+    const pageSubtitle = view === "executive" ? "Board-ready view for SLA risk, weighted KPI health, team performance, and critical work." : view === "my-dashboard" ? "\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A Lead \u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19 Staff: KPI, SLA, \u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07 \u0E41\u0E25\u0E30 action \u0E1B\u0E23\u0E30\u0E08\u0E33\u0E27\u0E31\u0E19" : view === "my-tasks" ? "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07 \u0E1E\u0E23\u0E49\u0E2D\u0E21 action \u0E41\u0E1A\u0E1A\u0E1C\u0E39\u0E49\u0E1B\u0E0F\u0E34\u0E1A\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19" : view === "dashboard" ? "KPI, SLA, \u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07 \u0E41\u0E25\u0E30\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E1C\u0E25\u0E07\u0E32\u0E19\u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32\u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01" : view === "tasks" ? "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19 \u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E2A\u0E16\u0E32\u0E19\u0E30 \u0E41\u0E25\u0E30\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A SLA" : view === "tracker" ? "\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E41\u0E25\u0E30\u0E15\u0E34\u0E14\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E07\u0E32\u0E19\u0E08\u0E32\u0E01\u0E23\u0E2B\u0E31\u0E2A\u0E07\u0E32\u0E19" : view === "systems" ? "\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19 \u0E01\u0E14\u0E40\u0E1B\u0E34\u0E14\u0E23\u0E30\u0E1A\u0E1A\u0E17\u0E35\u0E48\u0E40\u0E01\u0E35\u0E48\u0E22\u0E27\u0E02\u0E49\u0E2D\u0E07\u0E44\u0E14\u0E49\u0E08\u0E32\u0E01\u0E17\u0E35\u0E48\u0E40\u0E14\u0E35\u0E22\u0E27" : view === "admin" ? "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49 \u0E17\u0E35\u0E21 KPI/SLA \u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14 \u0E07\u0E32\u0E19\u0E14\u0E39\u0E41\u0E25\u0E23\u0E30\u0E1A\u0E1A \u0E41\u0E25\u0E30 audit log \u0E1C\u0E48\u0E32\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E40\u0E14\u0E35\u0E22\u0E27" : "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19\u0E41\u0E25\u0E30\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E17\u0E35\u0E48\u0E40\u0E01\u0E35\u0E48\u0E22\u0E27\u0E02\u0E49\u0E2D\u0E07\u0E01\u0E31\u0E1A\u0E1A\u0E17\u0E1A\u0E32\u0E17\u0E02\u0E2D\u0E07\u0E04\u0E38\u0E13";
     const activePeriodLabel = showFilterBar ? `${filterMonth === 0 ? "\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19" : MONTH_NAMES[filterMonth - 1]} ${filterYear}` : user.team;
     return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen p-4 md:p-6" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[1640px] mx-auto grid xl:grid-cols-[320px_1fr] gap-5 items-start" }, /* @__PURE__ */ React.createElement(
       Sidebar,
@@ -2274,11 +2463,13 @@ var MaxiwaKpiApp = (() => {
       reloadTasks();
       reloadDashboard();
       reloadPeople();
-    } }), view === "people" && /* @__PURE__ */ React.createElement(PeopleView, { user, people: state.people, onRefresh: reloadPeople }), view === "tracker" && /* @__PURE__ */ React.createElement(TrackerViewNew, null), view === "admin" && /* @__PURE__ */ React.createElement(
+    } }), view === "people" && /* @__PURE__ */ React.createElement(PeopleView, { user, people: state.people, onRefresh: reloadPeople }), view === "tracker" && /* @__PURE__ */ React.createElement(TrackerViewNew, null), view === "systems" && /* @__PURE__ */ React.createElement(SystemsView, { user, systemLinks }), view === "admin" && /* @__PURE__ */ React.createElement(
       AdminStudio,
       {
         user,
         adminData: state.admin,
+        systemLinks,
+        onSystemLinksChange: setSystemLinks,
         onRefresh: reloadAdmin,
         adminSection,
         setAdminSection
