@@ -220,9 +220,49 @@ function businessDaysBetween(startValue, endValue, holidays = []) {
   return count;
 }
 
+function addBusinessDays(startValue, days, holidays = []) {
+  const start = normalizeDateOnly(startValue);
+  const amount = Math.max(0, Number(days || 0));
+  if (!start || amount === 0) return start;
+  const holidaySet = buildHolidaySet(holidays);
+  const cursor = new Date(start);
+  let remaining = amount;
+  while (remaining > 0) {
+    cursor.setDate(cursor.getDate() + 1);
+    if (isWorkingDay(cursor, holidaySet)) remaining -= 1;
+  }
+  return cursor;
+}
+
+function getActiveHoldStart(task) {
+  const extra = normalizeExtraData(task?.extra_data);
+  return extra.hold_started_at || extra.holdStartAt || extra.holdStart || null;
+}
+
+function normalizeExtraData(extraData) {
+  if (!extraData) return {};
+  if (typeof extraData === 'string') {
+    try { return JSON.parse(extraData); } catch { return {}; }
+  }
+  return typeof extraData === 'object' ? extraData : {};
+}
+
+function getTaskHoldDays(task, holidays = [], endValue = new Date()) {
+  const start = getActiveHoldStart(task);
+  if (!start) return 0;
+  const days = businessDaysBetween(start, endValue, holidays);
+  return Math.max(0, Number(days || 0));
+}
+
+function getEffectiveDeadline(task, holidays = []) {
+  if (!task?.deadline) return null;
+  const activeHoldDays = normalizeStatus(task) === 'on hold' ? getTaskHoldDays(task, holidays) : 0;
+  return activeHoldDays > 0 ? addBusinessDays(task.deadline, activeHoldDays, holidays) : normalizeDateOnly(task.deadline);
+}
+
 function daysUntil(task, holidays = []) {
   if (!task?.deadline) return null;
-  return businessDaysBetween(new Date(), task.deadline, holidays);
+  return businessDaysBetween(new Date(), getEffectiveDeadline(task, holidays), holidays);
 }
 
 function extractJobCode(job) {

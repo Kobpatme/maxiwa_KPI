@@ -1191,9 +1191,112 @@ function businessDaysBetween(startValue, endValue, holidays = []) {
   return count;
 }
 
+function addBusinessDays(startValue, days, holidays = []) {
+  const start = normalizeDateOnly(startValue);
+  const amount = Math.max(0, Number(days || 0));
+  if (!start || amount === 0) return start;
+  const holidaySet = buildHolidaySet(holidays);
+  const cursor = new Date(start);
+  let remaining = amount;
+  while (remaining > 0) {
+    cursor.setDate(cursor.getDate() + 1);
+    if (isWorkingDay(cursor, holidaySet)) remaining -= 1;
+  }
+  return cursor;
+}
+
+function toDateInputValue(value) {
+  const date = normalizeDateOnly(value);
+  return date ? dateKey(date) : '';
+}
+
+function getActiveHoldStart(task) {
+  const extra = normalizeExtraData(task?.extra_data);
+  return extra.hold_started_at || extra.holdStartAt || extra.holdStart || null;
+}
+
+function normalizeExtraData(extraData) {
+  if (!extraData) return {};
+  if (typeof extraData === 'string') return parseJsonSafe(extraData, {});
+  return typeof extraData === 'object' ? extraData : {};
+}
+
+function getTaskHoldDays(task, holidays = [], endValue = new Date()) {
+  const start = getActiveHoldStart(task);
+  if (!start) return 0;
+  const days = businessDaysBetween(start, endValue, holidays);
+  return Math.max(0, Number(days || 0));
+}
+
+function getEffectiveDeadline(task, holidays = []) {
+  if (!task?.deadline) return null;
+  const activeHoldDays = String(task?.status || '').toLowerCase() === 'on hold'
+    ? getTaskHoldDays(task, holidays)
+    : 0;
+  return activeHoldDays > 0 ? addBusinessDays(task.deadline, activeHoldDays, holidays) : normalizeDateOnly(task.deadline);
+}
+
+function getHoldSummary(task, holidays = []) {
+  const extra = normalizeExtraData(task?.extra_data);
+  const activeDays = getTaskHoldDays(task, holidays);
+  const totalDays = Number(extra.hold_days_total || extra.holdDaysTotal || 0) + activeDays;
+  return {
+    activeStart: getActiveHoldStart(task),
+    activeDays,
+    totalDays: Number.isFinite(totalDays) ? totalDays : activeDays,
+    effectiveDeadline: getEffectiveDeadline(task, holidays),
+  };
+}
+
+function buildHoldExtraData(task, nextStatus, holidays = [], changedBy = '') {
+  const currentStatus = String(task?.status || '').toLowerCase();
+  const targetStatus = String(nextStatus || '').toLowerCase();
+  const extra = { ...normalizeExtraData(task?.extra_data) };
+  const now = new Date().toISOString();
+  const activeStart = getActiveHoldStart(task);
+
+  if (targetStatus === 'on hold') {
+    if (!activeStart) {
+      extra.hold_started_at = now;
+      extra.hold_started_by = changedBy || extra.hold_started_by || '';
+      extra.hold_deadline_before = task?.deadline || '';
+    }
+    return { extraData: extra, deadline: task?.deadline || '', holdDays: 0, changed: !activeStart };
+  }
+
+  if (currentStatus !== 'on hold' || !activeStart) {
+    return { extraData: extra, deadline: task?.deadline || '', holdDays: 0, changed: false };
+  }
+
+  const holdDays = getTaskHoldDays(task, holidays);
+  const nextDeadline = holdDays > 0 ? toDateInputValue(addBusinessDays(task.deadline, holdDays, holidays)) : (task?.deadline || '');
+  const history = Array.isArray(extra.hold_history) ? [...extra.hold_history] : [];
+  history.push({
+    start: activeStart,
+    end: now,
+    businessDays: holdDays,
+    deadlineBefore: extra.hold_deadline_before || task?.deadline || '',
+    deadlineAfter: nextDeadline || task?.deadline || '',
+    changedBy: changedBy || '',
+  });
+
+  delete extra.hold_started_at;
+  delete extra.hold_started_by;
+  delete extra.hold_deadline_before;
+  extra.hold_days_total = Number(extra.hold_days_total || 0) + holdDays;
+  extra.hold_history = history.slice(-20);
+
+  return {
+    extraData: extra,
+    deadline: nextDeadline || task?.deadline || '',
+    holdDays,
+    changed: true,
+  };
+}
+
 function getDaysUntilDeadline(task, holidays = []) {
   if (!task?.deadline) return null;
-  return businessDaysBetween(new Date(), task.deadline, holidays);
+  return businessDaysBetween(new Date(), getEffectiveDeadline(task, holidays), holidays);
 }
 
 function getExecutiveHealthClass(value) {
@@ -1530,6 +1633,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
             {activeTasks.map((task) => {
               const daysLeft = getDaysUntilDeadline(task, holidaySet);
               const isOverdue = daysLeft !== null && daysLeft < 0;
+              const holdSummary = getHoldSummary(task, holidaySet);
               return (
                 <div key={task.id} className="mx-data-card">
                   <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
@@ -1549,9 +1653,17 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                       </div>
                       <div className="mt-1 text-sm text-[var(--mx-muted)]">
                         Deadline {formatDate(task.deadline)}
+                        {holdSummary.activeStart && holdSummary.activeDays > 0 && (
+                          <span className="ml-2 text-[var(--mx-info)] font-bold">Effective {formatDate(holdSummary.effectiveDeadline)}</span>
+                        )}
                         {isOverdue && <span className="ml-2 text-red-400 font-bold">เกิน {Math.abs(daysLeft)} วันทำการ</span>}
                         {!isOverdue && daysLeft !== null && daysLeft <= 3 && <span className="ml-2 text-[var(--mx-warning)] font-bold">อีก {daysLeft} วันทำการ</span>}
                       </div>
+                      {holdSummary.activeStart && (
+                        <div className="mt-1 text-sm text-[var(--mx-warning)] font-bold">
+                          SLA paused since {formatDate(holdSummary.activeStart)} - {holdSummary.activeDays} business day(s) will be added on resume
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-2 flex-shrink-0 items-start">
                       {task.status === 'Pending' && (
@@ -1693,7 +1805,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
 }
 
 // ─── Task Center View ──────────────────────────────────────────────────────────
-function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRefresh }) {
+function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, onDelete, onRefresh }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [expandedTaskId, setExpandedTaskId] = useState(null);
@@ -1761,6 +1873,7 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
     risk: (tasks || []).filter((t) => ['Pending', 'On Hold'].includes(t.status)).length,
   }), [tasks]);
   const taskScores = useMemo(() => calcTaskWeightedScores(tasks || []), [tasks]);
+  const holidaySet = useMemo(() => buildHolidaySet(holidays || []), [holidays]);
 
   // Staff quick actions
   const handleStaffAction = (task, action) => {
@@ -2008,7 +2121,9 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
 
         <div className="grid gap-3">
           {filtered.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบรายการงาน</div>}
-          {filtered.map((task) => (
+          {filtered.map((task) => {
+            const holdSummary = getHoldSummary(task, holidaySet);
+            return (
             <div key={task.id} className="mx-data-card">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                 <div className="min-w-0 flex-1">
@@ -2038,10 +2153,18 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
                     Start {formatDate(task.startdate)} • Deadline {formatDate(task.deadline)}
                     {task.completiondate ? ` • เสร็จ ${formatDate(task.completiondate)}` : ''}
                   </div>
+                  {holdSummary.activeStart && (
+                    <div className="mt-2 text-sm text-[var(--mx-warning)] font-bold">
+                      SLA paused since {formatDate(holdSummary.activeStart)} - effective deadline {formatDate(holdSummary.effectiveDeadline)}
+                    </div>
+                  )}
                   {expandedTaskId === task.id && (
                     <div className="mt-4 rounded-[18px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
                       <div className="text-xs text-[var(--mx-muted)]">Task ID: {task.id}</div>
                       <div className="mt-2 text-xs text-[var(--mx-muted)]">Weight: {formatWeightPercent(getTaskWeight(task))}</div>
+                      {holdSummary.totalDays > 0 && (
+                        <div className="mt-2 text-xs text-[var(--mx-muted)]">Total hold: {holdSummary.totalDays} business day(s)</div>
+                      )}
                       {task.note
                         ? <div className="mt-3 text-sm leading-7 whitespace-pre-wrap">{task.note}</div>
                         : <div className="mt-3 text-sm text-[var(--mx-muted)]">ไม่มี note</div>
@@ -2096,7 +2219,8 @@ function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRef
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </Panel>
     </div>
@@ -3251,12 +3375,26 @@ function App() {
   const handleStatusChange = async (task, status, note = '', mode = 'normal') => {
     setActionLoading(true);
     try {
+      const holdUpdate = mode === 'note_only'
+        ? null
+        : buildHoldExtraData(task, status, state.holidays || [], user.name);
       if (mode === 'note_only') {
         await API.updateTaskStatus(task.id, task.team, task.status, note, 'append');
       } else if (user.role === 'Staff') {
         await API.updateTaskStatus(task.id, task.team, status, note, 'append');
       } else {
         await API.updateTaskStatusWithLog(task.id, task.team, status, note, user.name);
+      }
+      if (holdUpdate?.changed) {
+        await API.updateTaskDetails({
+          id: task.id,
+          team: task.team,
+          job: task.job,
+          subkpi: task.subkpi,
+          mainkpi: task.mainkpi,
+          deadline: holdUpdate.deadline || task.deadline,
+          extra_data: holdUpdate.extraData,
+        });
       }
       await reloadTasks();
       await reloadDashboard();
@@ -3551,6 +3689,7 @@ function App() {
             <TaskCenterView
               user={user}
               tasks={state.tasks}
+              holidays={state.holidays}
               onAccept={handleAccept}
               onStatusChange={handleStatusChange}
               onDelete={handleDelete}
@@ -3561,6 +3700,7 @@ function App() {
             <TaskCenterView
               user={personalWorkUser}
               tasks={state.tasks}
+              holidays={state.holidays}
               onAccept={handleAccept}
               onStatusChange={handleStatusChange}
               onDelete={handleDelete}

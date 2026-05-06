@@ -843,9 +843,97 @@ var MaxiwaKpiApp = (() => {
     }
     return count;
   }
+  function addBusinessDays(startValue, days, holidays = []) {
+    const start = normalizeDateOnly(startValue);
+    const amount = Math.max(0, Number(days || 0));
+    if (!start || amount === 0) return start;
+    const holidaySet = buildHolidaySet(holidays);
+    const cursor = new Date(start);
+    let remaining = amount;
+    while (remaining > 0) {
+      cursor.setDate(cursor.getDate() + 1);
+      if (isWorkingDay(cursor, holidaySet)) remaining -= 1;
+    }
+    return cursor;
+  }
+  function toDateInputValue(value) {
+    const date = normalizeDateOnly(value);
+    return date ? dateKey(date) : "";
+  }
+  function getActiveHoldStart(task) {
+    const extra = normalizeExtraData(task == null ? void 0 : task.extra_data);
+    return extra.hold_started_at || extra.holdStartAt || extra.holdStart || null;
+  }
+  function normalizeExtraData(extraData) {
+    if (!extraData) return {};
+    if (typeof extraData === "string") return parseJsonSafe(extraData, {});
+    return typeof extraData === "object" ? extraData : {};
+  }
+  function getTaskHoldDays(task, holidays = [], endValue = /* @__PURE__ */ new Date()) {
+    const start = getActiveHoldStart(task);
+    if (!start) return 0;
+    const days = businessDaysBetween(start, endValue, holidays);
+    return Math.max(0, Number(days || 0));
+  }
+  function getEffectiveDeadline(task, holidays = []) {
+    if (!(task == null ? void 0 : task.deadline)) return null;
+    const activeHoldDays = String((task == null ? void 0 : task.status) || "").toLowerCase() === "on hold" ? getTaskHoldDays(task, holidays) : 0;
+    return activeHoldDays > 0 ? addBusinessDays(task.deadline, activeHoldDays, holidays) : normalizeDateOnly(task.deadline);
+  }
+  function getHoldSummary(task, holidays = []) {
+    const extra = normalizeExtraData(task == null ? void 0 : task.extra_data);
+    const activeDays = getTaskHoldDays(task, holidays);
+    const totalDays = Number(extra.hold_days_total || extra.holdDaysTotal || 0) + activeDays;
+    return {
+      activeStart: getActiveHoldStart(task),
+      activeDays,
+      totalDays: Number.isFinite(totalDays) ? totalDays : activeDays,
+      effectiveDeadline: getEffectiveDeadline(task, holidays)
+    };
+  }
+  function buildHoldExtraData(task, nextStatus, holidays = [], changedBy = "") {
+    const currentStatus = String((task == null ? void 0 : task.status) || "").toLowerCase();
+    const targetStatus = String(nextStatus || "").toLowerCase();
+    const extra = { ...normalizeExtraData(task == null ? void 0 : task.extra_data) };
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const activeStart = getActiveHoldStart(task);
+    if (targetStatus === "on hold") {
+      if (!activeStart) {
+        extra.hold_started_at = now;
+        extra.hold_started_by = changedBy || extra.hold_started_by || "";
+        extra.hold_deadline_before = (task == null ? void 0 : task.deadline) || "";
+      }
+      return { extraData: extra, deadline: (task == null ? void 0 : task.deadline) || "", holdDays: 0, changed: !activeStart };
+    }
+    if (currentStatus !== "on hold" || !activeStart) {
+      return { extraData: extra, deadline: (task == null ? void 0 : task.deadline) || "", holdDays: 0, changed: false };
+    }
+    const holdDays = getTaskHoldDays(task, holidays);
+    const nextDeadline = holdDays > 0 ? toDateInputValue(addBusinessDays(task.deadline, holdDays, holidays)) : (task == null ? void 0 : task.deadline) || "";
+    const history = Array.isArray(extra.hold_history) ? [...extra.hold_history] : [];
+    history.push({
+      start: activeStart,
+      end: now,
+      businessDays: holdDays,
+      deadlineBefore: extra.hold_deadline_before || (task == null ? void 0 : task.deadline) || "",
+      deadlineAfter: nextDeadline || (task == null ? void 0 : task.deadline) || "",
+      changedBy: changedBy || ""
+    });
+    delete extra.hold_started_at;
+    delete extra.hold_started_by;
+    delete extra.hold_deadline_before;
+    extra.hold_days_total = Number(extra.hold_days_total || 0) + holdDays;
+    extra.hold_history = history.slice(-20);
+    return {
+      extraData: extra,
+      deadline: nextDeadline || (task == null ? void 0 : task.deadline) || "",
+      holdDays,
+      changed: true
+    };
+  }
   function getDaysUntilDeadline(task, holidays = []) {
     if (!(task == null ? void 0 : task.deadline)) return null;
-    return businessDaysBetween(/* @__PURE__ */ new Date(), task.deadline, holidays);
+    return businessDaysBetween(/* @__PURE__ */ new Date(), getEffectiveDeadline(task, holidays), holidays);
   }
   function getExecutiveHealthClass(value) {
     if (value === null || value === void 0) return "mx-status-cancelled";
@@ -987,7 +1075,8 @@ var MaxiwaKpiApp = (() => {
         /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, activeTasks.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23"), activeTasks.map((task) => {
           const daysLeft = getDaysUntilDeadline(task, holidaySet);
           const isOverdue = daysLeft !== null && daysLeft < 0;
-          return /* @__PURE__ */ React.createElement("div", { key: task.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold break-all" }, task.job), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", formatWeightPercent(getTaskWeight(task))), task.note && /* @__PURE__ */ React.createElement("button", { onClick: () => setDashNotePopup({ show: true, note: task.note }), className: "mx-note-btn text-xs px-3 py-1.5 rounded-lg font-bold" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-sticky-note mr-1" }), "\u0E14\u0E39\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, task.mainkpi || "-", " \u2022 ", task.subkpi || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, "Deadline ", formatDate(task.deadline), isOverdue && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-red-400 font-bold" }, "\u0E40\u0E01\u0E34\u0E19 ", Math.abs(daysLeft), " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23"), !isOverdue && daysLeft !== null && daysLeft <= 3 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-warning)] font-bold" }, "\u0E2D\u0E35\u0E01 ", daysLeft, " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23"))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 flex-shrink-0 items-start" }, task.status === "Pending" && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "accept"), label: "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19" }), task.status === "On Process" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-check", color: "emerald", onClick: () => handleDashAction(task, "complete"), label: "\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-pause", color: "amber", onClick: () => handleDashAction(task, "hold"), label: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), task.status === "On Hold" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "resume"), label: "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), !["Completed", "Cancelled"].includes(task.status) && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-trash", color: "rose", onClick: () => handleDashAction(task, "cancel"), label: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01" }))));
+          const holdSummary = getHoldSummary(task, holidaySet);
+          return /* @__PURE__ */ React.createElement("div", { key: task.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold break-all" }, task.job), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", formatWeightPercent(getTaskWeight(task))), task.note && /* @__PURE__ */ React.createElement("button", { onClick: () => setDashNotePopup({ show: true, note: task.note }), className: "mx-note-btn text-xs px-3 py-1.5 rounded-lg font-bold" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-sticky-note mr-1" }), "\u0E14\u0E39\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, task.mainkpi || "-", " \u2022 ", task.subkpi || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, "Deadline ", formatDate(task.deadline), holdSummary.activeStart && holdSummary.activeDays > 0 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-info)] font-bold" }, "Effective ", formatDate(holdSummary.effectiveDeadline)), isOverdue && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-red-400 font-bold" }, "\u0E40\u0E01\u0E34\u0E19 ", Math.abs(daysLeft), " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23"), !isOverdue && daysLeft !== null && daysLeft <= 3 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-warning)] font-bold" }, "\u0E2D\u0E35\u0E01 ", daysLeft, " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23")), holdSummary.activeStart && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-warning)] font-bold" }, "SLA paused since ", formatDate(holdSummary.activeStart), " - ", holdSummary.activeDays, " business day(s) will be added on resume")), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 flex-shrink-0 items-start" }, task.status === "Pending" && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "accept"), label: "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19" }), task.status === "On Process" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-check", color: "emerald", onClick: () => handleDashAction(task, "complete"), label: "\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-pause", color: "amber", onClick: () => handleDashAction(task, "hold"), label: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), task.status === "On Hold" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "resume"), label: "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), !["Completed", "Cancelled"].includes(task.status) && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-trash", color: "rose", onClick: () => handleDashAction(task, "cancel"), label: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01" }))));
         }))
       ));
     }
@@ -1018,7 +1107,7 @@ var MaxiwaKpiApp = (() => {
     const kpis = data.kpis || [];
     return /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement("div", { className: "mx-grid-auto" }, /* @__PURE__ */ React.createElement(MetricCard, { label: "Tasks", value: tasks.length, sub: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E23\u0E27\u0E21\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A\u0E40\u0E14\u0E34\u0E21", icon: "fa-briefcase" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "Users", value: staff.length, sub: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A", icon: "fa-users", accent: "var(--mx-teal)" }), /* @__PURE__ */ React.createElement(MetricCard, { label: "KPI Items", value: kpis.length, sub: "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23 KPI \u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19", icon: "fa-sliders", accent: "var(--mx-amber)" })), /* @__PURE__ */ React.createElement(Panel, { title: "System Overview", subtitle: "\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E1C\u0E39\u0E49\u0E14\u0E39\u0E41\u0E25\u0E23\u0E30\u0E1A\u0E1A" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, APP_NAME, " \u0E43\u0E0A\u0E49 backend \u0E40\u0E14\u0E34\u0E21\u0E41\u0E25\u0E30\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E40\u0E14\u0E34\u0E21\u0E42\u0E14\u0E22\u0E15\u0E23\u0E07 \u0E41\u0E15\u0E48\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E1B\u0E23\u0E30\u0E2A\u0E1A\u0E01\u0E32\u0E23\u0E13\u0E4C\u0E01\u0E32\u0E23\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E43\u0E2B\u0E49\u0E0A\u0E31\u0E14\u0E40\u0E08\u0E19\u0E41\u0E25\u0E30\u0E40\u0E1B\u0E47\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E21\u0E32\u0E01\u0E02\u0E36\u0E49\u0E19")));
   }
-  function TaskCenterView({ user, tasks, onAccept, onStatusChange, onDelete, onRefresh }) {
+  function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, onDelete, onRefresh }) {
     const [statusFilter, setStatusFilter] = useState("all");
     const [search, setSearch] = useState("");
     const [expandedTaskId, setExpandedTaskId] = useState(null);
@@ -1065,6 +1154,7 @@ var MaxiwaKpiApp = (() => {
       risk: (tasks || []).filter((t) => ["Pending", "On Hold"].includes(t.status)).length
     }), [tasks]);
     const taskScores = useMemo(() => calcTaskWeightedScores(tasks || []), [tasks]);
+    const holidaySet = useMemo(() => buildHolidaySet(holidays || []), [holidays]);
     const handleStaffAction = (task, action) => {
       var _a, _b;
       const ts = getTimestamp();
@@ -1249,22 +1339,25 @@ var MaxiwaKpiApp = (() => {
           onChange: (e) => setSearch(e.target.value)
         }
       ), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: statusFilter, onChange: (e) => setStatusFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u0E17\u0E38\u0E01\u0E2A\u0E16\u0E32\u0E19\u0E30"), /* @__PURE__ */ React.createElement("option", { value: "Pending" }, "Pending"), /* @__PURE__ */ React.createElement("option", { value: "On Process" }, "On Process"), /* @__PURE__ */ React.createElement("option", { value: "On Hold" }, "On Hold"), /* @__PURE__ */ React.createElement("option", { value: "Completed" }, "Completed"), /* @__PURE__ */ React.createElement("option", { value: "Cancelled" }, "Cancelled"))),
-      /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19"), filtered.map((task) => /* @__PURE__ */ React.createElement("div", { key: task.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-base break-all" }, task.job), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", formatWeightPercent(getTaskWeight(task))), /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          className: "mx-btn mx-btn-soft !py-2 !px-3",
-          onClick: () => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)
-        },
-        expandedTaskId === task.id ? "\u0E0B\u0E48\u0E2D\u0E19" : "\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14"
-      ), task.note && /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          onClick: () => setNotePopup({ show: true, note: task.note }),
-          className: "mx-note-btn text-xs px-3 py-1.5 rounded-lg transition-colors font-bold"
-        },
-        /* @__PURE__ */ React.createElement("i", { className: "fas fa-sticky-note mr-1" }),
-        "\u0E14\u0E39\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01"
-      )), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, task.name || "-", " \u2022 ", task.team || "-", " \u2022 ", task.subkpi || "\u0E44\u0E21\u0E48\u0E23\u0E30\u0E1A\u0E38 Sub KPI"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, "Start ", formatDate(task.startdate), " \u2022 Deadline ", formatDate(task.deadline), task.completiondate ? ` \u2022 \u0E40\u0E2A\u0E23\u0E47\u0E08 ${formatDate(task.completiondate)}` : ""), expandedTaskId === task.id && /* @__PURE__ */ React.createElement("div", { className: "mt-4 rounded-[18px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-[var(--mx-muted)]" }, "Task ID: ", task.id), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, "Weight: ", formatWeightPercent(getTaskWeight(task))), task.note ? /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-sm leading-7 whitespace-pre-wrap" }, task.note) : /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35 note"), renderExtraData(task.extra_data))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 flex-shrink-0 items-start" }, user.role === "Staff" && /* @__PURE__ */ React.createElement(React.Fragment, null, task.status === "Pending" && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-play", color: "blue", onClick: () => handleStaffAction(task, "accept"), label: "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19" }), task.status === "On Process" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-check", color: "emerald", onClick: () => handleStaffAction(task, "complete"), label: "\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19" }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-pause", color: "amber", onClick: () => handleStaffAction(task, "hold"), label: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19" }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-comment-dots", color: "blue", onClick: () => handleStaffAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), task.status === "On Hold" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-play", color: "blue", onClick: () => handleStaffAction(task, "resume"), label: "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D" }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-comment-dots", color: "blue", onClick: () => handleStaffAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), canCancel(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-trash", color: "rose", onClick: () => handleStaffAction(task, "cancel"), label: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01" }), canEdit(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-edit", color: "indigo", onClick: () => handleEditOpen(task), label: "\u0E41\u0E01\u0E49\u0E44\u0E02" })), ["Lead", "Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-arrow-right-arrow-left", color: "blue", onClick: () => setStatusTarget(task), label: "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30" }), canEdit(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-edit", color: "indigo", onClick: () => handleEditOpen(task), label: "\u0E41\u0E01\u0E49\u0E44\u0E02" }), ["Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-trash", color: "rose", onClick: () => onDelete(task), label: "\u0E25\u0E1A\u0E07\u0E32\u0E19" })))))))
+      /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19"), filtered.map((task) => {
+        const holdSummary = getHoldSummary(task, holidaySet);
+        return /* @__PURE__ */ React.createElement("div", { key: task.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-base break-all" }, task.job), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", formatWeightPercent(getTaskWeight(task))), /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            className: "mx-btn mx-btn-soft !py-2 !px-3",
+            onClick: () => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)
+          },
+          expandedTaskId === task.id ? "\u0E0B\u0E48\u0E2D\u0E19" : "\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14"
+        ), task.note && /* @__PURE__ */ React.createElement(
+          "button",
+          {
+            onClick: () => setNotePopup({ show: true, note: task.note }),
+            className: "mx-note-btn text-xs px-3 py-1.5 rounded-lg transition-colors font-bold"
+          },
+          /* @__PURE__ */ React.createElement("i", { className: "fas fa-sticky-note mr-1" }),
+          "\u0E14\u0E39\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01"
+        )), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, task.name || "-", " \u2022 ", task.team || "-", " \u2022 ", task.subkpi || "\u0E44\u0E21\u0E48\u0E23\u0E30\u0E1A\u0E38 Sub KPI"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, "Start ", formatDate(task.startdate), " \u2022 Deadline ", formatDate(task.deadline), task.completiondate ? ` \u2022 \u0E40\u0E2A\u0E23\u0E47\u0E08 ${formatDate(task.completiondate)}` : ""), holdSummary.activeStart && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-warning)] font-bold" }, "SLA paused since ", formatDate(holdSummary.activeStart), " - effective deadline ", formatDate(holdSummary.effectiveDeadline)), expandedTaskId === task.id && /* @__PURE__ */ React.createElement("div", { className: "mt-4 rounded-[18px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-[var(--mx-muted)]" }, "Task ID: ", task.id), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, "Weight: ", formatWeightPercent(getTaskWeight(task))), holdSummary.totalDays > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, "Total hold: ", holdSummary.totalDays, " business day(s)"), task.note ? /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-sm leading-7 whitespace-pre-wrap" }, task.note) : /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35 note"), renderExtraData(task.extra_data))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 flex-shrink-0 items-start" }, user.role === "Staff" && /* @__PURE__ */ React.createElement(React.Fragment, null, task.status === "Pending" && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-play", color: "blue", onClick: () => handleStaffAction(task, "accept"), label: "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19" }), task.status === "On Process" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-check", color: "emerald", onClick: () => handleStaffAction(task, "complete"), label: "\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19" }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-pause", color: "amber", onClick: () => handleStaffAction(task, "hold"), label: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19" }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-comment-dots", color: "blue", onClick: () => handleStaffAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), task.status === "On Hold" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-play", color: "blue", onClick: () => handleStaffAction(task, "resume"), label: "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D" }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-comment-dots", color: "blue", onClick: () => handleStaffAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), canCancel(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-trash", color: "rose", onClick: () => handleStaffAction(task, "cancel"), label: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01" }), canEdit(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-edit", color: "indigo", onClick: () => handleEditOpen(task), label: "\u0E41\u0E01\u0E49\u0E44\u0E02" })), ["Lead", "Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-arrow-right-arrow-left", color: "blue", onClick: () => setStatusTarget(task), label: "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30" }), canEdit(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-edit", color: "indigo", onClick: () => handleEditOpen(task), label: "\u0E41\u0E01\u0E49\u0E44\u0E02" }), ["Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-trash", color: "rose", onClick: () => onDelete(task), label: "\u0E25\u0E1A\u0E07\u0E32\u0E19" })))));
+      }))
     ));
   }
   function TrackerViewNew() {
@@ -1972,12 +2065,24 @@ var MaxiwaKpiApp = (() => {
     const handleStatusChange = async (task, status, note = "", mode = "normal") => {
       setActionLoading(true);
       try {
+        const holdUpdate = mode === "note_only" ? null : buildHoldExtraData(task, status, state.holidays || [], user.name);
         if (mode === "note_only") {
           await API.updateTaskStatus(task.id, task.team, task.status, note, "append");
         } else if (user.role === "Staff") {
           await API.updateTaskStatus(task.id, task.team, status, note, "append");
         } else {
           await API.updateTaskStatusWithLog(task.id, task.team, status, note, user.name);
+        }
+        if (holdUpdate == null ? void 0 : holdUpdate.changed) {
+          await API.updateTaskDetails({
+            id: task.id,
+            team: task.team,
+            job: task.job,
+            subkpi: task.subkpi,
+            mainkpi: task.mainkpi,
+            deadline: holdUpdate.deadline || task.deadline,
+            extra_data: holdUpdate.extraData
+          });
         }
         await reloadTasks();
         await reloadDashboard();
@@ -2145,6 +2250,7 @@ var MaxiwaKpiApp = (() => {
       {
         user,
         tasks: state.tasks,
+        holidays: state.holidays,
         onAccept: handleAccept,
         onStatusChange: handleStatusChange,
         onDelete: handleDelete,
@@ -2155,6 +2261,7 @@ var MaxiwaKpiApp = (() => {
       {
         user: personalWorkUser,
         tasks: state.tasks,
+        holidays: state.holidays,
         onAccept: handleAccept,
         onStatusChange: handleStatusChange,
         onDelete: handleDelete,
