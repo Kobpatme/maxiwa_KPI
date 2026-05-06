@@ -200,7 +200,7 @@ async function fetchSystemLinksFromApi(user) {
   } catch (apiError) {
     if (window.getSupabaseSystemLinks) {
       const links = await window.getSupabaseSystemLinks();
-      if (Array.isArray(links)) return normalizeSystemLinks(links, []);
+      if (Array.isArray(links) && links.length > 0) return normalizeSystemLinks(links, []);
     }
     throw apiError;
   }

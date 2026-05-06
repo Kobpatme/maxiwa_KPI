@@ -423,6 +423,18 @@ for select
 to anon, authenticated
 using (is_active = true and status <> 'Hidden');
 
+-- Temporary browser-admin write policy:
+-- Enable this only if you accept direct browser writes with the anon key.
+-- The safer production path is POST /api/admin/saveSystemLinks through a
+-- service-role backend or Supabase Edge Function.
+drop policy if exists app_system_links_browser_write on public.app_system_links;
+create policy app_system_links_browser_write
+on public.app_system_links
+for all
+to authenticated
+using (true)
+with check (true);
+
 -- Helper comments for backend integration:
 --
 -- 1. Keep legacy tasks/users/kpis/teams unchanged for compatibility.
