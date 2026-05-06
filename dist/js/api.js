@@ -205,10 +205,30 @@ async function saveSupabaseSystemLinks(systemLinks) {
   const client = await initSupabaseClient();
   if (!client) throw new Error("Supabase client is not available");
   const rows = (systemLinks || []).map(systemLinkToRow);
-  const { error } = await client
+  const { data: existingRows, error: existingError } = await client
     .from("app_system_links")
-    .upsert(rows, { onConflict: "id" });
-  if (error) throw error;
+    .select("id");
+  if (existingError) throw existingError;
+
+  if (rows.length > 0) {
+    const { error: upsertError } = await client
+      .from("app_system_links")
+      .upsert(rows, { onConflict: "id" });
+    if (upsertError) throw upsertError;
+  }
+
+  const nextIds = new Set(rows.map((row) => row.id));
+  const inactiveIds = (existingRows || [])
+    .map((row) => row.id)
+    .filter((id) => !nextIds.has(id));
+  if (inactiveIds.length > 0) {
+    const { error: inactiveError } = await client
+      .from("app_system_links")
+      .update({ is_active: false, status: "Hidden" })
+      .in("id", inactiveIds);
+    if (inactiveError) throw inactiveError;
+  }
+
   return { ok: true, systemLinks };
 }
 

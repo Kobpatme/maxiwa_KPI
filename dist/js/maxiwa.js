@@ -172,24 +172,16 @@ var MaxiwaKpiApp = (() => {
     return normalized;
   }
   async function fetchSystemLinksFromApi(user) {
-    const empId = String((user == null ? void 0 : user.empId) || (user == null ? void 0 : user.empid) || "").trim();
-    const qs = new URLSearchParams(empId ? { requesterEmpId: empId } : {}).toString();
     if (window.getSupabaseSystemLinks) {
       try {
         const links = await window.getSupabaseSystemLinks();
-        if (Array.isArray(links) && links.length > 0) return normalizeSystemLinks(links, []);
+        return normalizeSystemLinks(Array.isArray(links) ? links : [], []);
       } catch (supabaseError) {
-        console.warn("Supabase system links are not available yet; falling back to API/local cache.", supabaseError);
+        console.error("Supabase system links are not available.", supabaseError);
+        throw supabaseError;
       }
     }
-    try {
-      const res = await fetch(`${apiBase()}/systemLinks${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new Error(`System links API ${res.status}`);
-      const data = await res.json();
-      return normalizeSystemLinks(data.systemLinks || data.systems || data.links || []);
-    } catch (apiError) {
-      throw apiError;
-    }
+    throw new Error("Supabase system links helper is not available");
   }
   async function saveSystemLinksToApi(links, empId) {
     const normalized = normalizeSystemLinks(links);
@@ -1882,13 +1874,15 @@ var MaxiwaKpiApp = (() => {
       });
     };
     const persistSystemLinks = async (nextLinks) => {
-      const normalized = cacheSystemLinks(nextLinks);
-      onSystemLinksChange == null ? void 0 : onSystemLinksChange(normalized);
+      const normalized = normalizeSystemLinks(nextLinks);
       try {
         await saveSystemLinksToApi(normalized, user.empId);
+        const cached = cacheSystemLinks(normalized);
+        onSystemLinksChange == null ? void 0 : onSystemLinksChange(cached);
       } catch (error) {
-        console.warn("System links saved locally; backend endpoint is not available yet.", error);
-        alert("\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E43\u0E19\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E19\u0E35\u0E49\u0E41\u0E25\u0E49\u0E27 \u0E41\u0E15\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E44\u0E1B backend \u0E01\u0E25\u0E32\u0E07\u0E44\u0E14\u0E49");
+        console.error("System links save failed.", error);
+        alert(`\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 Systems \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08: ${error.message || "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A Supabase RLS policy \u0E41\u0E25\u0E30\u0E15\u0E32\u0E23\u0E32\u0E07 app_system_links"}`);
+        throw error;
       }
     };
     const toggleSystemRole = (role) => {
@@ -1925,21 +1919,30 @@ var MaxiwaKpiApp = (() => {
       });
       const others = normalizedSystemLinks.filter((item) => item.id !== next.id);
       setSaving("systems");
-      await persistSystemLinks([...others, next]);
-      setSaving("");
-      setSystemForm(emptySystemForm);
+      try {
+        await persistSystemLinks([...others, next]);
+        setSystemForm(emptySystemForm);
+      } finally {
+        setSaving("");
+      }
     };
     const duplicateSystem = async (item) => {
       const copy = normalizeSystemLink({ ...item, id: `${item.id}-copy`, name: `${item.name} Copy` });
       setSaving("systems");
-      await persistSystemLinks([...normalizedSystemLinks, copy]);
-      setSaving("");
+      try {
+        await persistSystemLinks([...normalizedSystemLinks, copy]);
+      } finally {
+        setSaving("");
+      }
     };
     const removeSystem = async (id) => {
       if (!window.confirm("\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E01\u0E32\u0E23\u0E25\u0E1A\u0E23\u0E30\u0E1A\u0E1A\u0E19\u0E35\u0E49?")) return;
       setSaving("systems");
-      await persistSystemLinks(normalizedSystemLinks.filter((item) => item.id !== id));
-      setSaving("");
+      try {
+        await persistSystemLinks(normalizedSystemLinks.filter((item) => item.id !== id));
+      } finally {
+        setSaving("");
+      }
     };
     const previewUser = (staff || []).find((person) => String(person.empId || person.empid || "").toUpperCase() === previewEmpId.trim().toUpperCase());
     const previewSystems = previewUser ? visibleSystemLinksForUser(normalizedSystemLinks, previewUser) : [];

@@ -190,24 +190,16 @@ function cacheSystemLinks(links) {
 }
 
 async function fetchSystemLinksFromApi(user) {
-  const empId = String(user?.empId || user?.empid || '').trim();
-  const qs = new URLSearchParams(empId ? { requesterEmpId: empId } : {}).toString();
   if (window.getSupabaseSystemLinks) {
     try {
       const links = await window.getSupabaseSystemLinks();
-      if (Array.isArray(links) && links.length > 0) return normalizeSystemLinks(links, []);
+      return normalizeSystemLinks(Array.isArray(links) ? links : [], []);
     } catch (supabaseError) {
-      console.warn('Supabase system links are not available yet; falling back to API/local cache.', supabaseError);
+      console.error('Supabase system links are not available.', supabaseError);
+      throw supabaseError;
     }
   }
-  try {
-    const res = await fetch(`${apiBase()}/systemLinks${qs ? `?${qs}` : ''}`);
-    if (!res.ok) throw new Error(`System links API ${res.status}`);
-    const data = await res.json();
-    return normalizeSystemLinks(data.systemLinks || data.systems || data.links || []);
-  } catch (apiError) {
-    throw apiError;
-  }
+  throw new Error('Supabase system links helper is not available');
 }
 
 async function saveSystemLinksToApi(links, empId) {
@@ -2949,13 +2941,15 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   };
 
   const persistSystemLinks = async (nextLinks) => {
-    const normalized = cacheSystemLinks(nextLinks);
-    onSystemLinksChange?.(normalized);
+    const normalized = normalizeSystemLinks(nextLinks);
     try {
       await saveSystemLinksToApi(normalized, user.empId);
+      const cached = cacheSystemLinks(normalized);
+      onSystemLinksChange?.(cached);
     } catch (error) {
-      console.warn('System links saved locally; backend endpoint is not available yet.', error);
-      alert('บันทึกในเครื่องนี้แล้ว แต่ยังไม่สามารถบันทึกไป backend กลางได้');
+      console.error('System links save failed.', error);
+      alert(`บันทึก Systems ไม่สำเร็จ: ${error.message || 'ตรวจสอบ Supabase RLS policy และตาราง app_system_links'}`);
+      throw error;
     }
   };
 
@@ -2996,23 +2990,32 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     });
     const others = normalizedSystemLinks.filter((item) => item.id !== next.id);
     setSaving('systems');
-    await persistSystemLinks([...others, next]);
-    setSaving('');
-    setSystemForm(emptySystemForm);
+    try {
+      await persistSystemLinks([...others, next]);
+      setSystemForm(emptySystemForm);
+    } finally {
+      setSaving('');
+    }
   };
 
   const duplicateSystem = async (item) => {
     const copy = normalizeSystemLink({ ...item, id: `${item.id}-copy`, name: `${item.name} Copy` });
     setSaving('systems');
-    await persistSystemLinks([...normalizedSystemLinks, copy]);
-    setSaving('');
+    try {
+      await persistSystemLinks([...normalizedSystemLinks, copy]);
+    } finally {
+      setSaving('');
+    }
   };
 
   const removeSystem = async (id) => {
     if (!window.confirm('ยืนยันการลบระบบนี้?')) return;
     setSaving('systems');
-    await persistSystemLinks(normalizedSystemLinks.filter((item) => item.id !== id));
-    setSaving('');
+    try {
+      await persistSystemLinks(normalizedSystemLinks.filter((item) => item.id !== id));
+    } finally {
+      setSaving('');
+    }
   };
 
   const previewUser = (staff || []).find((person) => String(person.empId || person.empid || '').toUpperCase() === previewEmpId.trim().toUpperCase());
