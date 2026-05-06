@@ -37,6 +37,10 @@ function isStrategicViewRole(role) {
   return STRATEGIC_VIEW_ROLES.includes(role);
 }
 
+function userEmpId(user) {
+  return String(user?.empId || user?.empid || '').trim();
+}
+
 function isSelfScopedRole(role) {
   return role === 'Staff';
 }
@@ -283,6 +287,33 @@ function healthClass(value) {
   if (value >= 75) return 'status-info';
   if (value >= 60) return 'status-warn';
   return 'status-bad';
+}
+
+function performanceBand(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) return 'unrated';
+  if (value >= 90) return 'excellent';
+  if (value >= 75) return 'good';
+  if (value >= 60) return 'monitor';
+  return 'critical';
+}
+
+function performanceLabel(value) {
+  const band = performanceBand(value);
+  if (band === 'excellent') return 'Excellent';
+  if (band === 'good') return 'Good';
+  if (band === 'monitor') return 'Monitor';
+  if (band === 'critical') return 'Critical';
+  return 'Unrated';
+}
+
+function matchesSearch(row, keys, search) {
+  const q = String(search || '').trim().toLowerCase();
+  if (!q) return true;
+  return keys.some((key) => String(row?.[key] || '').toLowerCase().includes(q));
+}
+
+function matchesBand(value, filter) {
+  return filter === 'all' || performanceBand(value) === filter;
 }
 
 function statusClass(status) {
@@ -1078,14 +1109,19 @@ function TeamDetailModal({ team, holidays = [], onClose }) {
 
 function TeamsPanel({ teamRows, holidays = [] }) {
   const [selectedTeam, setSelectedTeam] = useState(null);
+  const [teamSearch, setTeamSearch] = useState('');
+  const [teamBandFilter, setTeamBandFilter] = useState('all');
+  const filteredTeams = teamRows.filter((row) =>
+    matchesSearch(row, ['team', 'topKpi'], teamSearch) && matchesBand(row.sla, teamBandFilter)
+  );
   return (
     <div className="grid gap-6">
       <div className="detail-grid">
-        {teamRows.slice(0, 8).map((row) => (
+        {filteredTeams.slice(0, 8).map((row, index) => (
           <button key={row.team} className="mx-card leader-card team-card-button p-5 text-left" onClick={() => setSelectedTeam(row)}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Team</div>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Rank {String(index + 1).padStart(2, '0')} / Team</div>
                 <h3 className="mt-2 mb-0 text-xl font-black truncate">{row.team}</h3>
               </div>
               <span className={`mx-badge ${healthClass(row.health)}`}>{row.health}</span>
@@ -1115,20 +1151,37 @@ function TeamsPanel({ teamRows, holidays = [] }) {
       </section>
 
       <section className="mx-card p-5 md:p-7">
-        <h2 className="section-title m-0">Team SLA Summary</h2>
-        <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Detailed team matrix aligned with the SPDS executive dashboard structure.</p>
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+          <div>
+            <h2 className="section-title m-0">Team SLA Summary</h2>
+            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Detailed team matrix aligned with the SPDS executive dashboard structure.</p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 no-print">
+            <input className="mx-input sm:!w-72" value={teamSearch} onChange={(e) => setTeamSearch(e.target.value)} placeholder="Search team or top KPI" />
+            <select className="mx-input sm:!w-44" value={teamBandFilter} onChange={(e) => setTeamBandFilter(e.target.value)}>
+              <option value="all">All bands</option>
+              <option value="excellent">Excellent</option>
+              <option value="good">Good</option>
+              <option value="monitor">Monitor</option>
+              <option value="critical">Critical</option>
+              <option value="unrated">Unrated</option>
+            </select>
+          </div>
+        </div>
+        <p className="mt-4 mb-5 text-sm text-[var(--mx-muted)]">Showing {fmtNum(filteredTeams.length)} of {fmtNum(teamRows.length)} teams.</p>
         <DataTable minWidth={980}>
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-              <th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">Completed</th><th className="p-4">Backlog</th><th className="p-4">On Process</th><th className="p-4">SLA Pass</th><th className="p-4">SLA Fail</th><th className="p-4">W.SLA</th><th className="p-4">W.Completion</th>
+              <th className="p-4">Rank</th><th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">Completed</th><th className="p-4">Backlog</th><th className="p-4">On Process</th><th className="p-4">SLA Pass</th><th className="p-4">SLA Fail</th><th className="p-4">W.SLA</th><th className="p-4">W.Completion</th><th className="p-4">Band</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--mx-line)]">
-            {teamRows.map((row) => (
+            {filteredTeams.map((row, index) => (
               <tr key={row.team}>
-                <td className="p-4 font-black">{row.team}</td><td className="p-4">{fmtNum(row.total)}</td><td className="p-4">{fmtNum(row.completed)}</td><td className="p-4">{fmtNum(row.backlog)}</td><td className="p-4">{fmtNum(row.onProcess)}</td><td className="p-4">{fmtNum(row.slaPass)}</td><td className="p-4">{fmtNum(row.slaFail)}</td><td className="p-4 font-bold">{fmtPct(row.sla)}</td><td className="p-4 font-bold">{fmtPct(row.completion)}</td>
+                <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td><td className="p-4 font-black">{row.team}</td><td className="p-4">{fmtNum(row.total)}</td><td className="p-4">{fmtNum(row.completed)}</td><td className="p-4">{fmtNum(row.backlog)}</td><td className="p-4">{fmtNum(row.onProcess)}</td><td className="p-4">{fmtNum(row.slaPass)}</td><td className="p-4">{fmtNum(row.slaFail)}</td><td className="p-4 font-bold">{fmtPct(row.sla)}</td><td className="p-4 font-bold">{fmtPct(row.completion)}</td><td className="p-4"><span className={`mx-badge ${healthClass(row.sla)}`}>{performanceLabel(row.sla)}</span></td>
               </tr>
             ))}
+            {!filteredTeams.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="11">No team records match these filters.</td></tr>}
           </tbody>
         </DataTable>
       </section>
@@ -1215,7 +1268,11 @@ function EmployeeDetailModal({ person, holidays = [], onClose }) {
 }
 
 function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilter, tasks, selectedPerson, setSelectedPerson, holidays = [] }) {
-  const filtered = personTeamFilter === 'all' ? personRows : personRows.filter((row) => row.team === personTeamFilter);
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [employeeBandFilter, setEmployeeBandFilter] = useState('all');
+  const filtered = (personTeamFilter === 'all' ? personRows : personRows.filter((row) => row.team === personTeamFilter))
+    .filter((row) => matchesSearch(row, ['person', 'team', 'topKpi'], employeeSearch))
+    .filter((row) => matchesBand(row.weightedScore, employeeBandFilter));
   return (
     <div className="grid gap-6">
       <section className="mx-card p-5 md:p-7">
@@ -1228,6 +1285,17 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
             <button className={`pill ${personTeamFilter === 'all' ? 'active' : ''}`} onClick={() => setPersonTeamFilter('all')}>All Teams</button>
             {teams.map((team) => <button key={team} className={`pill ${personTeamFilter === team ? 'active' : ''}`} onClick={() => setPersonTeamFilter(team)}>{team}</button>)}
           </div>
+        </div>
+        <div className="mt-4 grid md:grid-cols-[1fr_220px] gap-2 no-print">
+          <input className="mx-input" value={employeeSearch} onChange={(e) => setEmployeeSearch(e.target.value)} placeholder="Search employee, team, or top KPI" />
+          <select className="mx-input" value={employeeBandFilter} onChange={(e) => setEmployeeBandFilter(e.target.value)}>
+            <option value="all">All bands</option>
+            <option value="excellent">Excellent</option>
+            <option value="good">Good</option>
+            <option value="monitor">Monitor</option>
+            <option value="critical">Critical</option>
+            <option value="unrated">Unrated</option>
+          </select>
         </div>
       </section>
 
@@ -1281,6 +1349,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
                 <td className="p-4"><span className={`mx-badge ${healthClass(row.weightedScore)}`}>{row.weightedScore >= 90 ? 'Excellent' : row.weightedScore >= 75 ? 'Good' : row.weightedScore >= 60 ? 'Monitor' : 'Critical'}</span></td>
               </tr>
             ))}
+            {!filtered.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="10">No employee records match these filters.</td></tr>}
           </tbody>
         </DataTable>
       </section>
@@ -1290,16 +1359,27 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
 }
 
 function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
+  const [analysisSearch, setAnalysisSearch] = useState('');
+  const [analysisBandFilter, setAnalysisBandFilter] = useState('all');
+  const filteredKpiRows = kpiRows
+    .filter((row) => matchesSearch(row, ['name'], analysisSearch))
+    .filter((row) => matchesBand(row.sla, analysisBandFilter));
+  const filteredPersonRows = personRows
+    .filter((row) => matchesSearch(row, ['person', 'team', 'topKpi'], analysisSearch))
+    .filter((row) => matchesBand(row.weightedScore, analysisBandFilter));
+  const filteredTeamRows = teamRows
+    .filter((row) => matchesSearch(row, ['team', 'topKpi'], analysisSearch))
+    .filter((row) => matchesBand(row.sla, analysisBandFilter));
   const totalTasks = kpiRows.reduce((sum, row) => sum + row.total, 0);
   const topPerformer = [...personRows].filter((row) => row.weightedScore !== null).sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total)[0];
   const bestTeam = [...teamRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0) || b.total - a.total)[0];
   const avgTasks = personRows.length ? Math.round(personRows.reduce((sum, row) => sum + row.total, 0) / personRows.length) : 0;
-  const highRiskKpis = [...kpiRows].sort((a, b) => (b.slaFail - a.slaFail) || (b.active - a.active) || b.total - a.total).slice(0, 8);
-  const employeeLeaders = [...personRows]
+  const highRiskKpis = [...filteredKpiRows].sort((a, b) => (b.slaFail - a.slaFail) || (b.active - a.active) || b.total - a.total).slice(0, 8);
+  const employeeLeaders = [...filteredPersonRows]
     .filter((row) => row.sla !== null || row.completion !== null)
     .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total)
     .slice(0, 12);
-  const teamKpiRows = teamRows.slice(0, 10).map((team) => {
+  const teamKpiRows = filteredTeamRows.slice(0, 10).map((team) => {
     const groups = Object.entries(groupBy(team.items || [], mainKpi))
       .map(([name, items]) => ({
         name,
@@ -1320,7 +1400,18 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
             <h2 className="section-title m-0">ภาพวิเคราะห์ KPI สำหรับผู้บริหาร</h2>
             <p className="mt-2 mb-0 text-sm text-[var(--mx-muted)]">รวมสัดส่วนงาน จุดเสี่ยง ผลงานรายบุคคล และความเข้มข้นของ KPI รายทีมในมุมเดียว</p>
           </div>
-          <span className="mx-badge status-info">Portfolio {fmtNum(totalTasks)} tasks</span>
+          <div className="flex flex-col sm:flex-row gap-2 no-print">
+            <input className="mx-input sm:!w-80" value={analysisSearch} onChange={(e) => setAnalysisSearch(e.target.value)} placeholder="Search KPI, team, employee" />
+            <select className="mx-input sm:!w-44" value={analysisBandFilter} onChange={(e) => setAnalysisBandFilter(e.target.value)}>
+              <option value="all">All bands</option>
+              <option value="excellent">Excellent</option>
+              <option value="good">Good</option>
+              <option value="monitor">Monitor</option>
+              <option value="critical">Critical</option>
+              <option value="unrated">Unrated</option>
+            </select>
+            <span className="mx-badge status-info">Portfolio {fmtNum(totalTasks)} tasks</span>
+          </div>
         </div>
         <div className="kpi-insight-grid">
           <div className="kpi-insight-card">
@@ -1351,7 +1442,7 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
           <h2 className="section-title m-0">สัดส่วน KPI Portfolio</h2>
           <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">เรียงตามปริมาณงาน พร้อมคุณภาพการส่งมอบของแต่ละหมวด KPI</p>
           <div className="kpi-portfolio-list">
-            {kpiRows.slice(0, 10).map((row, index) => (
+            {filteredKpiRows.slice(0, 10).map((row, index) => (
               <div key={row.name} className="kpi-row-card">
                 <div className="kpi-row-rank">{String(index + 1).padStart(2, '0')}</div>
                 <div className="min-w-0">
@@ -1369,6 +1460,7 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
                 </div>
               </div>
             ))}
+            {!filteredKpiRows.length && <div className="text-sm text-[var(--mx-muted)]">No KPI portfolio records match these filters.</div>}
           </div>
         </section>
 
@@ -1427,12 +1519,13 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
           <DataTable minWidth={900}>
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-                <th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">W.SLA</th><th className="p-4">Top KPI Mix</th>
+                <th className="p-4">Rank</th><th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">W.SLA</th><th className="p-4">Top KPI Mix</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--mx-line)]">
-              {teamKpiRows.map((row) => (
+              {teamKpiRows.map((row, index) => (
                 <tr key={row.team}>
+                  <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td>
                   <td className="p-4 font-black">{row.team}</td>
                   <td className="p-4">{fmtNum(row.total)}</td>
                   <td className="p-4"><span className={`mx-badge ${healthClass(row.sla)}`}>{fmtPct(row.sla)}</span></td>
@@ -1450,6 +1543,7 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
                   </td>
                 </tr>
               ))}
+              {!teamKpiRows.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="5">No team KPI records match these filters.</td></tr>}
             </tbody>
           </DataTable>
         </section>
@@ -1459,10 +1553,14 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
 }
 
 function KpiWeightsPanel({ kpiWeightRows, kpiSearch, setKpiSearch }) {
+  const [weightTeamFilter, setWeightTeamFilter] = useState('all');
+  const [weightBandFilter, setWeightBandFilter] = useState('all');
   const search = kpiSearch.trim().toLowerCase();
-  const filtered = search
-    ? kpiWeightRows.filter((row) => [row.team, row.main, row.sub].join(' ').toLowerCase().includes(search))
-    : kpiWeightRows;
+  const teams = [...new Set(kpiWeightRows.map((row) => row.team))].sort((a, b) => a.localeCompare(b));
+  const filtered = kpiWeightRows
+    .filter((row) => !search || [row.team, row.main, row.sub].join(' ').toLowerCase().includes(search))
+    .filter((row) => weightTeamFilter === 'all' || row.team === weightTeamFilter)
+    .filter((row) => matchesBand(row.sla, weightBandFilter));
   return (
     <section className="mx-card p-5 md:p-7">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
@@ -1470,18 +1568,34 @@ function KpiWeightsPanel({ kpiWeightRows, kpiSearch, setKpiSearch }) {
           <h2 className="section-title m-0">KPI Configurations & Weights</h2>
           <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Searchable KPI weight detail by team, main KPI, and sub KPI.</p>
         </div>
-        <input className="mx-input max-w-[420px]" value={kpiSearch} onChange={(e) => setKpiSearch(e.target.value)} placeholder="Search team, main KPI, or sub KPI" />
+        <div className="grid sm:grid-cols-[minmax(260px,420px)_180px_160px] gap-2 no-print">
+          <input className="mx-input" value={kpiSearch} onChange={(e) => setKpiSearch(e.target.value)} placeholder="Search team, main KPI, or sub KPI" />
+          <select className="mx-input" value={weightTeamFilter} onChange={(e) => setWeightTeamFilter(e.target.value)}>
+            <option value="all">All teams</option>
+            {teams.map((team) => <option key={team} value={team}>{team}</option>)}
+          </select>
+          <select className="mx-input" value={weightBandFilter} onChange={(e) => setWeightBandFilter(e.target.value)}>
+            <option value="all">All bands</option>
+            <option value="excellent">Excellent</option>
+            <option value="good">Good</option>
+            <option value="monitor">Monitor</option>
+            <option value="critical">Critical</option>
+            <option value="unrated">Unrated</option>
+          </select>
+        </div>
       </div>
+      <p className="mt-4 mb-0 text-sm text-[var(--mx-muted)]">Showing {fmtNum(filtered.length)} of {fmtNum(kpiWeightRows.length)} KPI configurations.</p>
       <div className="mt-5">
         <DataTable minWidth={1120}>
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-              <th className="p-4">Team</th><th className="p-4">Main KPI</th><th className="p-4">Sub KPI</th><th className="p-4">Weight</th><th className="p-4">Total</th><th className="p-4">Completed</th><th className="p-4">Pending</th><th className="p-4">SLA Pass</th><th className="p-4">SLA Fail</th><th className="p-4">SLA %</th>
+              <th className="p-4">Rank</th><th className="p-4">Team</th><th className="p-4">Main KPI</th><th className="p-4">Sub KPI</th><th className="p-4">Weight</th><th className="p-4">Total</th><th className="p-4">Completed</th><th className="p-4">Pending</th><th className="p-4">SLA Pass</th><th className="p-4">SLA Fail</th><th className="p-4">SLA %</th><th className="p-4">Band</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--mx-line)]">
-            {filtered.map((row) => (
+            {filtered.map((row, index) => (
               <tr key={`${row.team}-${row.main}-${row.sub}`}>
+                <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td>
                 <td className="p-4"><span className="mx-badge status-neutral">{row.team}</span></td>
                 <td className="p-4 font-black max-w-[280px]">{row.main}</td>
                 <td className="p-4 max-w-[360px]">{row.sub}</td>
@@ -1492,9 +1606,10 @@ function KpiWeightsPanel({ kpiWeightRows, kpiSearch, setKpiSearch }) {
                 <td className="p-4">{fmtNum(row.slaPass)}</td>
                 <td className="p-4">{fmtNum(row.slaFail)}</td>
                 <td className="p-4 font-bold">{fmtPct(row.sla)}</td>
+                <td className="p-4"><span className={`mx-badge ${healthClass(row.sla)}`}>{performanceLabel(row.sla)}</span></td>
               </tr>
             ))}
-            {!filtered.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="10">No KPI weight records match this search.</td></tr>}
+            {!filtered.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="12">No KPI weight records match these filters.</td></tr>}
           </tbody>
         </DataTable>
       </div>
@@ -1531,17 +1646,18 @@ function App() {
       const initial = await API.getInitialData(cleanEmpId);
       if (initial?.error) throw new Error(initial.error);
       if (!initial?.user) throw new Error('User profile was not found.');
-      const user = { ...initial.user, kpis: initial.kpis || [] };
+      const normalizedEmpId = String(initial.user.empId || initial.user.empid || cleanEmpId).trim();
+      const user = { ...initial.user, empId: normalizedEmpId, empid: normalizedEmpId, kpis: initial.kpis || [] };
       const monthParam = month === 0 ? null : month;
       let tasks = [];
       let taskHolidays = [];
       if (isSelfScopedRole(user.role)) {
-        const res = await API.getEmployeeTasks(user, monthParam, year, month === 0, user.empId);
+        const res = await API.getEmployeeTasks(user, monthParam, year, month === 0, userEmpId(user));
         tasks = res.tasks || res || [];
         taskHolidays = res.holidays || [];
       } else {
         const team = isTeamScopedRole(user.role) ? user.team : 'all';
-        const res = await API.getAllTasks(monthParam, year, team, user.empId);
+        const res = await API.getAllTasks(monthParam, year, team, userEmpId(user));
         tasks = filterByAllowedTeams(user, res.tasks || []);
         taskHolidays = res.holidays || [];
       }
@@ -1550,10 +1666,10 @@ function App() {
         if (isSelfScopedRole(user.role)) {
           staff = [user];
         } else if (isTeamScopedRole(user.role)) {
-          const staffRes = await API.getAllStaffInTeam(user.team, user.empId);
+          const staffRes = await API.getAllStaffInTeam(user.team, userEmpId(user));
           staff = staffRes.staff || [];
         } else if (isStrategicViewRole(user.role) || user.role === 'Manager' || user.role === 'Admin') {
-          const staffRes = await API.getAllStaff(user.empId);
+          const staffRes = await API.getAllStaff(userEmpId(user));
           staff = filterByAllowedTeams(user, staffRes.staff || []);
         } else {
           staff = [];
@@ -1564,8 +1680,10 @@ function App() {
       }
       let holidays = taskHolidays;
       try {
-        const holidayRes = await API.getHolidays({ 'x-admin-empid': user.empId || '' });
-        holidays = holidayRes.holidays || holidays;
+        if (user.role === 'Admin') {
+          const holidayRes = await API.getHolidays({ 'x-admin-empid': userEmpId(user) });
+          holidays = holidayRes.holidays || holidays;
+        }
       } catch {
         // If holiday access is restricted, risk displays still use weekend-aware business days.
       }

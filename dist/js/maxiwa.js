@@ -105,6 +105,14 @@ var MaxiwaKpiApp = (() => {
   function isAdminRole(role) {
     return ADMIN_ROLES.includes(role);
   }
+  function userEmpId(user) {
+    return String((user == null ? void 0 : user.empId) || (user == null ? void 0 : user.empid) || "").trim();
+  }
+  function normalizeAppUser(user, fallbackEmpId = "") {
+    if (!user) return null;
+    const normalizedEmpId = String(user.empId || user.empid || fallbackEmpId).trim();
+    return { ...user, empId: normalizedEmpId, empid: normalizedEmpId };
+  }
   function isTeamManagerRole(role) {
     return TEAM_MANAGER_ROLES.includes(role);
   }
@@ -298,11 +306,18 @@ var MaxiwaKpiApp = (() => {
     return typeof window !== "undefined" && window.API_BASE ? window.API_BASE : "/api";
   }
   function adminHeaders(empId) {
-    return { "Content-Type": "application/json", "x-admin-empid": empId || "" };
+    return { "Content-Type": "application/json", "x-admin-empid": String(empId || "").trim() };
   }
   async function adminGet(path, empId) {
     const res = await fetch(`${apiBase()}/${path}`, { headers: adminHeaders(empId) });
-    return res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const error = new Error(data.error || `Request failed (${res.status})`);
+      error.status = res.status;
+      error.data = data;
+      throw error;
+    }
+    return data;
   }
   async function adminPost(path, payload, empId) {
     const res = await fetch(`${apiBase()}/${path}`, {
@@ -648,7 +663,8 @@ var MaxiwaKpiApp = (() => {
     var _a;
     const [newStatus, setNewStatus] = useState(task.status || "On Process");
     const [reason, setReason] = useState("");
-    return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-4", style: { background: "rgba(0,0,0,0.75)" } }, /* @__PURE__ */ React.createElement("div", { className: "mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl" }, /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-extrabold mb-1" }, "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E07\u0E32\u0E19"), /* @__PURE__ */ React.createElement("p", { className: "text-sm text-[var(--mx-muted)] mb-5 break-all" }, (task.job || "").substring(0, 60), ((_a = task.job) == null ? void 0 : _a.length) > 60 ? "..." : ""), /* @__PURE__ */ React.createElement("div", { className: "grid gap-4" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E43\u0E2B\u0E21\u0E48"), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: newStatus, onChange: (e) => setNewStatus(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "Pending" }, "Pending"), /* @__PURE__ */ React.createElement("option", { value: "On Process" }, "On Process"), /* @__PURE__ */ React.createElement("option", { value: "On Hold" }, "On Hold"), /* @__PURE__ */ React.createElement("option", { value: "Completed" }, "Completed"), /* @__PURE__ */ React.createElement("option", { value: "Cancelled" }, "Cancelled"))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "\u0E40\u0E2B\u0E15\u0E38\u0E1C\u0E25 / \u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01"), /* @__PURE__ */ React.createElement(
+    const needsReason = newStatus !== "Completed";
+    return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-4", style: { background: "rgba(0,0,0,0.75)" } }, /* @__PURE__ */ React.createElement("div", { className: "mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl" }, /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-extrabold mb-1" }, "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E07\u0E32\u0E19"), /* @__PURE__ */ React.createElement("p", { className: "text-sm text-[var(--mx-muted)] mb-5 break-all" }, (task.job || "").substring(0, 60), ((_a = task.job) == null ? void 0 : _a.length) > 60 ? "..." : ""), /* @__PURE__ */ React.createElement("div", { className: "grid gap-4" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E43\u0E2B\u0E21\u0E48"), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: newStatus, onChange: (e) => setNewStatus(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "Pending" }, "Pending"), /* @__PURE__ */ React.createElement("option", { value: "On Process" }, "On Process"), /* @__PURE__ */ React.createElement("option", { value: "On Hold" }, "On Hold"), /* @__PURE__ */ React.createElement("option", { value: "Completed" }, "Completed"), /* @__PURE__ */ React.createElement("option", { value: "Cancelled" }, "Cancelled"))), needsReason && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "\u0E40\u0E2B\u0E15\u0E38\u0E1C\u0E25 / \u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01"), /* @__PURE__ */ React.createElement(
       "textarea",
       {
         className: "mx-textarea min-h-[80px]",
@@ -662,7 +678,7 @@ var MaxiwaKpiApp = (() => {
       {
         className: "mx-btn mx-btn-primary flex-1",
         onClick: () => {
-          onSave(newStatus, reason);
+          onSave(newStatus, needsReason ? reason : "");
           onClose();
         }
       },
@@ -772,8 +788,9 @@ var MaxiwaKpiApp = (() => {
     const safeSet = (patch) => setState((prev) => ({ ...prev, ...patch }));
     const loadHolidays = useCallback(async () => {
       if (!user) return;
+      if (!isAdminRole(user.role)) return;
       try {
-        const res = await API.getHolidays({ "x-admin-empid": user.empId || "" });
+        const res = await adminGet("admin/getHolidays", userEmpId(user));
         safeSet({ holidays: res.holidays || [] });
       } catch {
       }
@@ -859,10 +876,10 @@ var MaxiwaKpiApp = (() => {
       safeSet({ loading: true, error: "" });
       try {
         const [logs, teams, holidays, staff, dashboardRes] = await Promise.all([
-          adminGet("admin/getAuditLogs", user.empId),
-          adminGet("admin/getTeams", user.empId),
-          adminGet("admin/getHolidays", user.empId),
-          API.getAllStaff(user.empId),
+          adminGet("admin/getAuditLogs", userEmpId(user)),
+          adminGet("admin/getTeams", userEmpId(user)),
+          adminGet("admin/getHolidays", userEmpId(user)),
+          API.getAllStaff(userEmpId(user)),
           API.getDashboardData()
         ]);
         safeSet({
@@ -1157,7 +1174,7 @@ var MaxiwaKpiApp = (() => {
         if (action === "accept") {
           setDashModal({ show: true, title: "\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E23\u0E31\u0E1A\u0E07\u0E32\u0E19", message: "\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E40\u0E23\u0E34\u0E48\u0E21\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19\u0E19\u0E35\u0E49\u0E43\u0E0A\u0E48\u0E2B\u0E23\u0E37\u0E2D\u0E44\u0E21\u0E48?", color: "blue", type: "confirm", action: () => onAccept(task) });
         } else if (action === "complete") {
-          setDashModal({ show: true, title: "\u0E07\u0E32\u0E19\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19", message: "\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E27\u0E48\u0E32\u0E07\u0E32\u0E19\u0E19\u0E35\u0E49\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E21\u0E1A\u0E39\u0E23\u0E13\u0E4C\u0E41\u0E25\u0E49\u0E27\u0E43\u0E0A\u0E48\u0E2B\u0E23\u0E37\u0E2D\u0E44\u0E21\u0E48?", color: "emerald", type: "confirm", action: () => onStatusChange(task, "Completed", `${ts} \u0E07\u0E32\u0E19\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19`) });
+          setDashModal({ show: true, title: "\u0E07\u0E32\u0E19\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19", message: "\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E27\u0E48\u0E32\u0E07\u0E32\u0E19\u0E19\u0E35\u0E49\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E21\u0E1A\u0E39\u0E23\u0E13\u0E4C\u0E41\u0E25\u0E49\u0E27\u0E43\u0E0A\u0E48\u0E2B\u0E23\u0E37\u0E2D\u0E44\u0E21\u0E48?", color: "emerald", type: "confirm", action: () => onStatusChange(task, "Completed", "") });
         } else if (action === "hold") {
           setDashModal({ show: true, title: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19", message: "\u0E23\u0E30\u0E1A\u0E38\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E01\u0E32\u0E23\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19:", color: "amber", type: "prompt", action: (reason) => {
             if (reason == null ? void 0 : reason.trim()) onStatusChange(task, "On Hold", `${ts} [On Hold] ${reason}`);
@@ -1296,7 +1313,7 @@ var MaxiwaKpiApp = (() => {
             message: "\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E27\u0E48\u0E32\u0E07\u0E32\u0E19\u0E19\u0E35\u0E49\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E21\u0E1A\u0E39\u0E23\u0E13\u0E4C\u0E41\u0E25\u0E49\u0E27\u0E43\u0E0A\u0E48\u0E2B\u0E23\u0E37\u0E2D\u0E44\u0E21\u0E48?",
             color: "emerald",
             type: "confirm",
-            action: () => onStatusChange(task, "Completed", `${ts} \u0E07\u0E32\u0E19\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19`)
+            action: () => onStatusChange(task, "Completed", "")
           });
         }
       } else if (action === "hold") {
@@ -1368,7 +1385,7 @@ var MaxiwaKpiApp = (() => {
       try {
         const newExtra = { ...prModal.task.extra_data || {}, fundNumber: prModal.fundNumber, amount: prModal.amount };
         await Promise.all([
-          API.updateTaskStatus(prModal.task.id, prModal.task.team, "Completed", `${ts} \u0E07\u0E32\u0E19\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19`, "append"),
+          API.updateTaskStatus(prModal.task.id, prModal.task.team, "Completed"),
           API.updateTaskDetails({
             id: prModal.task.id,
             team: prModal.task.team,
@@ -2143,7 +2160,7 @@ var MaxiwaKpiApp = (() => {
     var _a, _b;
     const [user, setUser] = useState(() => {
       safeLocalRemove(SESSION_KEY);
-      return parseJsonSafe(safeSessionGet(SESSION_KEY), null);
+      return normalizeAppUser(parseJsonSafe(safeSessionGet(SESSION_KEY), null));
     });
     const [theme, setTheme] = useState(() => safeLocalGet(THEME_KEY) || "light");
     const [view, setView] = useState(() => {
@@ -2287,7 +2304,7 @@ var MaxiwaKpiApp = (() => {
         const res = await API.getInitialData(cleanEmpId);
         if (res == null ? void 0 : res.error) throw new Error(res.error);
         if (!(res == null ? void 0 : res.user)) throw new Error("\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19");
-        const nextUser = { ...res.user, kpis: res.kpis || [] };
+        const nextUser = { ...normalizeAppUser(res.user, cleanEmpId), kpis: res.kpis || [] };
         writeActiveSessionLock(nextUser);
         setUser(nextUser);
         setView(ROLE_HOME[nextUser.role] || "dashboard");
@@ -2319,13 +2336,16 @@ var MaxiwaKpiApp = (() => {
     const handleStatusChange = async (task, status, note = "", mode = "normal") => {
       setActionLoading(true);
       try {
+        const isCompleting = status === "Completed";
+        const nextNote = isCompleting ? "" : note;
+        const statusMode = isCompleting ? void 0 : "append";
         const holdUpdate = mode === "note_only" ? null : buildHoldExtraData(task, status, state.holidays || [], user.name);
         if (mode === "note_only") {
-          await API.updateTaskStatus(task.id, task.team, task.status, note, "append");
+          await API.updateTaskStatus(task.id, task.team, task.status, nextNote, "append");
         } else if (user.role === "Staff") {
-          await API.updateTaskStatus(task.id, task.team, status, note, "append");
+          await API.updateTaskStatus(task.id, task.team, status, nextNote, statusMode);
         } else {
-          await API.updateTaskStatusWithLog(task.id, task.team, status, note, user.name);
+          await API.updateTaskStatusWithLog(task.id, task.team, status, nextNote, user.name);
         }
         if (holdUpdate == null ? void 0 : holdUpdate.changed) {
           await API.updateTaskDetails({

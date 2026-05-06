@@ -109,6 +109,16 @@ function isAdminRole(role) {
   return ADMIN_ROLES.includes(role);
 }
 
+function userEmpId(user) {
+  return String(user?.empId || user?.empid || '').trim();
+}
+
+function normalizeAppUser(user, fallbackEmpId = '') {
+  if (!user) return null;
+  const normalizedEmpId = String(user.empId || user.empid || fallbackEmpId).trim();
+  return { ...user, empId: normalizedEmpId, empid: normalizedEmpId };
+}
+
 function isTeamManagerRole(role) {
   return TEAM_MANAGER_ROLES.includes(role);
 }
@@ -337,12 +347,19 @@ function apiBase() {
 }
 
 function adminHeaders(empId) {
-  return { 'Content-Type': 'application/json', 'x-admin-empid': empId || '' };
+  return { 'Content-Type': 'application/json', 'x-admin-empid': String(empId || '').trim() };
 }
 
 async function adminGet(path, empId) {
   const res = await fetch(`${apiBase()}/${path}`, { headers: adminHeaders(empId) });
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const error = new Error(data.error || `Request failed (${res.status})`);
+    error.status = res.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
 }
 
 async function adminPost(path, payload, empId) {
@@ -787,6 +804,7 @@ function ActionModal({ config, onClose }) {
 function StatusChangeModal({ task, onSave, onClose }) {
   const [newStatus, setNewStatus] = useState(task.status || 'On Process');
   const [reason, setReason] = useState('');
+  const needsReason = newStatus !== 'Completed';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
@@ -804,22 +822,24 @@ function StatusChangeModal({ task, onSave, onClose }) {
               <option value="Cancelled">Cancelled</option>
             </select>
           </div>
-          <div>
-            <label className="block mb-2 text-sm font-bold">เหตุผล / บันทึก</label>
-            <textarea
-              className="mx-textarea min-h-[80px]"
-              placeholder="ระบุเหตุผลหรือบันทึกเพิ่มเติม..."
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              autoFocus
-            />
-          </div>
+          {needsReason && (
+            <div>
+              <label className="block mb-2 text-sm font-bold">เหตุผล / บันทึก</label>
+              <textarea
+                className="mx-textarea min-h-[80px]"
+                placeholder="ระบุเหตุผลหรือบันทึกเพิ่มเติม..."
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
         </div>
         <div className="flex gap-3 mt-6">
           <button className="mx-btn mx-btn-soft flex-1" onClick={onClose}>ยกเลิก</button>
           <button
             className="mx-btn mx-btn-primary flex-1"
-            onClick={() => { onSave(newStatus, reason); onClose(); }}
+            onClick={() => { onSave(newStatus, needsReason ? reason : ''); onClose(); }}
           >
             ยืนยัน
           </button>
@@ -1120,8 +1140,9 @@ function useAppData(user, view) {
 
   const loadHolidays = useCallback(async () => {
     if (!user) return;
+    if (!isAdminRole(user.role)) return;
     try {
-      const res = await API.getHolidays({ 'x-admin-empid': user.empId || '' });
+      const res = await adminGet('admin/getHolidays', userEmpId(user));
       safeSet({ holidays: res.holidays || [] });
     } catch {
       // Some deployments restrict this endpoint to Admin only. Deadline displays still exclude weekends.
@@ -1212,10 +1233,10 @@ function useAppData(user, view) {
     safeSet({ loading: true, error: '' });
     try {
       const [logs, teams, holidays, staff, dashboardRes] = await Promise.all([
-        adminGet('admin/getAuditLogs', user.empId),
-        adminGet('admin/getTeams', user.empId),
-        adminGet('admin/getHolidays', user.empId),
-        API.getAllStaff(user.empId),
+        adminGet('admin/getAuditLogs', userEmpId(user)),
+        adminGet('admin/getTeams', userEmpId(user)),
+        adminGet('admin/getHolidays', userEmpId(user)),
+        API.getAllStaff(userEmpId(user)),
         API.getDashboardData(),
       ]);
       safeSet({
@@ -1677,7 +1698,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
       if (action === 'accept') {
         setDashModal({ show: true, title: 'ยืนยันรับงาน', message: 'ต้องการเริ่มดำเนินการงานนี้ใช่หรือไม่?', color: 'blue', type: 'confirm', action: () => onAccept(task) });
       } else if (action === 'complete') {
-        setDashModal({ show: true, title: 'งานเสร็จสิ้น', message: 'ยืนยันว่างานนี้เสร็จสมบูรณ์แล้วใช่หรือไม่?', color: 'emerald', type: 'confirm', action: () => onStatusChange(task, 'Completed', `${ts} งานเสร็จสิ้น`) });
+        setDashModal({ show: true, title: 'งานเสร็จสิ้น', message: 'ยืนยันว่างานนี้เสร็จสมบูรณ์แล้วใช่หรือไม่?', color: 'emerald', type: 'confirm', action: () => onStatusChange(task, 'Completed', '') });
       } else if (action === 'hold') {
         setDashModal({ show: true, title: 'พักงาน', message: 'ระบุรายละเอียดการพักงาน:', color: 'amber', type: 'prompt', action: (reason) => { if (reason?.trim()) onStatusChange(task, 'On Hold', `${ts} [On Hold] ${reason}`); } });
       } else if (action === 'resume') {
@@ -2025,7 +2046,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
         showModal({
           title: 'งานเสร็จสิ้น', message: 'ยืนยันว่างานนี้เสร็จสมบูรณ์แล้วใช่หรือไม่?',
           color: 'emerald', type: 'confirm',
-          action: () => onStatusChange(task, 'Completed', `${ts} งานเสร็จสิ้น`),
+          action: () => onStatusChange(task, 'Completed', ''),
         });
       }
     } else if (action === 'hold') {
@@ -2088,7 +2109,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
     try {
       const newExtra = { ...(prModal.task.extra_data || {}), fundNumber: prModal.fundNumber, amount: prModal.amount };
       await Promise.all([
-        API.updateTaskStatus(prModal.task.id, prModal.task.team, 'Completed', `${ts} งานเสร็จสิ้น`, 'append'),
+        API.updateTaskStatus(prModal.task.id, prModal.task.team, 'Completed'),
         API.updateTaskDetails({
           id: prModal.task.id, team: prModal.task.team, job: prModal.task.job,
           subkpi: prModal.task.subkpi, mainkpi: prModal.task.mainkpi,
@@ -3592,7 +3613,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
 function App() {
   const [user, setUser] = useState(() => {
     safeLocalRemove(SESSION_KEY);
-    return parseJsonSafe(safeSessionGet(SESSION_KEY), null);
+    return normalizeAppUser(parseJsonSafe(safeSessionGet(SESSION_KEY), null));
   });
   const [theme, setTheme] = useState(() => safeLocalGet(THEME_KEY) || 'light');
   const [view, setView] = useState(() => {
@@ -3736,7 +3757,7 @@ function App() {
       const res = await API.getInitialData(cleanEmpId);
       if (res?.error) throw new Error(res.error);
       if (!res?.user) throw new Error('ไม่พบข้อมูลผู้ใช้งาน');
-      const nextUser = { ...res.user, kpis: res.kpis || [] };
+      const nextUser = { ...normalizeAppUser(res.user, cleanEmpId), kpis: res.kpis || [] };
       writeActiveSessionLock(nextUser);
       setUser(nextUser);
       setView(ROLE_HOME[nextUser.role] || 'dashboard');
@@ -3771,15 +3792,18 @@ function App() {
   const handleStatusChange = async (task, status, note = '', mode = 'normal') => {
     setActionLoading(true);
     try {
+      const isCompleting = status === 'Completed';
+      const nextNote = isCompleting ? '' : note;
+      const statusMode = isCompleting ? undefined : 'append';
       const holdUpdate = mode === 'note_only'
         ? null
         : buildHoldExtraData(task, status, state.holidays || [], user.name);
       if (mode === 'note_only') {
-        await API.updateTaskStatus(task.id, task.team, task.status, note, 'append');
+        await API.updateTaskStatus(task.id, task.team, task.status, nextNote, 'append');
       } else if (user.role === 'Staff') {
-        await API.updateTaskStatus(task.id, task.team, status, note, 'append');
+        await API.updateTaskStatus(task.id, task.team, status, nextNote, statusMode);
       } else {
-        await API.updateTaskStatusWithLog(task.id, task.team, status, note, user.name);
+        await API.updateTaskStatusWithLog(task.id, task.team, status, nextNote, user.name);
       }
       if (holdUpdate?.changed) {
         await API.updateTaskDetails({
