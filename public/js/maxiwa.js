@@ -192,16 +192,20 @@ function cacheSystemLinks(links) {
 async function fetchSystemLinksFromApi(user) {
   const empId = String(user?.empId || user?.empid || '').trim();
   const qs = new URLSearchParams(empId ? { requesterEmpId: empId } : {}).toString();
+  if (window.getSupabaseSystemLinks) {
+    try {
+      const links = await window.getSupabaseSystemLinks();
+      if (Array.isArray(links) && links.length > 0) return normalizeSystemLinks(links, []);
+    } catch (supabaseError) {
+      console.warn('Supabase system links are not available yet; falling back to API/local cache.', supabaseError);
+    }
+  }
   try {
     const res = await fetch(`${apiBase()}/systemLinks${qs ? `?${qs}` : ''}`);
     if (!res.ok) throw new Error(`System links API ${res.status}`);
     const data = await res.json();
     return normalizeSystemLinks(data.systemLinks || data.systems || data.links || []);
   } catch (apiError) {
-    if (window.getSupabaseSystemLinks) {
-      const links = await window.getSupabaseSystemLinks();
-      if (Array.isArray(links) && links.length > 0) return normalizeSystemLinks(links, []);
-    }
     throw apiError;
   }
 }
