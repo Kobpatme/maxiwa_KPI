@@ -72,6 +72,8 @@ const API = (() => {
     deleteTask: (id, team, changedBy) => post("deleteTask", { id, team, changedBy }),
     getTasksByJob: (q) => get("getTasksByJob", { q }),
     getAuditLogsByTask: (taskId) => get("getAuditLogsByTask", { taskId }),
+    getSystemLinks: (requesterEmpId) => get("systemLinks", { requesterEmpId }),
+    saveSystemLinks: (systemLinks, headers = {}) => post("admin/saveSystemLinks", { systemLinks }, headers),
   };
 })();
 
@@ -150,6 +152,64 @@ async function unsubscribeFromRealtime(tableName) {
     delete realtimeDebounceTimers[tableName];
   }
   delete realtimeSubscriptions[tableName];
+}
+
+function systemLinkFromRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || "",
+    url: row.url || "",
+    icon: row.icon || "fa-up-right-from-square",
+    status: row.status || "Active",
+    visibleToAll: row.visible_to_all === true,
+    allowedRoles: Array.isArray(row.allowed_roles) ? row.allowed_roles : [],
+    allowedTeams: Array.isArray(row.allowed_team_names) ? row.allowed_team_names : [],
+    allowedEmpIds: Array.isArray(row.allowed_emp_ids) ? row.allowed_emp_ids : [],
+    isActive: row.is_active !== false,
+  };
+}
+
+function systemLinkToRow(item, index = 0) {
+  return {
+    id: item.id,
+    name: item.name,
+    description: item.description || "",
+    url: item.url || "",
+    icon: item.icon || "fa-up-right-from-square",
+    status: item.status || "Active",
+    visible_to_all: item.visibleToAll === true,
+    allowed_roles: Array.isArray(item.allowedRoles) ? item.allowedRoles : [],
+    allowed_team_names: Array.isArray(item.allowedTeams) ? item.allowedTeams : [],
+    allowed_emp_ids: Array.isArray(item.allowedEmpIds) ? item.allowedEmpIds : [],
+    sort_order: Number.isFinite(Number(item.sortOrder ?? item.sort_order)) ? Number(item.sortOrder ?? item.sort_order) : (index + 1) * 10,
+    is_active: item.isActive !== false,
+  };
+}
+
+async function getSupabaseSystemLinks() {
+  const client = await initSupabaseClient();
+  if (!client) return [];
+  const { data, error } = await client
+    .from("app_system_links")
+    .select("id,name,description,url,icon,status,visible_to_all,allowed_roles,allowed_team_names,allowed_emp_ids,sort_order,is_active")
+    .eq("is_active", true)
+    .neq("status", "Hidden")
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  if (error) throw error;
+  return (data || []).map(systemLinkFromRow);
+}
+
+async function saveSupabaseSystemLinks(systemLinks) {
+  const client = await initSupabaseClient();
+  if (!client) throw new Error("Supabase client is not available");
+  const rows = (systemLinks || []).map(systemLinkToRow);
+  const { error } = await client
+    .from("app_system_links")
+    .upsert(rows, { onConflict: "id" });
+  if (error) throw error;
+  return { ok: true, systemLinks };
 }
 
 function taskWeight(task) {
@@ -241,6 +301,9 @@ function calcWeightedScores(input) {
 }
 
 window.API = API;
+window.initSupabaseClient = initSupabaseClient;
+window.getSupabaseSystemLinks = getSupabaseSystemLinks;
+window.saveSupabaseSystemLinks = saveSupabaseSystemLinks;
 window.subscribeToRealtime = subscribeToRealtime;
 window.unsubscribeFromRealtime = unsubscribeFromRealtime;
 window.calcWeightedScores = calcWeightedScores;

@@ -166,11 +166,11 @@ function normalizeSystemLink(item = {}) {
     url: String(item.url || '').trim(),
     icon: String(item.icon || 'fa-up-right-from-square').trim(),
     status: item.status || 'Active',
-    visibleToAll: item.visibleToAll === true || String(item.visibleToAll).toLowerCase() === 'true',
-    allowedRoles: normalizeList(item.allowedRoles),
-    allowedTeams: normalizeList(item.allowedTeams),
-    allowedEmpIds: normalizeList(item.allowedEmpIds).map((empId) => empId.toUpperCase()),
-    isActive: item.isActive !== false,
+    visibleToAll: item.visibleToAll === true || item.visible_to_all === true || String(item.visibleToAll ?? item.visible_to_all).toLowerCase() === 'true',
+    allowedRoles: normalizeList(item.allowedRoles ?? item.allowed_roles),
+    allowedTeams: normalizeList(item.allowedTeams ?? item.allowed_team_names),
+    allowedEmpIds: normalizeList(item.allowedEmpIds ?? item.allowed_emp_ids).map((empId) => empId.toUpperCase()),
+    isActive: item.isActive !== false && item.is_active !== false,
   };
 }
 
@@ -181,6 +181,39 @@ function normalizeSystemLinks(links, fallback = DEFAULT_SYSTEM_LINKS) {
 
 function loadSystemLinks() {
   return normalizeSystemLinks(parseJsonSafe(safeLocalGet(SYSTEM_LINKS_KEY), DEFAULT_SYSTEM_LINKS));
+}
+
+function cacheSystemLinks(links) {
+  const normalized = normalizeSystemLinks(links);
+  safeLocalSet(SYSTEM_LINKS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+async function fetchSystemLinksFromApi(user) {
+  const empId = String(user?.empId || user?.empid || '').trim();
+  const qs = new URLSearchParams(empId ? { requesterEmpId: empId } : {}).toString();
+  try {
+    const res = await fetch(`${apiBase()}/systemLinks${qs ? `?${qs}` : ''}`);
+    if (!res.ok) throw new Error(`System links API ${res.status}`);
+    const data = await res.json();
+    return normalizeSystemLinks(data.systemLinks || data.systems || data.links || []);
+  } catch (apiError) {
+    if (window.getSupabaseSystemLinks) {
+      const links = await window.getSupabaseSystemLinks();
+      if (Array.isArray(links)) return normalizeSystemLinks(links, []);
+    }
+    throw apiError;
+  }
+}
+
+async function saveSystemLinksToApi(links, empId) {
+  const normalized = normalizeSystemLinks(links);
+  try {
+    return await adminPost('admin/saveSystemLinks', { systemLinks: normalized }, empId);
+  } catch (apiError) {
+    if (window.saveSupabaseSystemLinks) return window.saveSupabaseSystemLinks(normalized);
+    throw apiError;
+  }
 }
 
 function systemVisibleToUser(system, user) {
@@ -2915,10 +2948,15 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     });
   };
 
-  const persistSystemLinks = (nextLinks) => {
-    const normalized = normalizeSystemLinks(nextLinks);
-    safeLocalSet(SYSTEM_LINKS_KEY, JSON.stringify(normalized));
+  const persistSystemLinks = async (nextLinks) => {
+    const normalized = cacheSystemLinks(nextLinks);
     onSystemLinksChange?.(normalized);
+    try {
+      await saveSystemLinksToApi(normalized, user.empId);
+    } catch (error) {
+      console.warn('System links saved locally; backend endpoint is not available yet.', error);
+      alert('บันทึกในเครื่องนี้แล้ว แต่ยังไม่สามารถบันทึกไป backend กลางได้');
+    }
   };
 
   const toggleSystemRole = (role) => {
@@ -2949,7 +2987,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const saveSystem = () => {
+  const saveSystem = async () => {
     if (!systemForm.name.trim()) return alert('กรุณากรอกชื่อระบบ');
     const next = normalizeSystemLink({
       ...systemForm,
@@ -2957,18 +2995,24 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
       allowedEmpIds: normalizeList(systemForm.allowedEmpIds),
     });
     const others = normalizedSystemLinks.filter((item) => item.id !== next.id);
-    persistSystemLinks([...others, next]);
+    setSaving('systems');
+    await persistSystemLinks([...others, next]);
+    setSaving('');
     setSystemForm(emptySystemForm);
   };
 
-  const duplicateSystem = (item) => {
+  const duplicateSystem = async (item) => {
     const copy = normalizeSystemLink({ ...item, id: `${item.id}-copy`, name: `${item.name} Copy` });
-    persistSystemLinks([...normalizedSystemLinks, copy]);
+    setSaving('systems');
+    await persistSystemLinks([...normalizedSystemLinks, copy]);
+    setSaving('');
   };
 
-  const removeSystem = (id) => {
+  const removeSystem = async (id) => {
     if (!window.confirm('ยืนยันการลบระบบนี้?')) return;
-    persistSystemLinks(normalizedSystemLinks.filter((item) => item.id !== id));
+    setSaving('systems');
+    await persistSystemLinks(normalizedSystemLinks.filter((item) => item.id !== id));
+    setSaving('');
   };
 
   const previewUser = (staff || []).find((person) => String(person.empId || person.empid || '').toUpperCase() === previewEmpId.trim().toUpperCase());
@@ -3378,7 +3422,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
           </div>
           <textarea className="mx-textarea min-h-[70px]" placeholder="Allowed Emp IDs คั่นด้วย comma เช่น EMP001, EMP002" value={systemForm.allowedEmpIds} onChange={(e) => setSystemForm((p) => ({ ...p, allowedEmpIds: e.target.value }))} />
           <div className="grid grid-cols-2 gap-3">
-            <button className="mx-btn mx-btn-primary" onClick={saveSystem}>Save System</button>
+            <button className="mx-btn mx-btn-primary" onClick={saveSystem} disabled={saving === 'systems'}>{saving === 'systems' ? 'Saving...' : 'Save System'}</button>
             <button className="mx-btn mx-btn-soft" onClick={() => setSystemForm(emptySystemForm)}>Clear</button>
           </div>
         </div>
@@ -3562,6 +3606,21 @@ function App() {
     document.documentElement.dataset.theme = theme;
     safeLocalSet(THEME_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    let cancelled = false;
+    fetchSystemLinksFromApi(user)
+      .then((links) => {
+        if (cancelled) return;
+        const normalized = cacheSystemLinks(links);
+        setSystemLinks(normalized);
+      })
+      .catch(() => {
+        if (!cancelled) setSystemLinks(loadSystemLinks());
+      });
+    return () => { cancelled = true; };
+  }, [user]);
 
   const toggleTheme = () => setTheme((current) => current === 'dark' ? 'light' : 'dark');
 

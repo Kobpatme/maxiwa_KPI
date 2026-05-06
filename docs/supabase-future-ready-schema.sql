@@ -24,7 +24,8 @@ begin
       'System'
     );
   end if;
-end $$;
+end;
+$$;
 
 create or replace function public.app_set_updated_at()
 returns trigger
@@ -205,6 +206,68 @@ create trigger app_system_settings_set_updated_at
 before update on public.app_system_settings
 for each row execute function public.app_set_updated_at();
 
+create table if not exists public.app_system_links (
+  id text primary key,
+  name text not null,
+  description text,
+  url text,
+  icon text not null default 'fa-up-right-from-square',
+  status text not null default 'Active',
+  visible_to_all boolean not null default false,
+  allowed_roles text[] not null default '{}'::text[],
+  allowed_team_names text[] not null default '{}'::text[],
+  allowed_emp_ids text[] not null default '{}'::text[],
+  sort_order integer not null default 100,
+  is_active boolean not null default true,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by_emp_id text,
+  updated_by_emp_id text,
+  constraint app_system_links_id_not_blank check (btrim(id) <> ''),
+  constraint app_system_links_name_not_blank check (btrim(name) <> ''),
+  constraint app_system_links_status_allowed check (status in ('Active', 'Maintenance', 'Coming Soon', 'Hidden'))
+);
+
+create index if not exists app_system_links_active_idx on public.app_system_links(is_active) where is_active = true;
+create index if not exists app_system_links_status_idx on public.app_system_links(status);
+create index if not exists app_system_links_roles_gin on public.app_system_links using gin(allowed_roles);
+create index if not exists app_system_links_teams_gin on public.app_system_links using gin(allowed_team_names);
+create index if not exists app_system_links_emp_ids_gin on public.app_system_links using gin(allowed_emp_ids);
+
+drop trigger if exists app_system_links_set_updated_at on public.app_system_links;
+create trigger app_system_links_set_updated_at
+before update on public.app_system_links
+for each row execute function public.app_set_updated_at();
+
+insert into public.app_system_links (
+  id,
+  name,
+  description,
+  url,
+  icon,
+  status,
+  visible_to_all,
+  allowed_roles,
+  sort_order,
+  is_active
+)
+values
+  ('maxiwa-kpi', 'METRIX Verity', 'KPI, SLA, task tracking, and executive performance dashboard', './maxiwa.html', 'fa-chart-line', 'Active', true, '{}'::text[], 10, true),
+  ('executive-view', 'Executive Dashboard', 'Portfolio, risk, SLA, and weighted KPI view for management', './dashboard.html', 'fa-display', 'Active', false, array['Manager','SrManager','Director','Executive','Admin'], 20, true),
+  ('pr-system', 'PR System', 'Create and track purchase request work outside MAXIWA', '', 'fa-file-invoice', 'Coming Soon', false, array['Staff','Lead','Manager','Admin'], 30, true)
+on conflict (id) do update set
+  name = excluded.name,
+  description = excluded.description,
+  url = excluded.url,
+  icon = excluded.icon,
+  status = excluded.status,
+  visible_to_all = excluded.visible_to_all,
+  allowed_roles = excluded.allowed_roles,
+  sort_order = excluded.sort_order,
+  is_active = excluded.is_active,
+  updated_at = now();
+
 insert into public.app_system_settings (key, value, description, is_public)
 values
   ('schema_mode', '{"mode":"compatibility-first","legacy_tables_readable":true}'::jsonb, 'How the new app should treat legacy data.', true),
@@ -329,6 +392,7 @@ alter table public.app_team_departments enable row level security;
 alter table public.app_user_access enable row level security;
 alter table public.app_executive_access enable row level security;
 alter table public.app_system_settings enable row level security;
+alter table public.app_system_links enable row level security;
 alter table public.app_audit_events enable row level security;
 
 -- RLS note:
@@ -352,14 +416,28 @@ for select
 to anon, authenticated
 using (is_public = true);
 
+drop policy if exists app_system_links_read_active on public.app_system_links;
+create policy app_system_links_read_active
+on public.app_system_links
+for select
+to anon, authenticated
+using (is_active = true and status <> 'Hidden');
+
 -- Helper comments for backend integration:
 --
 -- 1. Keep legacy tasks/users/kpis/teams unchanged for compatibility.
 -- 2. On login, resolve legacy users first, then overlay app_user_access by emp_id.
 -- 3. If app_user_access is missing, use role default from app_role_definitions.
 -- 4. Admin screens should write app_departments, app_team_departments,
---    app_user_access, app_executive_access, and app_system_settings only
+--    app_user_access, app_executive_access, app_system_settings, and
+--    app_system_links only
 --    through backend routes.
 -- 5. Every write route should call app_log_audit_event(...).
+-- 6. System links API contract:
+--    GET  /api/systemLinks?requesterEmpId=EMP001
+--      Return { systemLinks: [...] } filtered by visible_to_all, role, team, emp id.
+--    POST /api/admin/saveSystemLinks
+--      Body { systemLinks: [...] } and x-admin-empid header. Upsert rows into
+--      app_system_links, soft-hide removed rows when desired, then audit.
 
 commit;

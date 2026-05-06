@@ -143,6 +143,7 @@ var MaxiwaKpiApp = (() => {
     return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
   }
   function normalizeSystemLink(item = {}) {
+    var _a, _b, _c, _d;
     const id = String(item.id || item.name || `system-${Date.now()}`).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     return {
       id,
@@ -151,11 +152,11 @@ var MaxiwaKpiApp = (() => {
       url: String(item.url || "").trim(),
       icon: String(item.icon || "fa-up-right-from-square").trim(),
       status: item.status || "Active",
-      visibleToAll: item.visibleToAll === true || String(item.visibleToAll).toLowerCase() === "true",
-      allowedRoles: normalizeList(item.allowedRoles),
-      allowedTeams: normalizeList(item.allowedTeams),
-      allowedEmpIds: normalizeList(item.allowedEmpIds).map((empId) => empId.toUpperCase()),
-      isActive: item.isActive !== false
+      visibleToAll: item.visibleToAll === true || item.visible_to_all === true || String((_a = item.visibleToAll) != null ? _a : item.visible_to_all).toLowerCase() === "true",
+      allowedRoles: normalizeList((_b = item.allowedRoles) != null ? _b : item.allowed_roles),
+      allowedTeams: normalizeList((_c = item.allowedTeams) != null ? _c : item.allowed_team_names),
+      allowedEmpIds: normalizeList((_d = item.allowedEmpIds) != null ? _d : item.allowed_emp_ids).map((empId) => empId.toUpperCase()),
+      isActive: item.isActive !== false && item.is_active !== false
     };
   }
   function normalizeSystemLinks(links, fallback = DEFAULT_SYSTEM_LINKS) {
@@ -164,6 +165,36 @@ var MaxiwaKpiApp = (() => {
   }
   function loadSystemLinks() {
     return normalizeSystemLinks(parseJsonSafe(safeLocalGet(SYSTEM_LINKS_KEY), DEFAULT_SYSTEM_LINKS));
+  }
+  function cacheSystemLinks(links) {
+    const normalized = normalizeSystemLinks(links);
+    safeLocalSet(SYSTEM_LINKS_KEY, JSON.stringify(normalized));
+    return normalized;
+  }
+  async function fetchSystemLinksFromApi(user) {
+    const empId = String((user == null ? void 0 : user.empId) || (user == null ? void 0 : user.empid) || "").trim();
+    const qs = new URLSearchParams(empId ? { requesterEmpId: empId } : {}).toString();
+    try {
+      const res = await fetch(`${apiBase()}/systemLinks${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new Error(`System links API ${res.status}`);
+      const data = await res.json();
+      return normalizeSystemLinks(data.systemLinks || data.systems || data.links || []);
+    } catch (apiError) {
+      if (window.getSupabaseSystemLinks) {
+        const links = await window.getSupabaseSystemLinks();
+        if (Array.isArray(links)) return normalizeSystemLinks(links, []);
+      }
+      throw apiError;
+    }
+  }
+  async function saveSystemLinksToApi(links, empId) {
+    const normalized = normalizeSystemLinks(links);
+    try {
+      return await adminPost("admin/saveSystemLinks", { systemLinks: normalized }, empId);
+    } catch (apiError) {
+      if (window.saveSupabaseSystemLinks) return window.saveSupabaseSystemLinks(normalized);
+      throw apiError;
+    }
   }
   function systemVisibleToUser(system, user) {
     const item = normalizeSystemLink(system);
@@ -1850,10 +1881,15 @@ var MaxiwaKpiApp = (() => {
         return { ...prev, permissions: { ...prev.permissions || {}, allowedTeams } };
       });
     };
-    const persistSystemLinks = (nextLinks) => {
-      const normalized = normalizeSystemLinks(nextLinks);
-      safeLocalSet(SYSTEM_LINKS_KEY, JSON.stringify(normalized));
+    const persistSystemLinks = async (nextLinks) => {
+      const normalized = cacheSystemLinks(nextLinks);
       onSystemLinksChange == null ? void 0 : onSystemLinksChange(normalized);
+      try {
+        await saveSystemLinksToApi(normalized, user.empId);
+      } catch (error) {
+        console.warn("System links saved locally; backend endpoint is not available yet.", error);
+        alert("\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E43\u0E19\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E19\u0E35\u0E49\u0E41\u0E25\u0E49\u0E27 \u0E41\u0E15\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E44\u0E1B backend \u0E01\u0E25\u0E32\u0E07\u0E44\u0E14\u0E49");
+      }
     };
     const toggleSystemRole = (role) => {
       setSystemForm((prev) => {
@@ -1880,7 +1916,7 @@ var MaxiwaKpiApp = (() => {
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
-    const saveSystem = () => {
+    const saveSystem = async () => {
       if (!systemForm.name.trim()) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E01\u0E23\u0E2D\u0E01\u0E0A\u0E37\u0E48\u0E2D\u0E23\u0E30\u0E1A\u0E1A");
       const next = normalizeSystemLink({
         ...systemForm,
@@ -1888,16 +1924,22 @@ var MaxiwaKpiApp = (() => {
         allowedEmpIds: normalizeList(systemForm.allowedEmpIds)
       });
       const others = normalizedSystemLinks.filter((item) => item.id !== next.id);
-      persistSystemLinks([...others, next]);
+      setSaving("systems");
+      await persistSystemLinks([...others, next]);
+      setSaving("");
       setSystemForm(emptySystemForm);
     };
-    const duplicateSystem = (item) => {
+    const duplicateSystem = async (item) => {
       const copy = normalizeSystemLink({ ...item, id: `${item.id}-copy`, name: `${item.name} Copy` });
-      persistSystemLinks([...normalizedSystemLinks, copy]);
+      setSaving("systems");
+      await persistSystemLinks([...normalizedSystemLinks, copy]);
+      setSaving("");
     };
-    const removeSystem = (id) => {
+    const removeSystem = async (id) => {
       if (!window.confirm("\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E01\u0E32\u0E23\u0E25\u0E1A\u0E23\u0E30\u0E1A\u0E1A\u0E19\u0E35\u0E49?")) return;
-      persistSystemLinks(normalizedSystemLinks.filter((item) => item.id !== id));
+      setSaving("systems");
+      await persistSystemLinks(normalizedSystemLinks.filter((item) => item.id !== id));
+      setSaving("");
     };
     const previewUser = (staff || []).find((person) => String(person.empId || person.empid || "").toUpperCase() === previewEmpId.trim().toUpperCase());
     const previewSystems = previewUser ? visibleSystemLinksForUser(normalizedSystemLinks, previewUser) : [];
@@ -2055,7 +2097,7 @@ var MaxiwaKpiApp = (() => {
     const SystemsControls = () => /* @__PURE__ */ React.createElement("div", { className: "grid xl:grid-cols-[0.9fr_1.1fr] gap-5" }, /* @__PURE__ */ React.createElement(Panel, { title: "System Link Editor", subtitle: "\u0E40\u0E1E\u0E34\u0E48\u0E21 \u0E41\u0E01\u0E49\u0E44\u0E02 \u0E41\u0E25\u0E30\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E40\u0E2B\u0E47\u0E19\u0E43\u0E19 Sidebar" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "System name", value: systemForm.name, onChange: (e) => setSystemForm((p) => ({ ...p, name: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "mx-textarea min-h-[80px]", placeholder: "Description", value: systemForm.description, onChange: (e) => setSystemForm((p) => ({ ...p, description: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "URL", value: systemForm.url, onChange: (e) => setSystemForm((p) => ({ ...p, url: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "FontAwesome icon \u0E40\u0E0A\u0E48\u0E19 fa-file-invoice", value: systemForm.icon, onChange: (e) => setSystemForm((p) => ({ ...p, icon: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: systemForm.status, onChange: (e) => setSystemForm((p) => ({ ...p, status: e.target.value })) }, ["Active", "Maintenance", "Coming Soon", "Hidden"].map((status) => /* @__PURE__ */ React.createElement("option", { key: status, value: status }, status)))), /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-3 text-sm font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: systemForm.visibleToAll, onChange: (e) => setSystemForm((p) => ({ ...p, visibleToAll: e.target.checked })) }), /* @__PURE__ */ React.createElement("span", null, "Visible to all users")), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold mb-3" }, "Allowed Roles"), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" }, ROLE_OPTIONS.map((role) => /* @__PURE__ */ React.createElement("label", { key: role.value, className: "flex items-center gap-2 text-sm font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: normalizeList(systemForm.allowedRoles).includes(role.value), onChange: () => toggleSystemRole(role.value) }), /* @__PURE__ */ React.createElement("span", null, role.label))))), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold mb-3" }, "Allowed Teams"), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto" }, teams.map((team) => {
       const teamName = team.name || "";
       return /* @__PURE__ */ React.createElement("label", { key: team.id || teamName, className: "flex items-center gap-2 text-sm font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: normalizeList(systemForm.allowedTeams).includes(teamName), onChange: () => toggleSystemTeam(teamName) }), /* @__PURE__ */ React.createElement("span", { className: "truncate" }, teamName));
-    }), teams.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E17\u0E35\u0E21"))), /* @__PURE__ */ React.createElement("textarea", { className: "mx-textarea min-h-[70px]", placeholder: "Allowed Emp IDs \u0E04\u0E31\u0E48\u0E19\u0E14\u0E49\u0E27\u0E22 comma \u0E40\u0E0A\u0E48\u0E19 EMP001, EMP002", value: systemForm.allowedEmpIds, onChange: (e) => setSystemForm((p) => ({ ...p, allowedEmpIds: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary", onClick: saveSystem }, "Save System"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft", onClick: () => setSystemForm(emptySystemForm) }, "Clear")))), /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement(Panel, { title: "Systems Registry", subtitle: "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E23\u0E30\u0E1A\u0E1A\u0E17\u0E35\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E41\u0E2A\u0E14\u0E07\u0E43\u0E2B\u0E49\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E15\u0E32\u0E21\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, filteredSystems.map((system) => /* @__PURE__ */ React.createElement("div", { key: system.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-start md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("i", { className: `fa-solid ${system.icon} text-[var(--mx-accent)]` }), /* @__PURE__ */ React.createElement("div", { className: "font-extrabold truncate" }, system.name)), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, system.description || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, system.status), system.visibleToAll && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-completed" }, "All users"), system.allowedRoles.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, system.allowedRoles.length, " roles"), system.allowedTeams.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, system.allowedTeams.length, " teams"), system.allowedEmpIds.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, system.allowedEmpIds.length, " emp"))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => editSystem(system) }, "\u0E41\u0E01\u0E49\u0E44\u0E02"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => duplicateSystem(system) }, "Duplicate"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => removeSystem(system.id) }, "\u0E25\u0E1A"))))), filteredSystems.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19"))), /* @__PURE__ */ React.createElement(Panel, { title: "Preview As User", subtitle: "\u0E43\u0E2A\u0E48 Emp ID \u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E14\u0E39\u0E27\u0E48\u0E32\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E19\u0E31\u0E49\u0E19\u0E08\u0E30\u0E40\u0E2B\u0E47\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E2D\u0E30\u0E44\u0E23" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "EMP ID", value: previewEmpId, onChange: (e) => setPreviewEmpId(e.target.value.toUpperCase()) }), previewUser ? /* @__PURE__ */ React.createElement("div", { className: "grid gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold" }, previewUser.name, " / ", roleLabel(previewUser.role), " / ", previewUser.team), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, previewSystems.map((system) => /* @__PURE__ */ React.createElement("span", { key: system.id, className: "mx-badge mx-status-process" }, system.name)), previewSystems.length === 0 && /* @__PURE__ */ React.createElement("span", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E30\u0E1A\u0E1A\u0E17\u0E35\u0E48\u0E40\u0E2B\u0E47\u0E19\u0E44\u0E14\u0E49"))) : /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E23\u0E37\u0E2D\u0E01\u0E23\u0E2D\u0E01 Emp ID \u0E17\u0E35\u0E48\u0E21\u0E35\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A")))));
+    }), teams.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E17\u0E35\u0E21"))), /* @__PURE__ */ React.createElement("textarea", { className: "mx-textarea min-h-[70px]", placeholder: "Allowed Emp IDs \u0E04\u0E31\u0E48\u0E19\u0E14\u0E49\u0E27\u0E22 comma \u0E40\u0E0A\u0E48\u0E19 EMP001, EMP002", value: systemForm.allowedEmpIds, onChange: (e) => setSystemForm((p) => ({ ...p, allowedEmpIds: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary", onClick: saveSystem, disabled: saving === "systems" }, saving === "systems" ? "Saving..." : "Save System"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft", onClick: () => setSystemForm(emptySystemForm) }, "Clear")))), /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement(Panel, { title: "Systems Registry", subtitle: "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E23\u0E30\u0E1A\u0E1A\u0E17\u0E35\u0E48\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E41\u0E2A\u0E14\u0E07\u0E43\u0E2B\u0E49\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E15\u0E32\u0E21\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, filteredSystems.map((system) => /* @__PURE__ */ React.createElement("div", { key: system.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-start md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement("i", { className: `fa-solid ${system.icon} text-[var(--mx-accent)]` }), /* @__PURE__ */ React.createElement("div", { className: "font-extrabold truncate" }, system.name)), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, system.description || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, system.status), system.visibleToAll && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-completed" }, "All users"), system.allowedRoles.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, system.allowedRoles.length, " roles"), system.allowedTeams.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, system.allowedTeams.length, " teams"), system.allowedEmpIds.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, system.allowedEmpIds.length, " emp"))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => editSystem(system) }, "\u0E41\u0E01\u0E49\u0E44\u0E02"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => duplicateSystem(system) }, "Duplicate"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => removeSystem(system.id) }, "\u0E25\u0E1A"))))), filteredSystems.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19"))), /* @__PURE__ */ React.createElement(Panel, { title: "Preview As User", subtitle: "\u0E43\u0E2A\u0E48 Emp ID \u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E14\u0E39\u0E27\u0E48\u0E32\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E19\u0E31\u0E49\u0E19\u0E08\u0E30\u0E40\u0E2B\u0E47\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E2D\u0E30\u0E44\u0E23" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "EMP ID", value: previewEmpId, onChange: (e) => setPreviewEmpId(e.target.value.toUpperCase()) }), previewUser ? /* @__PURE__ */ React.createElement("div", { className: "grid gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold" }, previewUser.name, " / ", roleLabel(previewUser.role), " / ", previewUser.team), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, previewSystems.map((system) => /* @__PURE__ */ React.createElement("span", { key: system.id, className: "mx-badge mx-status-process" }, system.name)), previewSystems.length === 0 && /* @__PURE__ */ React.createElement("span", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E30\u0E1A\u0E1A\u0E17\u0E35\u0E48\u0E40\u0E2B\u0E47\u0E19\u0E44\u0E14\u0E49"))) : /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E23\u0E37\u0E2D\u0E01\u0E23\u0E2D\u0E01 Emp ID \u0E17\u0E35\u0E48\u0E21\u0E35\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A")))));
     const AdminOverview = () => {
       const setupItems = [
         { id: "users", label: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E41\u0E25\u0E30\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C", value: staff.length, icon: "fa-users-gear", detail: "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1A\u0E31\u0E0D\u0E0A\u0E35 \u0E1A\u0E17\u0E1A\u0E32\u0E17 \u0E17\u0E35\u0E21 \u0E41\u0E25\u0E30 scope" },
@@ -2121,6 +2163,20 @@ var MaxiwaKpiApp = (() => {
       document.documentElement.dataset.theme = theme;
       safeLocalSet(THEME_KEY, theme);
     }, [theme]);
+    useEffect(() => {
+      if (!user) return void 0;
+      let cancelled = false;
+      fetchSystemLinksFromApi(user).then((links) => {
+        if (cancelled) return;
+        const normalized = cacheSystemLinks(links);
+        setSystemLinks(normalized);
+      }).catch(() => {
+        if (!cancelled) setSystemLinks(loadSystemLinks());
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [user]);
     const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
     const availableYears = useMemo(() => {
       const y = (/* @__PURE__ */ new Date()).getFullYear();
