@@ -157,8 +157,17 @@ function normalizeList(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+function createSystemLinkId(value) {
+  const slug = String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (slug) return slug;
+  const randomPart = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+  return `system-${Date.now().toString(36)}-${randomPart}`;
+}
+
 function normalizeSystemLink(item = {}) {
-  const id = String(item.id || item.name || `system-${Date.now()}`).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const id = createSystemLinkId(item.id || item.name);
   return {
     id,
     name: String(item.name || '').trim(),

@@ -172,7 +172,7 @@ function systemLinkFromRow(row) {
 
 function systemLinkToRow(item, index = 0) {
   return {
-    id: item.id,
+    id: String(item.id || `system-${Date.now().toString(36)}-${index + 1}`).trim(),
     name: item.name,
     description: item.description || "",
     url: item.url || "",
