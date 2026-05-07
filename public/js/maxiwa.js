@@ -3063,7 +3063,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
         res = await API.saveNewTask({
           name: user.name, team: user.team, empId: user.empId,
           job: form.job, subkpi: form.subkpi, mainkpi: form.mainkpi,
-          deadline: form.deadline, note: form.note, extra_data: form.extra_data,
+          deadline: form.deadline, note: form.note, status: 'On Process', extra_data: form.extra_data,
         });
       } else {
         // Lead/Manager: support multiple jobs per line
@@ -3075,6 +3075,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
           mainkpi: form.mainkpi,
           subkpi: form.subkpi,
           deadline: form.deadline,
+          status: 'Pending',
           note: form.note,
         });
       }
@@ -3304,7 +3305,8 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const [editingKpi, setEditingKpi] = useState(null);
   const [kpiMigration, setKpiMigration] = useState(null);
   const [showKpiCreate, setShowKpiCreate] = useState(false);
-  const [holidayForm, setHolidayForm] = useState({ holiday_date: '', name: '', is_active: true });
+  const emptyHolidayForm = { holiday_date: '', name: '', is_active: true, source: 'company' };
+  const [holidayForm, setHolidayForm] = useState(emptyHolidayForm);
   const emptySystemForm = { id: '', name: '', description: '', url: '', icon: 'fa-up-right-from-square', status: 'Active', visibleToAll: false, allowedRoles: [], allowedTeams: [], allowedEmpIds: '', isActive: true };
   const [systemForm, setSystemForm] = useState(emptySystemForm);
   const [previewEmpId, setPreviewEmpId] = useState('');
@@ -3330,6 +3332,15 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const filteredStaff = staff.filter((s) => matches(s.name, s.empId, s.empid, s.department, s.departmentId, s.team, s.role, roleScope(s)));
   const filteredKpis = kpis.filter((k) => matches(k.main, k.sub, k.team, k.days, k.main_weight) && matchesKpi(k));
   const filteredHolidays = holidays.filter((h) => matches(h.name, h.holiday_date, h.is_active ? 'active' : 'inactive'));
+  const holidaySource = (holiday) => String(holiday.source || holiday.holiday_source || holiday.type || '').toLowerCase();
+  const isThaiPublicHoliday = (holiday) => (
+    holidaySource(holiday).includes('thai') ||
+    String(holiday.country_code || holiday.countryCode || '').toUpperCase() === 'TH' ||
+    String(holiday.id || '').startsWith('th-public-') ||
+    String(holiday.external_id || holiday.externalId || '').startsWith('nager-th-')
+  );
+  const companyHolidays = filteredHolidays.filter((holiday) => !isThaiPublicHoliday(holiday));
+  const thaiPublicHolidays = filteredHolidays.filter((holiday) => isThaiPublicHoliday(holiday));
   const normalizedSystemLinks = normalizeSystemLinks(systemLinks);
   const filteredSystems = normalizedSystemLinks.filter((s) => matches(s.name, s.description, s.url, s.status, s.allowedRoles.join(' '), s.allowedTeams.join(' '), s.allowedEmpIds.join(' ')));
   const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
@@ -3610,6 +3621,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
       holiday_date: item.holiday_date || '',
       name: item.name || '',
       is_active: item.is_active !== false,
+      source: item.source || item.holiday_source || item.type || (isThaiPublicHoliday(item) ? 'thai_public' : 'company'),
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -3877,12 +3889,51 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const saveHoliday = async () => {
     if (!holidayForm.holiday_date || !holidayForm.name) return alert('กรุณากรอกวันที่และชื่อวันหยุดให้ครบ');
     await runAdminAction('holiday', async () => adminPost('admin/saveHoliday', holidayForm, user.empId), 'บันทึกวันหยุดสำเร็จ');
-    setHolidayForm({ holiday_date: '', name: '', is_active: true });
+    setHolidayForm(emptyHolidayForm);
+  };
+
+  const syncThaiHolidays = async () => {
+    const year = new Date().getFullYear();
+    await runAdminAction(
+      'thaiHolidaySync',
+      async () => adminPost('admin/syncThaiHolidays', { years: [year, year + 1] }, user.empId),
+      'ดึงวันหยุดไทยสำเร็จ'
+    );
   };
 
   const recalc = async () => {
     await runAdminAction('recalc', async () => adminPost('admin/recalculateDeadlines', {}, user.empId), 'คำนวณกำหนดส่งใหม่สำเร็จ');
   };
+
+  const renderHolidayGroup = (title, subtitle, items, badge) => (
+    <div className="grid gap-3">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-1">
+        <div>
+          <div className="font-bold">{title}</div>
+          <div className="text-sm text-[var(--mx-muted)]">{subtitle}</div>
+        </div>
+        <span className="text-xs font-bold uppercase tracking-wide text-[var(--mx-muted)]">{items.length} รายการ</span>
+      </div>
+      {items.slice(0, 80).map((holiday) => (
+        <div key={holiday.id || holiday.holiday_date} className="mx-data-card">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="font-bold">{holiday.name}</div>
+                <span className="rounded-md border border-[var(--mx-border)] px-2 py-1 text-xs text-[var(--mx-muted)]">{badge}</span>
+              </div>
+              <div className="mt-1 text-sm text-[var(--mx-muted)]">{holiday.holiday_date} / {holiday.is_active ? 'Active' : 'Inactive'}</div>
+            </div>
+            <div className="flex gap-2">
+              <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editHoliday(holiday)}>แก้ไข</button>
+              <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeHoliday(holiday.id)} disabled={!holiday.id}>ลบ</button>
+            </div>
+          </div>
+        </div>
+      ))}
+      {items.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบวันหยุด</div>}
+    </div>
+  );
 
   const removeUser = async (empId) => {
     if (!window.confirm(`ยืนยันการลบผู้ใช้ ${empId}?`)) return;
@@ -4160,6 +4211,9 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
       title="ปฏิทิน SLA"
       subtitle="จัดการวันหยุดที่มีผลต่อการคำนวณกำหนดส่ง"
       actions={[
+        <button key="sync-thai" className="mx-btn mx-btn-soft" onClick={syncThaiHolidays} disabled={saving === 'thaiHolidaySync'}>
+          <i className="fa-solid fa-cloud-arrow-down mr-2"></i>{saving === 'thaiHolidaySync' ? 'กำลังดึงข้อมูล...' : 'ดึงวันหยุดไทย'}
+        </button>,
         <button key="recalc" className="mx-btn mx-btn-soft" onClick={recalc} disabled={saving === 'recalc'}>
           <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังคำนวณ...' : 'คำนวณ Deadline ใหม่'}
         </button>,
@@ -4173,22 +4227,9 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
             <button className="mx-btn mx-btn-primary" onClick={saveHoliday} disabled={saving === 'holiday'}>{saving === 'holiday' ? 'กำลังบันทึก...' : 'บันทึก'}</button>
           </div>
         </div>
-        <div className="grid gap-3">
-          {filteredHolidays.slice(0, 80).map((holiday) => (
-            <div key={holiday.id || holiday.holiday_date} className="mx-data-card">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div>
-                  <div className="font-bold">{holiday.name}</div>
-                  <div className="mt-1 text-sm text-[var(--mx-muted)]">{holiday.holiday_date} / {holiday.is_active ? 'Active' : 'Inactive'}</div>
-                </div>
-                <div className="flex gap-2">
-                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editHoliday(holiday)}>แก้ไข</button>
-                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeHoliday(holiday.id)} disabled={!holiday.id}>ลบ</button>
-                </div>
-              </div>
-            </div>
-          ))}
-          {filteredHolidays.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบวันหยุด</div>}
+        <div className="grid lg:grid-cols-2 gap-4">
+          {renderHolidayGroup('วันหยุดบริษัท', 'รายการที่ Admin เพิ่มหรือแก้ไขเอง', companyHolidays, 'Company')}
+          {renderHolidayGroup('วันหยุดไทยจากภายนอก', 'ข้อมูลจาก Nager.Date สำหรับประเทศไทย', thaiPublicHolidays, 'Thailand API')}
         </div>
       </div>
     </Panel>

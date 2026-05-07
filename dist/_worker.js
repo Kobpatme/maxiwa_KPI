@@ -92,14 +92,18 @@ async function tableColumns(env, table) {
   return null;
 }
 
-async function shapeForTable(env, table, row) {
-  const columns = await tableColumns(env, table);
+function shapeWithColumns(row, columns) {
   const clean = {};
   for (const [key, value] of Object.entries(row || {})) {
     if (value === undefined) continue;
     if (!columns || columns.has(key)) clean[key] = value;
   }
   return clean;
+}
+
+async function shapeForTable(env, table, row) {
+  const columns = await tableColumns(env, table);
+  return shapeWithColumns(row, columns);
 }
 
 function encodeEq(value) {
@@ -145,6 +149,107 @@ function activeHolidayDates(holidays) {
     .filter(Boolean));
 }
 
+function currentYearBangkok() {
+  const year = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Bangkok", year: "numeric" }).format(new Date());
+  return Number(year) || new Date().getUTCFullYear();
+}
+
+function normalizeHolidayYears(input) {
+  const current = currentYearBangkok();
+  const rawYears = Array.isArray(input?.years)
+    ? input.years
+    : (input?.year ? [input.year] : [current, current + 1]);
+  const years = rawYears
+    .map((year) => Number(year))
+    .filter((year) => Number.isInteger(year) && year >= 2000 && year <= 2100);
+  return [...new Set(years)].slice(0, 5);
+}
+
+async function fetchThaiPublicHolidays(year) {
+  const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/TH`, {
+    headers: { Accept: "application/json" },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.message || `Thai holiday provider HTTP ${res.status}`);
+  return Array.isArray(data) ? data : [];
+}
+
+async function upsertHolidayRow(env, row, columns) {
+  const shaped = shapeWithColumns(row, columns);
+  if (shaped.id && (!columns || columns.has("id"))) {
+    const rows = await supabaseWrite(env, "holidays", {
+      query: "on_conflict=id",
+      body: shaped,
+      prefer: "resolution=merge-duplicates,return=representation",
+    });
+    return rows[0] || shaped;
+  }
+
+  const date = shaped.holiday_date || row.holiday_date;
+  const existing = date
+    ? await supabaseFetch(env, "holidays", `select=*&holiday_date=eq.${encodeEq(date)}&limit=1`).then((rows) => rows[0]).catch(() => null)
+    : null;
+  if (existing?.id) {
+    const rows = await supabaseWrite(env, "holidays", {
+      method: "PATCH",
+      query: `id=eq.${encodeEq(existing.id)}`,
+      body: shaped,
+    });
+    return rows[0] || { ...existing, ...shaped };
+  }
+  if (existing && date) {
+    const rows = await supabaseWrite(env, "holidays", {
+      method: "PATCH",
+      query: `holiday_date=eq.${encodeEq(date)}`,
+      body: shaped,
+    });
+    return rows[0] || { ...existing, ...shaped };
+  }
+  const rows = await supabaseWrite(env, "holidays", { body: shaped });
+  return rows[0] || shaped;
+}
+
+async function syncThaiPublicHolidays(env, body = {}) {
+  const years = normalizeHolidayYears(body);
+  const columns = await tableColumns(env, "holidays");
+  const holidayColumns = columns || new Set(["id", "holiday_date", "name", "is_active"]);
+  const rawRows = [];
+
+  for (const year of years) {
+    const holidays = await fetchThaiPublicHolidays(year);
+    for (const item of holidays) {
+      const date = String(item.date || "").slice(0, 10);
+      if (!date) continue;
+      rawRows.push({
+        id: `th-public-${date}`,
+        holiday_date: date,
+        name: item.localName || item.name || `Thailand public holiday ${date}`,
+        is_active: true,
+        source: "thai_public",
+        holiday_source: "thai_public",
+        type: "thai_public",
+        country_code: "TH",
+        external_id: `nager-th-${date}`,
+        provider: "nager.date",
+      });
+    }
+  }
+
+  let synced = [];
+  const rows = rawRows.map((row) => shapeWithColumns(row, holidayColumns));
+  if (rows.length > 0 && holidayColumns.has("id") && rows.every((row) => row.id)) {
+    synced = await supabaseWrite(env, "holidays", {
+      query: "on_conflict=id",
+      body: rows,
+      prefer: "resolution=merge-duplicates,return=representation",
+    });
+  } else {
+    for (const row of rawRows) synced.push(await upsertHolidayRow(env, row, holidayColumns));
+  }
+
+  return { ok: true, years, imported: synced.length, holidays: synced };
+}
+
 function addWorkingDays(startDate, days, holidays = []) {
   const holidaySet = activeHolidayDates(holidays);
   const date = startDate ? new Date(startDate) : new Date();
@@ -156,6 +261,80 @@ function addWorkingDays(startDate, days, holidays = []) {
     if (day !== 0 && day !== 6 && !holidaySet.has(iso)) remaining -= 1;
   }
   return date.toISOString().slice(0, 10);
+}
+
+function normalizeDateOnly(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function businessDaysBetween(startValue, endValue, holidays = []) {
+  const start = normalizeDateOnly(startValue);
+  const end = normalizeDateOnly(endValue);
+  if (!start || !end || start.getTime() === end.getTime()) return 0;
+  const holidaySet = activeHolidayDates(holidays);
+  const direction = end > start ? 1 : -1;
+  const cursor = new Date(start);
+  let count = 0;
+  while (cursor.getTime() !== end.getTime()) {
+    cursor.setDate(cursor.getDate() + direction);
+    const day = cursor.getDay();
+    const iso = cursor.toISOString().slice(0, 10);
+    if (day !== 0 && day !== 6 && !holidaySet.has(iso)) count += direction;
+  }
+  return count;
+}
+
+function normalizeExtraData(extraData) {
+  if (!extraData) return {};
+  if (typeof extraData === "string") {
+    try { return JSON.parse(extraData); } catch { return {}; }
+  }
+  return typeof extraData === "object" ? extraData : {};
+}
+
+function activeHoldStart(task) {
+  const extra = normalizeExtraData(task?.extra_data);
+  return extra.hold_started_at || extra.holdStartAt || extra.holdStart || null;
+}
+
+function buildHoldStatusUpdate(task, nextStatus, holidays = [], changedBy = "") {
+  const currentStatus = String(task?.status || "").toLowerCase();
+  const targetStatus = String(nextStatus || "").toLowerCase();
+  const extra = { ...normalizeExtraData(task?.extra_data) };
+  const now = new Date().toISOString();
+  const start = activeHoldStart(task);
+
+  if (targetStatus === "on hold") {
+    if (!start) {
+      extra.hold_started_at = now;
+      extra.hold_started_by = changedBy || extra.hold_started_by || "";
+      extra.hold_deadline_before = task?.deadline || "";
+    }
+    return { extra_data: extra, deadline: task?.deadline || "" };
+  }
+
+  if (currentStatus !== "on hold" || !start) return {};
+
+  const holdDays = Math.max(0, businessDaysBetween(start, now, holidays));
+  const nextDeadline = holdDays > 0 ? addWorkingDays(task.deadline, holdDays, holidays) : (task?.deadline || "");
+  const history = Array.isArray(extra.hold_history) ? [...extra.hold_history] : [];
+  history.push({
+    start,
+    end: now,
+    businessDays: holdDays,
+    deadlineBefore: extra.hold_deadline_before || task?.deadline || "",
+    deadlineAfter: nextDeadline || task?.deadline || "",
+    changedBy: changedBy || "",
+  });
+  delete extra.hold_started_at;
+  delete extra.hold_started_by;
+  delete extra.hold_deadline_before;
+  extra.hold_days_total = Number(extra.hold_days_total || 0) + holdDays;
+  extra.hold_history = history.slice(-20);
+  return { extra_data: extra, deadline: nextDeadline || task?.deadline || "" };
 }
 
 function dateInPeriod(value, month, year, allTime) {
@@ -309,7 +488,7 @@ async function buildTaskRows(env, body) {
       subkpi: body.subkpi || kpiSub(kpi),
       deadline,
       startdate,
-      status: normalizeStatus(body.status, "Pending"),
+      status: normalizeStatus(body.status, body.assignedToEmpId ? "Pending" : "On Process"),
       note: body.note || "",
       extra_data: typeof job === "object" ? (job.extra_data || body.extra_data || {}) : (body.extra_data || {}),
       mainkpiweight: body.mainkpiweight || body.main_weight || kpiWeight(kpi),
@@ -376,7 +555,11 @@ async function recalculateDeadlines(env) {
       String(kpiSub(item)).trim().toLowerCase() === String(task.subkpi || "").trim().toLowerCase()
     );
     if (!kpi) continue;
-    const nextDeadline = addWorkingDays(task.startdate || task.created_at || todayIso(), kpi.days || 1, holidays);
+    const extra = normalizeExtraData(task.extra_data);
+    const baseDeadline = addWorkingDays(task.startdate || task.created_at || todayIso(), kpi.days || 1, holidays);
+    const holdDays = Number(extra.hold_days_total || extra.holdDaysTotal || 0);
+    const activeDays = String(task.status || "").toLowerCase() === "on hold" ? Math.max(0, businessDaysBetween(activeHoldStart(task), new Date(), holidays)) : 0;
+    const nextDeadline = holdDays + activeDays > 0 ? addWorkingDays(baseDeadline, holdDays + activeDays, holidays) : baseDeadline;
     if (nextDeadline && nextDeadline !== task.deadline) {
       await patchTask(env, task.id, {
         deadline: nextDeadline,
@@ -481,7 +664,9 @@ async function handleApi(request, env, apiPath) {
     const body = await request.json().catch(() => ({}));
     if (!body.id) return jsonResponse(request, { error: "Task id is required" }, 400, { "X-Maxiwa-Backend": "supabase" });
     const status = apiPath === "acceptTask" ? "On Process" : normalizeStatus(body.status || body.newStatus || body.new_status);
-    const updates = { status };
+    const existing = await supabaseFetch(env, "tasks", `select=*&id=eq.${encodeEq(body.id)}&limit=1`).then((rows) => rows[0]).catch(() => null);
+    const holidays = await readAll(env, "holidays").catch(() => []);
+    const updates = { status, ...(existing ? buildHoldStatusUpdate(existing, status, holidays, body.changedBy || body.reason || "") : {}) };
     if (body.note !== undefined || body.reason !== undefined) updates.note = body.note ?? body.reason;
     if (String(status).toLowerCase() === "completed") updates.completiondate = body.completiondate || todayIso();
     const task = await patchTask(env, body.id, updates);
@@ -597,11 +782,24 @@ async function handleApi(request, env, apiPath) {
 
   if (apiPath === "admin/saveHoliday" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
-    const row = await shapeForTable(env, "holidays", body);
+    const source = body.source || body.holiday_source || body.type || "company";
+    const row = await shapeForTable(env, "holidays", {
+      ...body,
+      source,
+      holiday_source: source,
+      type: source,
+    });
     const holidays = row.id
       ? await supabaseWrite(env, "holidays", { method: "PATCH", query: `id=eq.${encodeEq(row.id)}`, body: row })
       : await supabaseWrite(env, "holidays", { body: row });
     return jsonResponse(request, { ok: true, holiday: holidays[0] || row }, 200, { "X-Maxiwa-Backend": "supabase" });
+  }
+
+  if (apiPath === "admin/syncThaiHolidays" && request.method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    const result = await syncThaiPublicHolidays(env, body);
+    await writeAudit(env, { action: "sync_thai_holidays", changedBy: request.headers.get("x-admin-empid"), details: { years: result.years, imported: result.imported } });
+    return jsonResponse(request, result, 200, { "X-Maxiwa-Backend": "supabase" });
   }
 
   if (apiPath === "admin/recalculateDeadlines" && request.method === "POST") {

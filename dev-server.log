@@ -485,3 +485,6 @@ env.CF_PAGES_URL ("https://32c8c34.maxiwa-kpi.pages.dev")                 Enviro
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
+_redirects modified. Re-evaluating...
+✨ Parsed 0 valid redirect rules.
+✨ Parsed 1 valid header rule.
