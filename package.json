@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "npm run build && wrangler pages dev dist",
-    "deploy": "npm run build && wrangler pages deploy dist --project-name maxiwa-kpi"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name metrixverity"
   },
   "devDependencies": {
     "tailwindcss": "^3.4.17",

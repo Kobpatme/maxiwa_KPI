@@ -27,7 +27,7 @@ await execFileAsync(process.execPath, [
   "--minify",
 ], { cwd: root });
 
-const apiBase = process.env.MAXIWA_API_BASE || "https://spds-1.kobpatme.workers.dev/api";
+const apiBase = process.env.MAXIWA_API_BASE || "/api";
 const configPath = path.join(distDir, "config.js");
 const configTemplate = await readFile(path.join(publicDir, "config.js"), "utf8");
 const nextConfig = configTemplate.replace(
