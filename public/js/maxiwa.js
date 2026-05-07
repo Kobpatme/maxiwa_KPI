@@ -656,7 +656,7 @@ function enrichSummaryWithTaskWeights(summary, tasks) {
   const sourceTasks = filterPerformanceTasks(tasks || []);
   return sourceSummary.map((person) => {
     const personTasks = sourceTasks.filter((task) => taskMatchesPerson(task, person));
-    if (personTasks.length === 0) return person;
+    if (personTasks.length === 0) return null;
     const weighted = calcTaskWeightedScores(personTasks);
     return {
       ...person,
@@ -669,7 +669,7 @@ function enrichSummaryWithTaskWeights(summary, tasks) {
       onTimeWeight: weighted.onTimeWeight,
       slaWeight: weighted.slaWeight,
     };
-  });
+  }).filter(Boolean);
 }
 
 function buildPeopleSummaryFromTasks(tasks = []) {

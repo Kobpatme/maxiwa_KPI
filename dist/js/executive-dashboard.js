@@ -126,6 +126,16 @@ var MaxiwaExecutiveDashboard = (() => {
   function teamName(task) {
     return String((task == null ? void 0 : task.team) || "Unassigned").trim();
   }
+  function isResignedText(value) {
+    const text = String(value || "").trim().toLowerCase();
+    return text.includes("\u0E25\u0E32\u0E2D\u0E2D\u0E01") || text.includes("resign") || text.includes("inactive");
+  }
+  function isResignedTask(task = {}) {
+    return isResignedText(task.team) || isResignedText(task.name) || isResignedText(task.assignee) || isResignedText(task.owner);
+  }
+  function filterPerformanceTasks(tasks = []) {
+    return (tasks || []).filter((task) => !isResignedTask(task));
+  }
   function normalizePhotoUrl(value) {
     const src = String(value || "").trim();
     if (!src) return "";
@@ -709,12 +719,12 @@ var MaxiwaExecutiveDashboard = (() => {
         let taskHolidays = [];
         if (isSelfScopedRole(user.role)) {
           const res = await API.getEmployeeTasks(user, monthParam, year, month === 0, userEmpId(user));
-          tasks2 = res.tasks || res || [];
+          tasks2 = filterPerformanceTasks(res.tasks || res || []);
           taskHolidays = res.holidays || [];
         } else {
           const team = isTeamScopedRole(user.role) ? user.team : "all";
           const res = await API.getAllTasks(monthParam, year, team, userEmpId(user));
-          tasks2 = filterByAllowedTeams(user, res.tasks || []);
+          tasks2 = filterPerformanceTasks(filterByAllowedTeams(user, res.tasks || []));
           taskHolidays = res.holidays || [];
         }
         let staff = [];
@@ -758,7 +768,7 @@ var MaxiwaExecutiveDashboard = (() => {
     useEffect(() => {
       applyExecutiveTheme(theme);
     }, [theme]);
-    const tasks = state.tasks || [];
+    const tasks = filterPerformanceTasks(state.tasks || []);
     const staffDirectory = state.staff || [];
     const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
     const portfolio = useMemo(() => buildPortfolio(tasks, holidaySet), [tasks, holidaySet]);

@@ -137,6 +137,19 @@ function teamName(task) {
   return String(task?.team || 'Unassigned').trim();
 }
 
+function isResignedText(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return text.includes('ลาออก') || text.includes('resign') || text.includes('inactive');
+}
+
+function isResignedTask(task = {}) {
+  return isResignedText(task.team) || isResignedText(task.name) || isResignedText(task.assignee) || isResignedText(task.owner);
+}
+
+function filterPerformanceTasks(tasks = []) {
+  return (tasks || []).filter((task) => !isResignedTask(task));
+}
+
 function normalizePhotoUrl(value) {
   const src = String(value || '').trim();
   if (!src) return '';
@@ -1728,12 +1741,12 @@ function App() {
       let taskHolidays = [];
       if (isSelfScopedRole(user.role)) {
         const res = await API.getEmployeeTasks(user, monthParam, year, month === 0, userEmpId(user));
-        tasks = res.tasks || res || [];
+          tasks = filterPerformanceTasks(res.tasks || res || []);
         taskHolidays = res.holidays || [];
       } else {
         const team = isTeamScopedRole(user.role) ? user.team : 'all';
         const res = await API.getAllTasks(monthParam, year, team, userEmpId(user));
-        tasks = filterByAllowedTeams(user, res.tasks || []);
+          tasks = filterPerformanceTasks(filterByAllowedTeams(user, res.tasks || []));
         taskHolidays = res.holidays || [];
       }
       let staff = [];
@@ -1781,7 +1794,7 @@ function App() {
     applyExecutiveTheme(theme);
   }, [theme]);
 
-  const tasks = state.tasks || [];
+  const tasks = filterPerformanceTasks(state.tasks || []);
   const staffDirectory = state.staff || [];
   const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
   const portfolio = useMemo(() => buildPortfolio(tasks, holidaySet), [tasks, holidaySet]);
