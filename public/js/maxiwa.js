@@ -2289,7 +2289,9 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
 
   // Edit task modal
   const [editingTask, setEditingTask] = useState(null);
-  const [editForm, setEditForm] = useState({ job: '', subkpi: '', extra_data: {} });
+  const [editForm, setEditForm] = useState({ job: '', mainkpi: '', subkpi: '', deadline: '', extra_data: {} });
+  const [editKpis, setEditKpis] = useState([]);
+  const [loadingEditKpis, setLoadingEditKpis] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
 
   // PR completion modal
@@ -2327,7 +2329,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
       if (statusFilter !== 'all' && task.status !== statusFilter) return false;
       const q = search.trim().toLowerCase();
       if (!q) return true;
-      return [task.job, task.name, task.team, task.subkpi, task.status]
+      return [task.job, task.name, task.team, task.mainkpi, task.subkpi, task.status]
         .some((v) => String(v || '').toLowerCase().includes(q));
     });
   }, [tasks, statusFilter, search]);
@@ -2383,13 +2385,71 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
     }
   };
 
-  const handleEditOpen = (task) => {
-    setEditForm({ job: task.job || '', subkpi: task.subkpi || '', extra_data: task.extra_data || {} });
+  const editKpiOptions = useMemo(() => {
+    const options = [...(editKpis || [])];
+    if (editForm.subkpi && !options.some((kpi) => kpi.sub === editForm.subkpi)) {
+      options.unshift({
+        main: editForm.mainkpi || editingTask?.mainkpi || '',
+        sub: editForm.subkpi,
+        team: editingTask?.team || '',
+      });
+    }
+    return options;
+  }, [editKpis, editForm.subkpi, editForm.mainkpi, editingTask]);
+
+  const handleEditOpen = async (task) => {
+    setEditForm({
+      job: task.job || '',
+      mainkpi: task.mainkpi || '',
+      subkpi: task.subkpi || '',
+      deadline: toDateInputValue(task.deadline),
+      extra_data: task.extra_data || {},
+    });
     setEditingTask(task);
+    setEditKpis([]);
+    setLoadingEditKpis(true);
+    try {
+      const sourceKpis = (user?.kpis || []).filter((kpi) => !kpi.team || kpi.team === task.team);
+      if (sourceKpis.length > 0) {
+        setEditKpis(sourceKpis);
+      } else {
+        const res = await API.getKPIsByTeam(task.team);
+        setEditKpis(res.kpis || []);
+      }
+    } catch {
+      setEditKpis([]);
+    } finally {
+      setLoadingEditKpis(false);
+    }
+  };
+
+  const handleEditSubKpiChange = async (subkpi) => {
+    const selectedKpi = editKpiOptions.find((kpi) => kpi.sub === subkpi);
+    setEditForm((p) => ({
+      ...p,
+      subkpi,
+      mainkpi: selectedKpi?.main || p.mainkpi,
+      extra_data: {},
+    }));
+    if (!subkpi || !editingTask) return;
+    try {
+      const res = await API.calculateDeadlinePreview({
+        team: editingTask.team,
+        subkpi,
+        startDate: editingTask.startdate || editingTask.startDate || new Date().toISOString(),
+      });
+      if (res && !res.error) {
+        setEditForm((p) => ({
+          ...p,
+          mainkpi: res.mainkpi || selectedKpi?.main || p.mainkpi,
+          deadline: toDateInputValue(res.deadline || p.deadline),
+        }));
+      }
+    } catch {}
   };
 
   const handleEditSave = async () => {
-    if (!editForm.job.trim() || !editForm.subkpi.trim()) {
+    if (!editForm.job.trim() || !editForm.mainkpi.trim() || !editForm.subkpi.trim()) {
       alert('กรุณากรอก Job และ Sub KPI');
       return;
     }
@@ -2399,9 +2459,9 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
         id: editingTask.id,
         team: editingTask.team,
         job: editForm.job,
+        mainkpi: editForm.mainkpi,
         subkpi: editForm.subkpi,
-        mainkpi: editingTask.mainkpi,
-        deadline: editingTask.deadline,
+        deadline: editForm.deadline || editingTask.deadline,
         extra_data: editForm.extra_data || {},
       });
       setEditingTask(null);
@@ -2436,7 +2496,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
     }
   };
 
-  const canEdit = (task) => !['Completed', 'Cancelled'].includes(task.status);
+  const canEdit = (task) => ['Manager', 'Admin'].includes(user.role) || !['Completed', 'Cancelled'].includes(task.status);
   const canCancel = (task) => !['Completed', 'Cancelled'].includes(task.status);
 
   return (
@@ -2482,11 +2542,35 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                 />
               </div>
               <div>
-                <label className="block mb-2 text-sm font-bold">Sub KPI</label>
+                <label className="block mb-2 text-sm font-bold">Main KPI</label>
                 <input
                   className="mx-input"
+                  value={editForm.mainkpi}
+                  readOnly
+                  placeholder={loadingEditKpis ? 'Loading KPI...' : 'Auto-filled from Sub KPI'}
+                />
+              </div>
+              <div>
+                <label className="block mb-2 text-sm font-bold">Sub KPI</label>
+                <select
+                  className="mx-select"
                   value={editForm.subkpi}
-                  onChange={(e) => setEditForm((p) => ({ ...p, subkpi: e.target.value }))}
+                  onChange={(e) => handleEditSubKpiChange(e.target.value)}
+                  disabled={loadingEditKpis}
+                >
+                  <option value="">{loadingEditKpis ? 'Loading KPI...' : 'Select Sub KPI'}</option>
+                  {editKpiOptions.map((kpi) => (
+                    <option key={`${kpi.team || editingTask.team}-${kpi.main}-${kpi.sub}`} value={kpi.sub}>{kpi.sub} ({kpi.main || '-'})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block mb-2 text-sm font-bold">Deadline</label>
+                <input
+                  className="mx-input"
+                  type="date"
+                  value={editForm.deadline}
+                  onChange={(e) => setEditForm((p) => ({ ...p, deadline: e.target.value }))}
                 />
               </div>
               <ExtraDataFields
@@ -2494,9 +2578,6 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                 extraData={editForm.extra_data}
                 onChange={(ed) => setEditForm((p) => ({ ...p, extra_data: ed }))}
               />
-              <div className="text-sm text-[var(--mx-muted)]">
-                Main KPI: {editingTask.mainkpi || '-'} • Deadline: {formatDate(editingTask.deadline)}
-              </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button className="mx-btn mx-btn-soft flex-1" onClick={() => setEditingTask(null)}>ยกเลิก</button>
@@ -2613,7 +2694,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                     )}
                   </div>
                   <div className="mt-2 text-sm text-[var(--mx-muted)]">
-                    {task.name || '-'} • {task.team || '-'} • {task.subkpi || 'ไม่ระบุ Sub KPI'}
+                    {task.name || '-'} • {task.team || '-'} • Main KPI: {task.mainkpi || '-'} • Sub KPI: {task.subkpi || 'ไม่ระบุ Sub KPI'}
                   </div>
                   <div className="mt-2 text-sm text-[var(--mx-muted)]">
                     Start {formatDate(task.startdate)} • Deadline {formatDate(task.deadline)}
@@ -3203,22 +3284,34 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const [userForm, setUserForm] = useState({ empid: '', name: '', department: '', team: '', role: 'Staff', accessScope: 'Self', pigurl: '' });
   const [teamForm, setTeamForm] = useState({ id: '', name: '' });
   const [kpiForm, setKpiForm] = useState({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
+  const [editingKpi, setEditingKpi] = useState(null);
+  const [kpiMigration, setKpiMigration] = useState(null);
+  const [showKpiCreate, setShowKpiCreate] = useState(false);
   const [holidayForm, setHolidayForm] = useState({ holiday_date: '', name: '', is_active: true });
   const emptySystemForm = { id: '', name: '', description: '', url: '', icon: 'fa-up-right-from-square', status: 'Active', visibleToAll: false, allowedRoles: [], allowedTeams: [], allowedEmpIds: '', isActive: true };
   const [systemForm, setSystemForm] = useState(emptySystemForm);
   const [previewEmpId, setPreviewEmpId] = useState('');
   const [adminSearch, setAdminSearch] = useState('');
+  const [kpiSearch, setKpiSearch] = useState('');
+  const [kpiTeamFilter, setKpiTeamFilter] = useState('');
   const [saving, setSaving] = useState('');
 
   const teams = adminData?.teams || [];
   const staff = adminData?.staff || [];
   const kpis = adminData?.kpis || [];
+  const adminTasks = adminData?.tasks || [];
   const holidays = adminData?.holidays || [];
   const logs = adminData?.logs || [];
   const q = adminSearch.trim().toLowerCase();
   const matches = (...values) => !q || values.some((value) => String(value || '').toLowerCase().includes(q));
+  const kpiQuery = kpiSearch.trim().toLowerCase();
+  const matchesKpi = (item) => {
+    const matchesSearch = !kpiQuery || [item.main, item.mainkpi, item.sub, item.subkpi, item.team, item.days, item.main_weight].some((value) => String(value || '').toLowerCase().includes(kpiQuery));
+    const matchesTeam = !kpiTeamFilter || String(item.team || '') === kpiTeamFilter;
+    return matchesSearch && matchesTeam;
+  };
   const filteredStaff = staff.filter((s) => matches(s.name, s.empId, s.empid, s.department, s.departmentId, s.team, s.role, roleScope(s)));
-  const filteredKpis = kpis.filter((k) => matches(k.main, k.sub, k.team, k.days, k.main_weight));
+  const filteredKpis = kpis.filter((k) => matches(k.main, k.sub, k.team, k.days, k.main_weight) && matchesKpi(k));
   const filteredHolidays = holidays.filter((h) => matches(h.name, h.holiday_date, h.is_active ? 'active' : 'inactive'));
   const normalizedSystemLinks = normalizeSystemLinks(systemLinks);
   const filteredSystems = normalizedSystemLinks.filter((s) => matches(s.name, s.description, s.url, s.status, s.allowedRoles.join(' '), s.allowedTeams.join(' '), s.allowedEmpIds.join(' ')));
@@ -3241,6 +3334,72 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     const normalized = String(value ?? '').trim().replace(',', '.');
     const number = Number(normalized);
     return Number.isFinite(number) && number > 0 ? number : fallback;
+  };
+
+  const normalizedKpiText = (value) => String(value || '').trim().toLowerCase();
+
+  const saveKpiDirect = async (payload, fallbackPayload) => {
+    const client = await initSupabaseClient();
+    if (!client) throw new Error('Supabase client is not available');
+
+    const writeRow = async (row) => {
+      if (row.id) {
+        const { data, error } = await client
+          .from('kpis')
+          .update(row)
+          .eq('id', row.id)
+          .select()
+          .maybeSingle();
+        if (error) throw error;
+        return data || row;
+      }
+
+      const { data, error } = await client
+        .from('kpis')
+        .insert(row)
+        .select()
+        .single();
+      if (error) throw error;
+      return data || row;
+    };
+
+    try {
+      return { ok: true, kpi: await writeRow(payload) };
+    } catch (error) {
+      if (fallbackPayload && String(error.message || '').includes('main_weight')) {
+        return { ok: true, kpi: await writeRow(fallbackPayload) };
+      }
+      throw error;
+    }
+  };
+
+  const syncKpiChangesToTasks = async (originalKpi, nextKpi) => {
+    if (!originalKpi?.id) return 0;
+    const oldMain = originalKpi.main || originalKpi.mainkpi || '';
+    const oldSub = originalKpi.sub || originalKpi.subkpi || '';
+    const oldTeam = originalKpi.team || '';
+    const mainChanged = normalizedKpiText(oldMain) !== normalizedKpiText(nextKpi.main);
+    const subChanged = normalizedKpiText(oldSub) !== normalizedKpiText(nextKpi.sub);
+    if (!mainChanged && !subChanged) return 0;
+
+    const affectedTasks = adminTasks.filter((task) => (
+      normalizedKpiText(task.team) === normalizedKpiText(oldTeam) &&
+      normalizedKpiText(task.mainkpi || task.mainKpi || task.main) === normalizedKpiText(oldMain) &&
+      normalizedKpiText(task.subkpi || task.subKpi || task.sub) === normalizedKpiText(oldSub)
+    ));
+
+    for (const task of affectedTasks) {
+      await API.updateTaskDetails({
+        id: task.id,
+        team: task.team,
+        job: task.job,
+        subkpi: nextKpi.sub,
+        mainkpi: nextKpi.main,
+        deadline: task.deadline,
+        extra_data: task.extra_data,
+      });
+    }
+    return affectedTasks.length;
   };
 
   const runAdminAction = async (key, action, successMessage) => {
@@ -3362,16 +3521,33 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const previewUser = (staff || []).find((person) => String(person.empId || person.empid || '').toUpperCase() === previewEmpId.trim().toUpperCase());
   const previewSystems = previewUser ? visibleSystemLinksForUser(normalizedSystemLinks, previewUser) : [];
 
-  const editKpi = (item) => {
-    setKpiForm({
+  const kpiFormFromItem = (item = {}) => ({
       id: item.id,
       main: item.main || item.mainkpi || '',
       sub: item.sub || item.subkpi || '',
       team: item.team || '',
       days: item.days || 1,
       main_weight: item.main_weight || item.mainWeight || 1,
-    });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  const kpiMainValue = (item = {}) => item.main || item.mainkpi || '';
+  const kpiSubValue = (item = {}) => item.sub || item.subkpi || '';
+  const kpiWeightValue = (item = {}) => item.main_weight || item.mainWeight || 1;
+  const kpiRuleKey = (item = {}) => String(item.id || `${item.team || ''}::${kpiMainValue(item)}::${kpiSubValue(item)}`);
+  const findKpiByKey = (key) => kpis.find((item) => kpiRuleKey(item) === key);
+  const kpiRuleLabel = (item = {}) => `${item.team || '-'} / ${kpiMainValue(item) || '-'} / ${kpiSubValue(item) || '-'}`;
+  const taskMatchesKpiRule = (task, kpi) => (
+    normalizedKpiText(task.team) === normalizedKpiText(kpi.team) &&
+    normalizedKpiText(task.mainkpi || task.mainKpi || task.main) === normalizedKpiText(kpiMainValue(kpi)) &&
+    normalizedKpiText(task.subkpi || task.subKpi || task.sub) === normalizedKpiText(kpiSubValue(kpi))
+  );
+
+  const editKpi = (item) => {
+    setEditingKpi(kpiFormFromItem(item));
+  };
+
+  const openKpiMigration = (item) => {
+    setKpiMigration({ sourceKey: kpiRuleKey(item), targetKey: '' });
   };
 
   const editHoliday = (item) => {
@@ -3424,25 +3600,219 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     setTeamForm({ id: '', name: '' });
   };
 
-  const saveKpi = async () => {
-    const main = kpiForm.main.trim();
-    const sub = kpiForm.sub.trim();
-    const team = kpiForm.team.trim();
-    const days = Math.round(toPositiveNumber(kpiForm.days, 1));
-    const mainWeight = toPositiveNumber(kpiForm.main_weight, 1);
+  const saveKpi = async (formOverride = null, options = {}) => {
+    const isReactEvent = formOverride?.nativeEvent || formOverride?.target;
+    const sourceForm = isReactEvent || !formOverride ? kpiForm : formOverride;
+    const main = String(sourceForm.main || '').trim();
+    const sub = String(sourceForm.sub || '').trim();
+    const team = String(sourceForm.team || '').trim();
+    const days = Math.round(toPositiveNumber(sourceForm.days, 1));
+    const mainWeight = toPositiveNumber(sourceForm.main_weight, 1);
     if (!main || !sub || !team) return alert('กรุณากรอก Main KPI, Sub KPI และทีมให้ครบ');
     if (!days || days < 1) return alert('SLA Days ต้องมากกว่า 0');
     if (!mainWeight || mainWeight <= 0) return alert('Weight ต้องมากกว่า 0');
-    const payload = {
-      ...(kpiForm.id ? { id: kpiForm.id } : {}),
+    const basePayload = {
+      ...(sourceForm.id ? { id: sourceForm.id } : {}),
       main,
       sub,
       team,
       days,
+    };
+    const payload = {
+      ...basePayload,
       main_weight: mainWeight,
     };
-    await runAdminAction('kpi', async () => adminPost('admin/saveKpi', payload, user.empId), 'บันทึก KPI สำเร็จ');
-    setKpiForm({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
+    const originalKpi = sourceForm.id ? kpis.find((item) => String(item.id) === String(sourceForm.id)) : null;
+    await runAdminAction('kpi', async () => {
+      const result = await saveKpiDirect(payload, basePayload);
+      await syncKpiChangesToTasks(originalKpi, payload);
+      return result;
+    }, 'บันทึก KPI และอัปเดตงานเดิมสำเร็จ');
+    if (options.closeModal) setEditingKpi(null);
+    else setKpiForm({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
+  };
+
+  const migrateOldTasksToKpi = async () => {
+    const sourceKpi = findKpiByKey(kpiMigration?.sourceKey);
+    const targetKpi = findKpiByKey(kpiMigration?.targetKey);
+    if (!sourceKpi || !targetKpi) return alert('กรุณาเลือก KPI เดิมและ KPI ใหม่ให้ครบ');
+    if (kpiRuleKey(sourceKpi) === kpiRuleKey(targetKpi)) return alert('กรุณาเลือก KPI ใหม่ที่ไม่ใช่รายการเดิม');
+    const affectedTasks = adminTasks.filter((task) => taskMatchesKpiRule(task, sourceKpi));
+    if (affectedTasks.length === 0) return alert('ไม่พบงานเก่าที่ตรงกับ KPI เดิม');
+    if (!window.confirm(`ยืนยันการย้ายงานเก่า ${affectedTasks.length} รายการไปใช้ KPI ใหม่?`)) return;
+
+    let succeeded = false;
+    await runAdminAction('kpi-migration', async () => {
+      for (const task of affectedTasks) {
+        await API.updateTaskDetails({
+          id: task.id,
+          team: task.team,
+          job: task.job,
+          subkpi: kpiSubValue(targetKpi),
+          mainkpi: kpiMainValue(targetKpi),
+          deadline: task.deadline,
+          extra_data: task.extra_data,
+        });
+      }
+      await adminPost('admin/recalculateDeadlines', {}, user.empId);
+      succeeded = true;
+      return { ok: true };
+    }, `ย้ายงานเก่า ${affectedTasks.length} รายการสำเร็จ`);
+    if (succeeded) setKpiMigration(null);
+  };
+
+  const renderKpiMigrationModal = () => {
+    if (!kpiMigration) return null;
+    const sourceKpi = findKpiByKey(kpiMigration.sourceKey);
+    const targetKpi = findKpiByKey(kpiMigration.targetKey);
+    const targetOptions = sourceKpi
+      ? kpis.filter((item) => normalizedKpiText(item.team) === normalizedKpiText(sourceKpi.team) && kpiRuleKey(item) !== kpiRuleKey(sourceKpi))
+      : [];
+    const affectedTasks = sourceKpi ? adminTasks.filter((task) => taskMatchesKpiRule(task, sourceKpi)) : [];
+    const statusCounts = affectedTasks.reduce((acc, task) => {
+      const status = task.status || 'Unknown';
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+    const targetWeight = targetKpi ? kpiWeightValue(targetKpi) : '-';
+    const targetDays = targetKpi ? (targetKpi.days || '-') : '-';
+    return (
+      <div className="fixed inset-0 z-[101] grid place-items-center p-4 bg-[rgba(15,23,42,0.72)]" onClick={() => setKpiMigration(null)}>
+        <div className="mx-shell-card rounded-[24px] w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--mx-line)] bg-[var(--mx-panel)] p-5 md:p-6">
+            <div>
+              <h3 className="m-0 text-2xl font-extrabold tracking-normal">ย้าย KPI งานเก่า</h3>
+              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">เลือก KPI ใหม่แล้วระบบจะย้าย Main/Sub ของงานเดิมให้ ไม่ต้องแก้ Data เอง</p>
+            </div>
+            <button className="mx-btn mx-btn-soft !p-0 w-10 h-10 flex-shrink-0" onClick={() => setKpiMigration(null)} aria-label="ปิด">
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div className="p-5 md:p-6 grid gap-5">
+            <div className="grid md:grid-cols-2 gap-3">
+              <div className="mx-muted-card rounded-lg p-4">
+                <div className="text-xs font-bold text-[var(--mx-muted)]">KPI เดิม</div>
+                <div className="mt-2 font-extrabold break-words">{sourceKpi ? kpiRuleLabel(sourceKpi) : '-'}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="mx-badge mx-status-process">งานที่พบ {affectedTasks.length}</span>
+                  <span className="mx-badge mx-status-cancelled">Weight {sourceKpi ? kpiWeightValue(sourceKpi) : '-'}</span>
+                </div>
+              </div>
+              <div className="mx-muted-card rounded-lg p-4">
+                <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                  KPI ใหม่
+                  <select className="mx-select" value={kpiMigration.targetKey} onChange={(e) => setKpiMigration((p) => ({ ...p, targetKey: e.target.value }))}>
+                    <option value="">เลือก KPI ใหม่ในทีมเดียวกัน</option>
+                    {targetOptions.map((item) => (
+                      <option key={kpiRuleKey(item)} value={kpiRuleKey(item)}>{kpiMainValue(item)} / {kpiSubValue(item)} / Weight {kpiWeightValue(item)}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="mx-badge mx-status-completed">Weight ใหม่ {targetWeight}</span>
+                  <span className="mx-badge mx-status-process">SLA {targetDays} วัน</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                <div>
+                  <div className="text-sm font-extrabold">Preview ก่อนยืนยัน</div>
+                  <div className="mt-1 text-xs text-[var(--mx-muted)]">งานเดิมจะเปลี่ยนเฉพาะ Main/Sub KPI แล้วคะแนนจะอิง Weight ของ KPI ใหม่หลังคำนวณใหม่</div>
+                </div>
+                <span className="mx-badge mx-status-process">{affectedTasks.length} tasks</span>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {Object.entries(statusCounts).map(([status, count]) => (
+                  <span key={status} className="mx-badge mx-status-cancelled">{status}: {count}</span>
+                ))}
+                {affectedTasks.length === 0 && <span className="text-sm text-[var(--mx-muted)]">ไม่พบงานที่ตรงกับ KPI เดิม</span>}
+              </div>
+              {affectedTasks.length > 0 && (
+                <div className="mt-4 max-h-44 overflow-y-auto rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)]">
+                  {affectedTasks.slice(0, 8).map((task) => (
+                    <div key={task.id} className="flex items-start justify-between gap-3 border-b border-[var(--mx-line)] px-3 py-2 last:border-b-0">
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold truncate">{task.job || task.task || '-'}</div>
+                        <div className="text-xs text-[var(--mx-muted)]">{task.assignee || task.assignedTo || task.name || '-'} / {task.status || '-'}</div>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2 flex-shrink-0">
+                        <span className="mx-badge mx-status-process">{task.team || '-'}</span>
+                        {task.deadline && (
+                          <span className="mx-badge mx-status-cancelled">{formatDate(task.deadline)}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button className="mx-btn mx-btn-soft" onClick={() => setKpiMigration(null)}>ยกเลิก</button>
+              <button className="mx-btn mx-btn-primary" onClick={migrateOldTasksToKpi} disabled={saving === 'kpi-migration' || !targetKpi || affectedTasks.length === 0}>
+                {saving === 'kpi-migration' ? 'กำลังย้ายงาน...' : 'ยืนยันย้ายงานเก่า'}
+              </button>
+            </div>
+                        </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderKpiEditModal = () => {
+    if (!editingKpi) return null;
+    return (
+      <div className="fixed inset-0 z-[100] grid place-items-center p-4 bg-[rgba(15,23,42,0.72)]" onClick={() => setEditingKpi(null)}>
+        <div className="mx-shell-card rounded-[24px] w-full max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--mx-line)] bg-[var(--mx-panel)] p-5 md:p-6">
+            <div>
+              <h3 className="m-0 text-2xl font-extrabold tracking-normal">แก้ไขกฎ KPI/SLA</h3>
+              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">บันทึกแล้วระบบจะอัปเดตงานเดิมให้</p>
+            </div>
+            <button className="mx-btn mx-btn-soft !p-0 w-10 h-10 flex-shrink-0" onClick={() => setEditingKpi(null)} aria-label="ปิด">
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div className="p-5 md:p-6">
+            <div className="grid gap-4">
+              <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                Main KPI
+                <input className="mx-input" placeholder="Main KPI" value={editingKpi.main} onChange={(e) => setEditingKpi((p) => ({ ...p, main: e.target.value }))} />
+              </label>
+              <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                Sub KPI
+                <input className="mx-input" placeholder="Sub KPI" value={editingKpi.sub} onChange={(e) => setEditingKpi((p) => ({ ...p, sub: e.target.value }))} />
+              </label>
+              <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                Team
+                <select className="mx-select" value={editingKpi.team} onChange={(e) => setEditingKpi((p) => ({ ...p, team: e.target.value }))}>
+                  <option value="">เลือกทีม</option>
+                {teams.map((team) => <option key={team.id || team.name} value={team.name}>{team.name}</option>)}
+              </select>
+            </label>
+              <div className="grid grid-cols-2 gap-3">
+              <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                SLA Days
+                <input className="mx-input" type="number" min="1" placeholder="1" value={editingKpi.days} onChange={(e) => setEditingKpi((p) => ({ ...p, days: e.target.value }))} />
+              </label>
+              <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                Weight
+                <input className="mx-input" type="number" min="1" step="0.1" placeholder="1" value={editingKpi.main_weight} onChange={(e) => setEditingKpi((p) => ({ ...p, main_weight: e.target.value }))} />
+              </label>
+            </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-6">
+              <button className="mx-btn mx-btn-soft" onClick={() => setEditingKpi(null)}>ยกเลิก</button>
+              <button className="mx-btn mx-btn-primary" onClick={() => saveKpi(editingKpi, { closeModal: true })} disabled={saving === 'kpi'}>
+                {saving === 'kpi' ? 'กำลังบันทึก...' : 'บันทึกและอัปเดตงานเดิม'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const saveHoliday = async () => {
@@ -3604,15 +3974,27 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const KpiControls = () => (
     <Panel
       title="กฎ KPI/SLA"
-      subtitle="จัดการจำนวนวัน SLA และน้ำหนัก KPI ที่ใช้คำนวณคะแนน"
+      subtitle="ค้นหา แก้ไข และอัปเดตกฎที่ใช้งานจริง"
       actions={[
+        <button key="add" className="mx-btn mx-btn-primary" onClick={() => setShowKpiCreate((value) => !value)}>
+          <i className={`fa-solid ${showKpiCreate ? 'fa-minus' : 'fa-plus'} mr-2`}></i>{showKpiCreate ? 'ซ่อนฟอร์มเพิ่ม' : 'เพิ่มกฎใหม่'}
+        </button>,
         <button key="recalc" className="mx-btn mx-btn-soft" onClick={recalc} disabled={saving === 'recalc'}>
           <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังคำนวณ...' : 'คำนวณ Deadline ใหม่'}
         </button>,
       ]}
     >
       <div className="grid gap-5">
-        <div className="mx-muted-card rounded-lg p-4">
+        {renderKpiEditModal()}
+        {renderKpiMigrationModal()}
+        {showKpiCreate && <div className="mx-muted-card rounded-lg p-4">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-extrabold">เพิ่มกฎ KPI/SLA ใหม่</div>
+              <div className="mt-1 text-xs text-[var(--mx-muted)]">ใช้เมื่อต้องสร้างกฎใหม่เท่านั้น งานแก้ไขให้กดจากตารางด้านล่าง</div>
+            </div>
+            <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => setShowKpiCreate(false)}>ปิด</button>
+          </div>
           <div className="grid md:grid-cols-2 gap-3">
             <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
               Main KPI
@@ -3641,26 +4023,74 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 mt-3">
-            <button className="mx-btn mx-btn-primary w-full" onClick={saveKpi} disabled={saving === 'kpi'}>{saving === 'kpi' ? 'กำลังบันทึก...' : 'บันทึก KPI'}</button>
+            <button className="mx-btn mx-btn-primary w-full" onClick={() => saveKpi()} disabled={saving === 'kpi'}>{saving === 'kpi' ? 'กำลังบันทึก...' : 'บันทึก KPI'}</button>
             <button className="mx-btn mx-btn-soft w-full" onClick={() => setKpiForm({ main: '', sub: '', team: '', days: 1, main_weight: 1 })}>ล้างฟอร์ม</button>
           </div>
+        </div>}
+        <div className="mx-muted-card rounded-lg p-4">
+          <div className="grid lg:grid-cols-[1fr_220px_auto] gap-3 lg:items-end">
+            <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+              ค้นหากฎ KPI/SLA
+              <input className="mx-input" placeholder="ค้นหา Main, Sub, Team, Days, Weight" value={kpiSearch} onChange={(e) => setKpiSearch(e.target.value)} />
+            </label>
+            <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+              ทีม
+              <select className="mx-select" value={kpiTeamFilter} onChange={(e) => setKpiTeamFilter(e.target.value)}>
+                <option value="">ทุกทีม</option>
+                {teams.map((team) => <option key={team.id || team.name} value={team.name}>{team.name}</option>)}
+              </select>
+            </label>
+            <button className="mx-btn mx-btn-soft" onClick={() => { setKpiSearch(''); setKpiTeamFilter(''); }}>
+              ล้างตัวกรอง
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--mx-muted)]">
+            <span className="mx-badge mx-status-process">แสดง {filteredKpis.length} จาก {kpis.length}</span>
+          </div>
         </div>
-        <div className="grid gap-3">
-          {filteredKpis.slice(0, 80).map((kpi) => (
-            <div key={kpi.id || `${kpi.team}-${kpi.main}-${kpi.sub}`} className="mx-data-card">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div>
-                  <div className="font-bold">{kpi.main} / {kpi.sub}</div>
-                  <div className="mt-1 text-sm text-[var(--mx-muted)]">{kpi.team} / {kpi.days} day(s) / weight {kpi.main_weight}</div>
-                </div>
-                <div className="flex gap-2">
-                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editKpi(kpi)}>แก้ไข</button>
-                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeKpi(kpi.id)} disabled={!kpi.id}>ลบ</button>
-                </div>
-              </div>
-            </div>
-          ))}
-          {filteredKpis.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบกฎ KPI/SLA</div>}
+
+        <div className="mx-muted-card rounded-lg p-0 overflow-hidden">
+          <div className="max-h-[62vh] overflow-auto">
+            <table className="w-full min-w-[980px] text-sm">
+              <thead className="sticky top-0 z-10 bg-[var(--mx-panel)] border-b border-[var(--mx-line)]">
+                <tr className="text-left text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)]">
+                  <th className="p-4">Main KPI</th>
+                  <th className="p-4">Sub KPI</th>
+                  <th className="p-4">Team</th>
+                  <th className="p-4">Days</th>
+                  <th className="p-4">Weight</th>
+                  <th className="p-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--mx-line)]">
+                {filteredKpis.map((kpi) => (
+                  <tr key={kpi.id || `${kpi.team}-${kpi.main}-${kpi.sub}`} className="bg-[var(--mx-surface)]">
+                    <td className="p-4 align-top font-extrabold break-words max-w-[260px]">{kpi.main}</td>
+                    <td className="p-4 align-top break-words max-w-[320px]">{kpi.sub}</td>
+                    <td className="p-4 align-top">{kpi.team}</td>
+                    <td className="p-4 align-top font-bold">{kpi.days}</td>
+                    <td className="p-4 align-top font-bold">{kpi.main_weight}</td>
+                    <td className="p-4 align-top">
+                      <div className="flex justify-end gap-2">
+                        <button className="mx-btn mx-btn-primary !py-2 !px-3" onClick={() => editKpi(kpi)}>
+                          <i className="fa-solid fa-pen-to-square mr-2"></i>แก้ไข
+                        </button>
+                        <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => openKpiMigration(kpi)}>
+                          <i className="fa-solid fa-right-left mr-2"></i>ย้ายงานเก่า
+                        </button>
+                        <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeKpi(kpi.id)} disabled={!kpi.id}>ลบ</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {filteredKpis.length === 0 && (
+                  <tr>
+                    <td className="p-8 text-center text-[var(--mx-muted)]" colSpan="6">ไม่พบกฎ KPI/SLA ที่ตรงกับตัวกรอง</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </Panel>
