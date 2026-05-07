@@ -425,6 +425,13 @@ function getTaskMonth(task) {
   return d.getMonth();
 }
 
+function getTaskDayOfMonth(task) {
+  const raw = task.completiondate || task.deadline || task.startdate || task.created_at || task.timestamp;
+  const d = raw ? new Date(raw) : null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return d.getDate();
+}
+
 function buildPortfolio(tasks, holidays = []) {
   const active = tasks.filter(isActive);
   const completed = tasks.filter(isCompleted);
@@ -559,7 +566,7 @@ function HorizontalBar({ value, color = 'var(--mx-indigo)' }) {
   );
 }
 
-function LineChart({ months, series, mode = 'percent' }) {
+function LineChart({ labels = [], months = [], series, mode = 'percent' }) {
   const width = 860;
   const height = 270;
   const pad = { left: 42, right: 18, top: 24, bottom: 42 };
@@ -581,7 +588,9 @@ function LineChart({ months, series, mode = 'percent' }) {
     : (closeRange
       ? Array.from({ length: 5 }, (_, index) => Math.round((yMin + ((yMax - yMin) * index) / 4) * 10) / 10)
       : [0, 25, 50, 75, 100]);
-  const x = (index) => pad.left + (plotW * index) / Math.max(1, months.length - 1);
+  const axisLabels = labels.length ? labels : months.map((month) => MONTH_NAMES[month].slice(0, 3));
+  const pointCount = Math.max(axisLabels.length, ...keys.map((key) => (series[key] || []).length));
+  const x = (index) => pad.left + (plotW * index) / Math.max(1, pointCount - 1);
   const y = (value) => {
     const num = Number(value || 0);
     const range = Math.max(1, yMax - yMin);
@@ -606,8 +615,8 @@ function LineChart({ months, series, mode = 'percent' }) {
         {mode !== 'volume' && closeRange && (
           <text className="chart-label" x={width - pad.right - 126} y="16">Zoomed scale {yMin}-{yMax}%</text>
         )}
-        {months.map((month, index) => (
-          <text key={month} className="chart-label" x={x(index)} y={height - 14} textAnchor="middle">{MONTH_NAMES[month].slice(0, 3)}</text>
+        {axisLabels.map((label, index) => (
+          <text key={`${label}-${index}`} className="chart-label" x={x(index)} y={height - 14} textAnchor="middle">{label}</text>
         ))}
         <polyline className="chart-line" points={points(mode === 'volume' ? series.total : series.sla)} stroke={mode === 'volume' ? 'var(--mx-chart-total)' : 'var(--mx-info)'} />
         <polyline className="chart-line" points={points(mode === 'volume' ? series.completed : series.completion)} stroke={mode === 'volume' ? 'var(--mx-chart-completed)' : 'var(--mx-success)'} />
@@ -903,7 +912,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
             <div>
               <h2 className="section-title m-0">Execution Trend</h2>
-          <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">ปริมาณงานรายเดือน แยกงานทั้งหมด งานที่เสร็จแล้ว และงานเสี่ยง/เกินกำหนด</p>
+              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">{monthlyTrend.granularity === 'day' ? 'ปริมาณงานรายวันในเดือนที่เลือก แยกงานทั้งหมด งานที่เสร็จแล้ว และงานเสี่ยง/เกินกำหนด' : 'ปริมาณงานรายเดือน แยกงานทั้งหมด งานที่เสร็จแล้ว และงานเสี่ยง/เกินกำหนด'}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="mx-badge status-info">งานทั้งหมด</span>
@@ -911,7 +920,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
               <span className="mx-badge status-bad">เสี่ยง/เกินกำหนด</span>
             </div>
           </div>
-          <div className="mt-5"><LineChart months={monthlyTrend.months} series={monthlyTrend.series} mode="volume" /></div>
+          <div className="mt-5"><LineChart labels={monthlyTrend.labels} months={monthlyTrend.months} series={monthlyTrend.series} mode="volume" /></div>
         </section>
 
         <section className="mx-card p-5 md:p-7">
@@ -1314,9 +1323,10 @@ function EmployeeDetailModal({ person, holidays = [], onClose }) {
 function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilter, tasks, selectedPerson, setSelectedPerson, holidays = [] }) {
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [employeeBandFilter, setEmployeeBandFilter] = useState('all');
-  const filtered = (personTeamFilter === 'all' ? personRows : personRows.filter((row) => row.team === personTeamFilter))
+  const [employeeSort, setEmployeeSort] = useState({ key: 'weightedScore', direction: 'desc' });
+  const filtered = sortRows((personTeamFilter === 'all' ? personRows : personRows.filter((row) => row.team === personTeamFilter))
     .filter((row) => matchesSearch(row, ['person', 'team', 'topKpi'], employeeSearch))
-    .filter((row) => matchesBand(row.weightedScore, employeeBandFilter));
+    .filter((row) => matchesBand(row.weightedScore, employeeBandFilter)), employeeSort);
   return (
     <div className="grid gap-6">
       <section className="mx-card p-5 md:p-7">
@@ -1380,7 +1390,16 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
         <DataTable minWidth={1040}>
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-              <th className="p-4">Rank</th><th className="p-4">Name</th><th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">Completed</th><th className="p-4">SLA Pass</th><th className="p-4">SLA Fail</th><th className="p-4">W.SLA</th><th className="p-4">W.Completion</th><th className="p-4">Performance</th>
+              <th className="p-4">Rank</th>
+              <SortHeader label="Name" sortKey="person" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
+              <SortHeader label="Team" sortKey="team" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
+              <SortHeader label="Total" sortKey="total" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
+              <SortHeader label="Completed" sortKey="completed" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
+              <SortHeader label="SLA Pass" sortKey="slaPass" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
+              <SortHeader label="SLA Fail" sortKey="slaFail" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
+              <SortHeader label="W.SLA" sortKey="sla" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
+              <SortHeader label="W.Completion" sortKey="completion" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
+              <SortHeader label="Performance" sortKey="weightedScore" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--mx-line)]">
@@ -1820,23 +1839,51 @@ function App() {
   const teams = useMemo(() => [...new Set(teamRows.map((row) => row.team))], [teamRows]);
 
   const monthlyTrend = useMemo(() => {
-    const months = month === 0 ? Array.from({ length: 12 }, (_, i) => i) : [month - 1];
     const sla = [];
     const trendCompletion = [];
     const risk = [];
     const total = [];
     const completed = [];
-    months.forEach((monthIndex) => {
-      const monthTasks = tasks.filter((task) => getTaskMonth(task) === monthIndex);
-      const monthPortfolio = buildPortfolio(monthTasks, holidaySet);
-      sla.push(monthTasks.length ? monthPortfolio.scores.sla : null);
-      trendCompletion.push(monthTasks.length ? monthPortfolio.completion : null);
-      risk.push(monthTasks.length ? (monthPortfolio.overdue.length + monthPortfolio.atRisk.length) : 0);
-      total.push(monthTasks.length);
-      completed.push(monthPortfolio.completed.length);
+
+    if (month === 0) {
+      const months = Array.from({ length: 12 }, (_, i) => i);
+      months.forEach((monthIndex) => {
+        const monthTasks = tasks.filter((task) => getTaskMonth(task) === monthIndex);
+        const monthPortfolio = buildPortfolio(monthTasks, holidaySet);
+        sla.push(monthTasks.length ? monthPortfolio.scores.sla : null);
+        trendCompletion.push(monthTasks.length ? monthPortfolio.completion : null);
+        risk.push(monthTasks.length ? (monthPortfolio.overdue.length + monthPortfolio.atRisk.length) : 0);
+        total.push(monthTasks.length);
+        completed.push(monthPortfolio.completed.length);
+      });
+      return {
+        granularity: 'month',
+        months,
+        labels: months.map((monthIndex) => MONTH_NAMES[monthIndex].slice(0, 3)),
+        series: { sla, completion: trendCompletion, risk, total, completed },
+      };
+    }
+
+    const monthIndex = month - 1;
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+    const monthTasks = tasks.filter((task) => getTaskMonth(task) === monthIndex);
+    days.forEach((day) => {
+      const dayTasks = monthTasks.filter((task) => getTaskDayOfMonth(task) === day);
+      const dayPortfolio = buildPortfolio(dayTasks, holidaySet);
+      sla.push(dayTasks.length ? dayPortfolio.scores.sla : null);
+      trendCompletion.push(dayTasks.length ? dayPortfolio.completion : null);
+      risk.push(dayTasks.length ? (dayPortfolio.overdue.length + dayPortfolio.atRisk.length) : 0);
+      total.push(dayTasks.length);
+      completed.push(dayPortfolio.completed.length);
     });
-    return { months, series: { sla, completion: trendCompletion, risk, total, completed } };
-  }, [tasks, month, holidaySet]);
+    return {
+      granularity: 'day',
+      months: days,
+      labels: days.map((day) => (day === 1 || day === daysInMonth || day % 5 === 0 ? String(day) : '')),
+      series: { sla, completion: trendCompletion, risk, total, completed },
+    };
+  }, [tasks, year, month, holidaySet]);
 
   const criticalQueue = useMemo(() => portfolio.active
     .map((task) => ({ task, days: daysUntil(task, holidaySet), weight: taskWeight(task) }))
