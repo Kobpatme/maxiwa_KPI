@@ -50,7 +50,14 @@ async function supabaseFetch(env, table, query = "") {
 }
 
 async function readAll(env, table) {
-  return supabaseFetch(env, table, "select=*");
+  const pageSize = 1000;
+  const rows = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await supabaseFetch(env, table, `select=*&limit=${pageSize}&offset=${offset}`);
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return rows;
 }
 
 async function findUserByEmpId(env, empId) {
