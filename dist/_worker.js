@@ -44,6 +44,21 @@ async function proxyApiRequest(request, env) {
   }
   responseHeaders.set("X-Maxiwa-Proxy-Target", `/api/${apiPath}`);
 
+  const contentType = backendResponse.headers.get("Content-Type") || "";
+  if (!backendResponse.ok && contentType.includes("text/html")) {
+    responseHeaders.set("Content-Type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify({
+      error: "Backend API route is not available",
+      status: backendResponse.status,
+      endpoint: `/api/${apiPath}`,
+      backend: targetUrl,
+    }), {
+      status: backendResponse.status,
+      statusText: backendResponse.statusText,
+      headers: responseHeaders,
+    });
+  }
+
   return new Response(backendResponse.body, {
     status: backendResponse.status,
     statusText: backendResponse.statusText,
