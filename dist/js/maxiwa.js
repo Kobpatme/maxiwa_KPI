@@ -574,6 +574,21 @@ var MaxiwaKpiApp = (() => {
       };
     });
   }
+  function buildPeopleSummaryFromTasks(tasks = []) {
+    const people = /* @__PURE__ */ new Map();
+    (tasks || []).forEach((task) => {
+      const key = personKey(task.empId || task.empid || task.assignedToEmpId || `${task.name || "Unassigned"}|${task.team || ""}`);
+      if (!people.has(key)) {
+        people.set(key, {
+          empId: task.empId || task.empid || task.assignedToEmpId || "",
+          empid: task.empId || task.empid || task.assignedToEmpId || "",
+          name: task.name || task.assignee || task.owner || "Unassigned",
+          team: task.team || ""
+        });
+      }
+    });
+    return Array.from(people.values()).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "th"));
+  }
   function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
     const personTasks = (tasks || []).filter((task) => taskMatchesPerson(task, person));
     const activeTasks = personTasks.filter(isActiveTask);
@@ -901,11 +916,17 @@ var MaxiwaKpiApp = (() => {
           return;
         }
         if (isTeamManagerRole(user.role)) {
-          const [summaryRes, tasksRes] = await Promise.all([
-            API.getTeamSummaryReport(user.team, monthParam, filterYear, user.empId),
-            API.getAllTasks(monthParam, filterYear, user.team, user.empId)
-          ]);
-          safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
+          const tasksRes = await API.getAllTasks(monthParam, filterYear, user.team, user.empId);
+          const tasks = tasksRes.tasks || [];
+          safeSet({
+            dashboard: {
+              summary: buildPeopleSummaryFromTasks(tasks),
+              tasks,
+              period: tasksRes.period,
+              holidays: tasksRes.holidays || []
+            },
+            loading: false
+          });
           return;
         }
         if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
@@ -2156,8 +2177,7 @@ var MaxiwaKpiApp = (() => {
         sub,
         team,
         days,
-        main_weight: mainWeight,
-        mainWeight
+        main_weight: mainWeight
       };
       await runAdminAction("kpi", async () => adminPost("admin/saveKpi", payload, user.empId), "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 KPI \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
       setKpiForm({ main: "", sub: "", team: "", days: 1, main_weight: 1 });

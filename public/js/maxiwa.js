@@ -655,6 +655,22 @@ function enrichSummaryWithTaskWeights(summary, tasks) {
   });
 }
 
+function buildPeopleSummaryFromTasks(tasks = []) {
+  const people = new Map();
+  (tasks || []).forEach((task) => {
+    const key = personKey(task.empId || task.empid || task.assignedToEmpId || `${task.name || 'Unassigned'}|${task.team || ''}`);
+    if (!people.has(key)) {
+      people.set(key, {
+        empId: task.empId || task.empid || task.assignedToEmpId || '',
+        empid: task.empId || task.empid || task.assignedToEmpId || '',
+        name: task.name || task.assignee || task.owner || 'Unassigned',
+        team: task.team || '',
+      });
+    }
+  });
+  return Array.from(people.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'th'));
+}
+
 function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
   const personTasks = (tasks || []).filter((task) => taskMatchesPerson(task, person));
   const activeTasks = personTasks.filter(isActiveTask);
@@ -1367,11 +1383,17 @@ function useAppData(user, view) {
         return;
       }
       if (isTeamManagerRole(user.role)) {
-        const [summaryRes, tasksRes] = await Promise.all([
-          API.getTeamSummaryReport(user.team, monthParam, filterYear, user.empId),
-          API.getAllTasks(monthParam, filterYear, user.team, user.empId),
-        ]);
-        safeSet({ dashboard: { summary: summaryRes.summary || [], tasks: tasksRes.tasks || [], period: summaryRes.period, holidays: tasksRes.holidays || summaryRes.holidays || [] }, loading: false });
+        const tasksRes = await API.getAllTasks(monthParam, filterYear, user.team, user.empId);
+        const tasks = tasksRes.tasks || [];
+        safeSet({
+          dashboard: {
+            summary: buildPeopleSummaryFromTasks(tasks),
+            tasks,
+            period: tasksRes.period,
+            holidays: tasksRes.holidays || [],
+          },
+          loading: false,
+        });
         return;
       }
       if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
@@ -3418,7 +3440,6 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
       team,
       days,
       main_weight: mainWeight,
-      mainWeight,
     };
     await runAdminAction('kpi', async () => adminPost('admin/saveKpi', payload, user.empId), 'บันทึก KPI สำเร็จ');
     setKpiForm({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
