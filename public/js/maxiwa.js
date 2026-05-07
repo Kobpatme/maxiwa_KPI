@@ -2577,7 +2577,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                 >
                   <option value="">{loadingEditKpis ? 'Loading KPI...' : 'Select Sub KPI'}</option>
                   {editKpiOptions.map((kpi) => (
-                    <option key={`${kpi.team || editingTask.team}-${kpi.main}-${kpi.sub}`} value={kpi.sub}>{kpi.sub} ({kpi.main || '-'})</option>
+                    <option key={`${kpi.team || editingTask.team}-${kpi.main}-${kpi.sub}`} value={kpi.sub}>{kpi.sub}</option>
                   ))}
                 </select>
               </div>
@@ -3156,7 +3156,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
             <select className="mx-select" value={form.subkpi} onChange={(e) => handleSubKpiChange(e.target.value)}>
               <option value="">เลือก Sub KPI</option>
               {activeKpis.map((k) => (
-                <option key={`${k.main}-${k.sub}`} value={k.sub}>{k.sub} ({k.main})</option>
+                <option key={`${k.main}-${k.sub}`} value={k.sub}>{k.sub}</option>
               ))}
             </select>
           ) : (

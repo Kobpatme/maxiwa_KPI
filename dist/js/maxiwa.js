@@ -1643,7 +1643,7 @@ var MaxiwaKpiApp = (() => {
         disabled: loadingEditKpis
       },
       /* @__PURE__ */ React.createElement("option", { value: "" }, loadingEditKpis ? "Loading KPI..." : "Select Sub KPI"),
-      editKpiOptions.map((kpi) => /* @__PURE__ */ React.createElement("option", { key: `${kpi.team || editingTask.team}-${kpi.main}-${kpi.sub}`, value: kpi.sub }, kpi.sub, " (", kpi.main || "-", ")"))
+      editKpiOptions.map((kpi) => /* @__PURE__ */ React.createElement("option", { key: `${kpi.team || editingTask.team}-${kpi.main}-${kpi.sub}`, value: kpi.sub }, kpi.sub))
     )), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Deadline"), /* @__PURE__ */ React.createElement(
       "input",
       {
@@ -1957,7 +1957,7 @@ var MaxiwaKpiApp = (() => {
         },
         /* @__PURE__ */ React.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A"),
         (people || []).map((person) => /* @__PURE__ */ React.createElement("option", { key: person.empId, value: person.empId }, person.name, " (", person.team, ")"))
-      )), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Sub KPI"), activeKpis.length > 0 ? /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: form.subkpi, onChange: (e) => handleSubKpiChange(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01 Sub KPI"), activeKpis.map((k) => /* @__PURE__ */ React.createElement("option", { key: `${k.main}-${k.sub}`, value: k.sub }, k.sub, " (", k.main, ")"))) : /* @__PURE__ */ React.createElement(
+      )), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Sub KPI"), activeKpis.length > 0 ? /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: form.subkpi, onChange: (e) => handleSubKpiChange(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01 Sub KPI"), activeKpis.map((k) => /* @__PURE__ */ React.createElement("option", { key: `${k.main}-${k.sub}`, value: k.sub }, k.sub))) : /* @__PURE__ */ React.createElement(
         "input",
         {
           className: "mx-input",
