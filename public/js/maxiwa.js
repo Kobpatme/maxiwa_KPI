@@ -727,7 +727,7 @@ function leadQuickRead(detail, sla, completion) {
   return 'ภาพรวมดี ไม่มีสัญญาณเสี่ยงเร่งด่วนในช่วงที่เลือก';
 }
 
-function LeadPersonDetailModal({ row, onClose }) {
+function LeadPersonDetailModal({ row, dialogId }) {
   if (!row) return null;
   const { person, detail } = row;
   const slaScore = person.weightedSlaScore ?? detail.scores.sla;
@@ -743,8 +743,12 @@ function LeadPersonDetailModal({ row, onClose }) {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.72)' }} onClick={onClose}>
-      <div className="mx-shell-card rounded-[24px] w-full max-w-5xl max-h-[92vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <dialog
+      id={dialogId}
+      className="m-auto w-[calc(100%-2rem)] max-w-5xl max-h-[92vh] overflow-y-auto bg-transparent p-0 text-[var(--mx-text)] backdrop:bg-[rgba(15,23,42,0.72)]"
+      onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}
+    >
+      <div className="mx-shell-card rounded-[24px] w-full shadow-2xl">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--mx-line)] bg-[var(--mx-panel)] p-5 md:p-6">
           <div className="flex items-start gap-4 min-w-0">
             <UserAvatar user={person} />
@@ -757,7 +761,7 @@ function LeadPersonDetailModal({ row, onClose }) {
               <div className="mt-3 text-sm font-bold leading-6">{leadQuickRead(detail, slaScore, completionScore)}</div>
             </div>
           </div>
-          <button className="mx-btn mx-btn-soft !p-0 w-10 h-10 flex-shrink-0" onClick={onClose} aria-label="ปิดรายละเอียด">
+          <button className="mx-btn mx-btn-soft !p-0 w-10 h-10 flex-shrink-0" onClick={(e) => e.currentTarget.closest('dialog')?.close()} aria-label="ปิดรายละเอียด">
             <i className="fa-solid fa-xmark"></i>
           </button>
         </div>
@@ -854,7 +858,7 @@ function LeadPersonDetailModal({ row, onClose }) {
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
 
@@ -1861,8 +1865,6 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
 }
 
 function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onAccept, onStatusChange, onNavigate }) {
-  const [selectedLeadRow, setSelectedLeadRow] = useState(null);
-
   if (!data) {
     return (
       <Panel title="Executive Overview" subtitle="กำลังเตรียมข้อมูล...">
@@ -2077,106 +2079,108 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
         {teamScores && <WeightFormulaStrip scores={teamScores} />}
         <Panel title="Team Performance Pulse" subtitle="ภาพรวมทีมในหน้าที่อ่านง่ายขึ้น">
           <div className="grid gap-4">
-            {leadRows.map(({ person, detail }) => {
+            {leadRows.map(({ person, detail }, index) => {
               const slaScore = person.weightedSlaScore ?? detail.scores.sla;
               const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
               const totalWeight = person.totalWeight ?? detail.scores.totalWeight;
               const primaryRisk = detail.riskItems[0];
+              const dialogId = `lead-person-detail-${String(person.empId || person.empid || person.name || index).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
               return (
-                <button
-                  key={person.empId || person.name}
-                  type="button"
-                  className="mx-data-card text-left w-full cursor-pointer transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[var(--mx-info)]"
-                  onClick={() => setSelectedLeadRow({ person, detail })}
-                >
-                  <div className="grid xl:grid-cols-[minmax(240px,0.85fr)_minmax(360px,1.15fr)] gap-5">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="font-extrabold text-lg leading-tight break-words">{person.name}</div>
-                          <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team || '-'} • {person.empId || person.empid || 'ไม่พบรหัสพนักงาน'}</div>
-                        </div>
-                        <span className={cn('mx-badge', leadFocusClass(detail, slaScore))}>{leadFocusLabel(detail, slaScore)}</span>
-                      </div>
-                      <div className="mt-3 inline-flex items-center gap-2 text-xs font-extrabold text-[var(--mx-info)]">
-                        <i className="fa-solid fa-up-right-and-down-left-from-center"></i>
-                        คลิกเพื่อดูรายละเอียด
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-3 gap-2">
-                        <div className="mx-muted-card rounded-lg p-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">SLA</div>
-                          <div className="mt-1 text-xl font-extrabold">{formatScorePercent(slaScore)}</div>
-                        </div>
-                        <div className="mx-muted-card rounded-lg p-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Complete</div>
-                          <div className="mt-1 text-xl font-extrabold">{formatScorePercent(completionScore)}</div>
-                        </div>
-                        <div className="mx-muted-card rounded-lg p-3">
-                          <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Weight</div>
-                          <div className="mt-1 text-xl font-extrabold">{formatWeightPercent(totalWeight)}</div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <span className="mx-badge mx-status-process">Active {detail.active}</span>
-                        <span className="mx-badge mx-status-pending">Pending {detail.pending}</span>
-                        <span className="mx-badge mx-status-hold">On Hold {detail.onHold}</span>
-                        <span className="mx-badge mx-status-completed">Done {detail.completed}</span>
-                      </div>
-                    </div>
-
-                    <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
-                      <div className="mx-muted-card rounded-lg p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="text-sm font-extrabold">งานที่ควรดูต่อ</div>
-                          <span className={cn('mx-badge', detail.overdue > 0 ? 'mx-status-hold' : detail.dueSoon > 0 ? 'mx-status-pending' : 'mx-status-process')}>
-                            {detail.overdue} overdue / {detail.dueSoon} risk
-                          </span>
-                        </div>
-                        {primaryRisk ? (
-                          <div className="mt-3">
-                            <div className="font-bold leading-6 break-words">{extractJobCode(primaryRisk.task.job)}</div>
-                            <div className="mt-1 text-sm text-[var(--mx-muted)] line-clamp-2">{primaryRisk.task.job || '-'}</div>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <span className={cn('mx-badge', primaryRisk.days < 0 ? 'mx-status-hold' : primaryRisk.days <= 3 ? 'mx-status-pending' : 'mx-status-process')}>
-                                {primaryRisk.days < 0 ? `เกิน ${Math.abs(primaryRisk.days)} วันทำการ` : `อีก ${primaryRisk.days} วันทำการ`}
-                              </span>
-                              <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(primaryRisk.weight)}</span>
-                              <span className={cn('mx-badge', getStatusClass(primaryRisk.task.status))}>{primaryRisk.task.status || '-'}</span>
-                            </div>
+                <React.Fragment key={person.empId || person.name}>
+                  <button
+                    type="button"
+                    className="mx-data-card text-left w-full cursor-pointer transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[var(--mx-info)]"
+                    onClick={() => document.getElementById(dialogId)?.showModal()}
+                  >
+                    <div className="grid xl:grid-cols-[minmax(240px,0.85fr)_minmax(360px,1.15fr)] gap-5">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-extrabold text-lg leading-tight break-words">{person.name}</div>
+                            <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team || '-'} • {person.empId || person.empid || 'ไม่พบรหัสพนักงาน'}</div>
                           </div>
-                        ) : (
-                          <div className="mt-3 text-sm text-[var(--mx-muted)]">ไม่มีงานเสี่ยงในช่วงที่เลือก</div>
-                        )}
+                          <span className={cn('mx-badge', leadFocusClass(detail, slaScore))}>{leadFocusLabel(detail, slaScore)}</span>
+                        </div>
+                        <div className="mt-3 inline-flex items-center gap-2 text-xs font-extrabold text-[var(--mx-info)]">
+                          <i className="fa-solid fa-up-right-and-down-left-from-center"></i>
+                          คลิกเพื่อดูรายละเอียด
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-3 gap-2">
+                          <div className="mx-muted-card rounded-lg p-3">
+                            <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">SLA</div>
+                            <div className="mt-1 text-xl font-extrabold">{formatScorePercent(slaScore)}</div>
+                          </div>
+                          <div className="mx-muted-card rounded-lg p-3">
+                            <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Complete</div>
+                            <div className="mt-1 text-xl font-extrabold">{formatScorePercent(completionScore)}</div>
+                          </div>
+                          <div className="mx-muted-card rounded-lg p-3">
+                            <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Weight</div>
+                            <div className="mt-1 text-xl font-extrabold">{formatWeightPercent(totalWeight)}</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <span className="mx-badge mx-status-process">Active {detail.active}</span>
+                          <span className="mx-badge mx-status-pending">Pending {detail.pending}</span>
+                          <span className="mx-badge mx-status-hold">On Hold {detail.onHold}</span>
+                          <span className="mx-badge mx-status-completed">Done {detail.completed}</span>
+                        </div>
                       </div>
 
-                      <div className="mx-muted-card rounded-lg p-4">
-                        <div className="text-sm font-extrabold">KPI Mix หลัก</div>
-                        <div className="mt-3 grid gap-2">
-                          {detail.kpiMix.map((item) => (
-                            <div key={item.name} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="text-sm font-bold leading-5 break-words">{item.name}</div>
-                                  <div className="mt-1 text-xs text-[var(--mx-muted)]">Active {item.active} • Done {item.completed} • Total {item.tasks}</div>
-                                </div>
-                                <span className="mx-badge mx-status-cancelled flex-shrink-0">{formatWeightPercent(item.weight)}</span>
+                      <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
+                        <div className="mx-muted-card rounded-lg p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-extrabold">งานที่ควรดูต่อ</div>
+                            <span className={cn('mx-badge', detail.overdue > 0 ? 'mx-status-hold' : detail.dueSoon > 0 ? 'mx-status-pending' : 'mx-status-process')}>
+                              {detail.overdue} overdue / {detail.dueSoon} risk
+                            </span>
+                          </div>
+                          {primaryRisk ? (
+                            <div className="mt-3">
+                              <div className="font-bold leading-6 break-words">{extractJobCode(primaryRisk.task.job)}</div>
+                              <div className="mt-1 text-sm text-[var(--mx-muted)] line-clamp-2">{primaryRisk.task.job || '-'}</div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <span className={cn('mx-badge', primaryRisk.days < 0 ? 'mx-status-hold' : primaryRisk.days <= 3 ? 'mx-status-pending' : 'mx-status-process')}>
+                                  {primaryRisk.days < 0 ? `เกิน ${Math.abs(primaryRisk.days)} วันทำการ` : `อีก ${primaryRisk.days} วันทำการ`}
+                                </span>
+                                <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(primaryRisk.weight)}</span>
+                                <span className={cn('mx-badge', getStatusClass(primaryRisk.task.status))}>{primaryRisk.task.status || '-'}</span>
                               </div>
                             </div>
-                          ))}
-                          {detail.kpiMix.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มี KPI active สำหรับคนนี้</div>}
+                          ) : (
+                            <div className="mt-3 text-sm text-[var(--mx-muted)]">ไม่มีงานเสี่ยงในช่วงที่เลือก</div>
+                          )}
+                        </div>
+
+                        <div className="mx-muted-card rounded-lg p-4">
+                          <div className="text-sm font-extrabold">KPI Mix หลัก</div>
+                          <div className="mt-3 grid gap-2">
+                            {detail.kpiMix.map((item) => (
+                              <div key={item.name} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-bold leading-5 break-words">{item.name}</div>
+                                    <div className="mt-1 text-xs text-[var(--mx-muted)]">Active {item.active} • Done {item.completed} • Total {item.tasks}</div>
+                                  </div>
+                                  <span className="mx-badge mx-status-cancelled flex-shrink-0">{formatWeightPercent(item.weight)}</span>
+                                </div>
+                              </div>
+                            ))}
+                            {detail.kpiMix.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มี KPI active สำหรับคนนี้</div>}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </button>
+                  </button>
+                  <LeadPersonDetailModal row={{ person, detail }} dialogId={dialogId} />
+                </React.Fragment>
               );
             })}
             {leadRows.length === 0 && <div className="mx-data-card text-center text-[var(--mx-muted)]">ไม่มีข้อมูลทีมในช่วงที่เลือก</div>}
           </div>
         </Panel>
-        <LeadPersonDetailModal row={selectedLeadRow} onClose={() => setSelectedLeadRow(null)} />
       </div>
     );
   }
