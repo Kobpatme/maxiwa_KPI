@@ -8,7 +8,7 @@
 
 Built MAXIWA KPI to dist with API base: https://spds-1.kobpatme.workers.dev/api
 
- ⛅️ wrangler 4.80.0 (update available 4.86.0)
+ ⛅️ wrangler 4.80.0 (update available 4.88.0)
 ─────────────────────────────────────────────
 No Functions. Shimming...
 ✨ Parsed 0 valid redirect rules.
@@ -17,12 +17,39 @@ Your Worker has access to the following bindings:
 Binding                                                                   Resource                  Mode
 env.CF_PAGES ("1")                                                        Environment Variable      local
 env.CF_PAGES_BRANCH ("main")                                              Environment Variable      local
-env.CF_PAGES_COMMIT_SHA ("30e8e698de95d013f4136e6d9eb49792a1506...")      Environment Variable      local
-env.CF_PAGES_URL ("https://30e8e69.maxiwa-kpi.pages.dev")                 Environment Variable      local
+env.CF_PAGES_COMMIT_SHA ("32c8c34d7269f301d00da9d78ea220dc95116...")      Environment Variable      local
+env.CF_PAGES_URL ("https://32c8c34.maxiwa-kpi.pages.dev")                 Environment Variable      local
 
 ⎔ Starting local server...
 [wrangler:info] Ready on http://127.0.0.1:8788
-[wrangler:info] GET /dashboard 200 OK (25ms)
-[wrangler:info] GET /config.js 200 OK (12ms)
-[wrangler:info] GET /js/api.js 200 OK (17ms)
-[wrangler:info] GET /js/executive-dashboard.js 200 OK (27ms)
+[wrangler:info] GET / 200 OK (28ms)
+[wrangler:info] GET /css/tailwind.css 200 OK (12ms)
+[wrangler:info] GET /config.js 200 OK (19ms)
+[wrangler:info] GET /js/api.js 200 OK (23ms)
+[wrangler:info] GET /js/maxiwa.js 200 OK (31ms)
+[wrangler:info] GET / 200 OK (12ms)
+[wrangler:info] GET /css/tailwind.css 200 OK (13ms)
+[wrangler:info] GET /config.js 200 OK (18ms)
+[wrangler:info] GET /js/maxiwa.js 200 OK (22ms)
+[wrangler:info] GET /js/api.js 200 OK (42ms)
+[wrangler:info] GET /favicon.ico 200 OK (9ms)
+[wrangler:info] GET / 200 OK (12ms)
+[wrangler:info] GET /css/tailwind.css 200 OK (9ms)
+[wrangler:info] GET /js/api.js 200 OK (20ms)
+[wrangler:info] GET /config.js 200 OK (13ms)
+[wrangler:info] GET /js/maxiwa.js 200 OK (26ms)
+[wrangler:info] GET /favicon.ico 200 OK (10ms)
+[wrangler:info] GET / 200 OK (22ms)
+[wrangler:info] GET /css/tailwind.css 200 OK (12ms)
+[wrangler:info] GET /config.js 200 OK (14ms)
+[wrangler:info] GET /js/api.js 200 OK (12ms)
+[wrangler:info] GET /js/maxiwa.js 200 OK (21ms)
+[wrangler:info] GET /favicon.ico 200 OK (8ms)
+[wrangler:info] GET / 200 OK (8ms)
+[wrangler:info] GET /css/tailwind.css 200 OK (10ms)
+[wrangler:info] GET /config.js 200 OK (17ms)
+[wrangler:info] GET /js/api.js 200 OK (23ms)
+[wrangler:info] GET /js/maxiwa.js 200 OK (31ms)
+[wrangler:info] GET /favicon.ico 200 OK (9ms)
+[wrangler:info] GET / 200 OK (23ms)
+[wrangler:info] GET /css/tailwind.css 200 OK (10ms)

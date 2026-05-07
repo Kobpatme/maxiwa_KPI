@@ -655,6 +655,209 @@ function enrichSummaryWithTaskWeights(summary, tasks) {
   });
 }
 
+function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
+  const personTasks = (tasks || []).filter((task) => taskMatchesPerson(task, person));
+  const activeTasks = personTasks.filter(isActiveTask);
+  const completedTasks = personTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed');
+  const statusCounts = personTasks.reduce((acc, task) => {
+    const status = task.status || 'Unknown';
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+  const riskItems = activeTasks
+    .map((task) => ({ task, days: getDaysUntilDeadline(task, holidays), weight: getTaskWeight(task) }))
+    .filter((item) => item.days !== null)
+    .sort((a, b) => {
+      const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;
+      const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
+      return (riskA - riskB) || (a.days - b.days) || (b.weight - a.weight);
+    });
+  const overdue = riskItems.filter((item) => item.days < 0).length;
+  const dueSoon = riskItems.filter((item) => item.days >= 0 && item.days <= 3).length;
+  const kpiMap = {};
+  personTasks.forEach((task) => {
+    if (String(task.status || '').toLowerCase() === 'cancelled') return;
+    const key = getKpiGroupKey(task);
+    if (!kpiMap[key]) kpiMap[key] = { name: key, tasks: 0, active: 0, completed: 0, weight: getTaskWeight(task) };
+    kpiMap[key].tasks += 1;
+    if (isActiveTask(task)) kpiMap[key].active += 1;
+    if (String(task.status || '').toLowerCase() === 'completed') kpiMap[key].completed += 1;
+    kpiMap[key].weight = Math.max(kpiMap[key].weight, getTaskWeight(task));
+  });
+  const kpiMix = Object.values(kpiMap).sort((a, b) => (b.weight - a.weight) || (b.active - a.active)).slice(0, 3);
+  const weighted = calcTaskWeightedScores(personTasks);
+  return {
+    tasks: personTasks,
+    active: activeTasks.length,
+    completed: completedTasks.length,
+    pending: statusCounts.Pending || 0,
+    inProcess: statusCounts['On Process'] || 0,
+    onHold: statusCounts['On Hold'] || 0,
+    cancelled: statusCounts.Cancelled || 0,
+    overdue,
+    dueSoon,
+    riskItems,
+    kpiMix,
+    scores: weighted,
+  };
+}
+
+function leadFocusClass(detail, sla) {
+  if (detail.overdue > 0 || Number(sla || 0) < 60) return 'mx-status-hold';
+  if (detail.dueSoon > 0 || detail.onHold > 0 || Number(sla || 0) < 75) return 'mx-status-pending';
+  if (detail.active > 0) return 'mx-status-process';
+  return 'mx-status-completed';
+}
+
+function leadFocusLabel(detail, sla) {
+  if (detail.overdue > 0) return `เกินกำหนด ${detail.overdue}`;
+  if (detail.dueSoon > 0) return `ใกล้กำหนด ${detail.dueSoon}`;
+  if (detail.onHold > 0) return `พักงาน ${detail.onHold}`;
+  if (Number(sla || 0) < 75) return 'SLA ต้องดูแล';
+  if (detail.active > 0) return `กำลังทำ ${detail.active}`;
+  return 'เรียบร้อย';
+}
+
+function leadQuickRead(detail, sla, completion) {
+  if (detail.overdue > 0) return `ควรช่วยเคลียร์งานเกินกำหนด ${detail.overdue} รายการก่อน`;
+  if (detail.dueSoon > 0) return `ควรติดตามงานใกล้กำหนด ${detail.dueSoon} รายการในรอบนี้`;
+  if (detail.onHold > 0) return `มีงานพักอยู่ ${detail.onHold} รายการ ควรดูเหตุผลและวันที่กลับมาทำต่อ`;
+  if (Number(sla || 0) < 75) return 'SLA ยังต่ำกว่าระดับที่ควรวางใจ ควรดู pattern งานที่เสร็จช้า';
+  if (Number(completion || 0) < 75 && detail.active > 0) return 'งานยัง active เยอะ ควรดูโหลดและลำดับความสำคัญ';
+  return 'ภาพรวมดี ไม่มีสัญญาณเสี่ยงเร่งด่วนในช่วงที่เลือก';
+}
+
+function LeadPersonDetailModal({ row, onClose }) {
+  if (!row) return null;
+  const { person, detail } = row;
+  const slaScore = person.weightedSlaScore ?? detail.scores.sla;
+  const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
+  const totalWeight = person.totalWeight ?? detail.scores.totalWeight;
+  const riskList = detail.riskItems.slice(0, 5);
+  const statusItems = [
+    ['Pending', detail.pending, 'mx-status-pending'],
+    ['On Process', detail.inProcess, 'mx-status-process'],
+    ['On Hold', detail.onHold, 'mx-status-hold'],
+    ['Completed', detail.completed, 'mx-status-completed'],
+    ['Cancelled', detail.cancelled, 'mx-status-cancelled'],
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.72)' }} onClick={onClose}>
+      <div className="mx-shell-card rounded-[24px] w-full max-w-5xl max-h-[92vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--mx-line)] bg-[var(--mx-panel)] p-5 md:p-6">
+          <div className="flex items-start gap-4 min-w-0">
+            <UserAvatar user={person} />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="m-0 text-2xl font-extrabold tracking-normal break-words">{person.name}</h3>
+                <span className={cn('mx-badge', leadFocusClass(detail, slaScore))}>{leadFocusLabel(detail, slaScore)}</span>
+              </div>
+              <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team || '-'} • {person.empId || person.empid || 'ไม่พบรหัสพนักงาน'}</div>
+              <div className="mt-3 text-sm font-bold leading-6">{leadQuickRead(detail, slaScore, completionScore)}</div>
+            </div>
+          </div>
+          <button className="mx-btn mx-btn-soft !p-0 w-10 h-10 flex-shrink-0" onClick={onClose} aria-label="ปิดรายละเอียด">
+            <i className="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <div className="p-5 md:p-6 grid gap-5">
+          <div className="grid md:grid-cols-4 gap-3">
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Weighted SLA</div>
+              <div className="mt-2 text-3xl font-extrabold">{formatScorePercent(slaScore)}</div>
+              <div className="mt-1 text-xs text-[var(--mx-muted)]">ฐาน SLA {formatWeightPercent(detail.scores.slaWeight)}</div>
+            </div>
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Completion</div>
+              <div className="mt-2 text-3xl font-extrabold">{formatScorePercent(completionScore)}</div>
+              <div className="mt-1 text-xs text-[var(--mx-muted)]">Done {detail.completed}/{detail.tasks.length}</div>
+            </div>
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Total Weight</div>
+              <div className="mt-2 text-3xl font-extrabold">{formatWeightPercent(totalWeight)}</div>
+              <div className="mt-1 text-xs text-[var(--mx-muted)]">น้ำหนักงานในช่วงที่เลือก</div>
+            </div>
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Risk</div>
+              <div className="mt-2 text-3xl font-extrabold">{detail.overdue + detail.dueSoon}</div>
+              <div className="mt-1 text-xs text-[var(--mx-muted)]">{detail.overdue} overdue / {detail.dueSoon} ใกล้กำหนด</div>
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-[0.85fr_1.15fr] gap-5">
+            <div className="grid gap-5">
+              <div className="mx-muted-card rounded-lg p-4">
+                <div className="text-sm font-extrabold">สถานะงานทั้งหมด</div>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {statusItems.map(([label, value, klass]) => (
+                    <div key={label} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-3">
+                      <span className={cn('mx-badge', klass)}>{label}</span>
+                      <div className="mt-2 text-2xl font-extrabold">{value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mx-muted-card rounded-lg p-4">
+                <div className="text-sm font-extrabold">KPI Mix ที่กินโหลด</div>
+                <div className="mt-3 grid gap-2">
+                  {detail.kpiMix.map((item) => (
+                    <div key={item.name} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold leading-5 break-words">{item.name}</div>
+                          <div className="mt-1 text-xs text-[var(--mx-muted)]">Active {item.active} • Done {item.completed} • Total {item.tasks}</div>
+                        </div>
+                        <span className="mx-badge mx-status-cancelled flex-shrink-0">{formatWeightPercent(item.weight)}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {detail.kpiMix.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มี KPI active สำหรับคนนี้</div>}
+                </div>
+              </div>
+            </div>
+
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-extrabold">รายการที่ควรติดตามก่อน</div>
+                  <div className="mt-1 text-xs text-[var(--mx-muted)]">เรียงจากเกินกำหนด ใกล้กำหนด และน้ำหนักงานสูง</div>
+                </div>
+                <span className="mx-badge mx-status-process">{riskList.length} รายการ</span>
+              </div>
+              <div className="mt-4 grid gap-3">
+                {riskList.map(({ task, days, weight }) => (
+                  <div key={task.id || `${task.job}-${task.deadline}`} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-extrabold leading-6 break-words">{extractJobCode(task.job)}</div>
+                        <div className="mt-1 text-sm text-[var(--mx-muted)] leading-6 break-words">{task.job || '-'}</div>
+                      </div>
+                      <span className={cn('mx-badge', days < 0 ? 'mx-status-hold' : days <= 3 ? 'mx-status-pending' : 'mx-status-process')}>
+                        {days < 0 ? `เกิน ${Math.abs(days)} วันทำการ` : `อีก ${days} วันทำการ`}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status || '-'}</span>
+                      <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(weight)}</span>
+                      <span className="mx-badge mx-status-process">{task.mainkpi || '-'}</span>
+                      <span className="mx-badge mx-status-process">{task.subkpi || '-'}</span>
+                    </div>
+                    <div className="mt-3 text-xs text-[var(--mx-muted)]">Deadline {formatDate(task.deadline)}</div>
+                  </div>
+                ))}
+                {riskList.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มีงานเสี่ยงในช่วงที่เลือก</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── UI Primitives ─────────────────────────────────────────────────────────────
 function MetricCard({ label, value, sub, icon, accent = 'var(--mx-blue)' }) {
   return (
@@ -1658,6 +1861,8 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
 }
 
 function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onAccept, onStatusChange, onNavigate }) {
+  const [selectedLeadRow, setSelectedLeadRow] = useState(null);
+
   if (!data) {
     return (
       <Panel title="Executive Overview" subtitle="กำลังเตรียมข้อมูล...">
@@ -1853,11 +2058,13 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
 
   if (user.role === 'Lead') {
     const tasks = data.tasks || [];
+    const holidaySet = buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]);
     const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks);
     const teamScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
     const avgSla = teamScores && teamScores.sla !== null
       ? teamScores.sla
       : (summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0);
+    const leadRows = summary.map((person) => ({ person, detail: summarizeLeadPersonTasks(person, tasks, holidaySet) }));
     return (
       <div className="grid gap-5">
         <div className="mx-grid-auto">
@@ -1869,29 +2076,107 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
         </div>
         {teamScores && <WeightFormulaStrip scores={teamScores} />}
         <Panel title="Team Performance Pulse" subtitle="ภาพรวมทีมในหน้าที่อ่านง่ายขึ้น">
-          <div className="grid gap-3">
-            {summary.map((person) => (
-              <div key={person.empId || person.name} className="mx-data-card">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="font-bold">{person.name}</div>
-                    <div className="mt-1 text-sm text-[var(--mx-muted)]">
-                      {person.team} • Total {person.totalTasks} • Completed {person.completedTasks}
+          <div className="grid gap-4">
+            {leadRows.map(({ person, detail }) => {
+              const slaScore = person.weightedSlaScore ?? detail.scores.sla;
+              const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
+              const totalWeight = person.totalWeight ?? detail.scores.totalWeight;
+              const primaryRisk = detail.riskItems[0];
+              return (
+                <button
+                  key={person.empId || person.name}
+                  type="button"
+                  className="mx-data-card text-left w-full cursor-pointer transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[var(--mx-info)]"
+                  onClick={() => setSelectedLeadRow({ person, detail })}
+                >
+                  <div className="grid xl:grid-cols-[minmax(240px,0.85fr)_minmax(360px,1.15fr)] gap-5">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-lg leading-tight break-words">{person.name}</div>
+                          <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team || '-'} • {person.empId || person.empid || 'ไม่พบรหัสพนักงาน'}</div>
+                        </div>
+                        <span className={cn('mx-badge', leadFocusClass(detail, slaScore))}>{leadFocusLabel(detail, slaScore)}</span>
+                      </div>
+                      <div className="mt-3 inline-flex items-center gap-2 text-xs font-extrabold text-[var(--mx-info)]">
+                        <i className="fa-solid fa-up-right-and-down-left-from-center"></i>
+                        คลิกเพื่อดูรายละเอียด
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        <div className="mx-muted-card rounded-lg p-3">
+                          <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">SLA</div>
+                          <div className="mt-1 text-xl font-extrabold">{formatScorePercent(slaScore)}</div>
+                        </div>
+                        <div className="mx-muted-card rounded-lg p-3">
+                          <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Complete</div>
+                          <div className="mt-1 text-xl font-extrabold">{formatScorePercent(completionScore)}</div>
+                        </div>
+                        <div className="mx-muted-card rounded-lg p-3">
+                          <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Weight</div>
+                          <div className="mt-1 text-xl font-extrabold">{formatWeightPercent(totalWeight)}</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <span className="mx-badge mx-status-process">Active {detail.active}</span>
+                        <span className="mx-badge mx-status-pending">Pending {detail.pending}</span>
+                        <span className="mx-badge mx-status-hold">On Hold {detail.onHold}</span>
+                        <span className="mx-badge mx-status-completed">Done {detail.completed}</span>
+                      </div>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(person.totalWeight)}</span>
-                      <span className="mx-badge mx-status-completed">Completion {person.weightedCompletionScore ?? '-'}%</span>
+
+                    <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
+                      <div className="mx-muted-card rounded-lg p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-sm font-extrabold">งานที่ควรดูต่อ</div>
+                          <span className={cn('mx-badge', detail.overdue > 0 ? 'mx-status-hold' : detail.dueSoon > 0 ? 'mx-status-pending' : 'mx-status-process')}>
+                            {detail.overdue} overdue / {detail.dueSoon} risk
+                          </span>
+                        </div>
+                        {primaryRisk ? (
+                          <div className="mt-3">
+                            <div className="font-bold leading-6 break-words">{extractJobCode(primaryRisk.task.job)}</div>
+                            <div className="mt-1 text-sm text-[var(--mx-muted)] line-clamp-2">{primaryRisk.task.job || '-'}</div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <span className={cn('mx-badge', primaryRisk.days < 0 ? 'mx-status-hold' : primaryRisk.days <= 3 ? 'mx-status-pending' : 'mx-status-process')}>
+                                {primaryRisk.days < 0 ? `เกิน ${Math.abs(primaryRisk.days)} วันทำการ` : `อีก ${primaryRisk.days} วันทำการ`}
+                              </span>
+                              <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(primaryRisk.weight)}</span>
+                              <span className={cn('mx-badge', getStatusClass(primaryRisk.task.status))}>{primaryRisk.task.status || '-'}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-sm text-[var(--mx-muted)]">ไม่มีงานเสี่ยงในช่วงที่เลือก</div>
+                        )}
+                      </div>
+
+                      <div className="mx-muted-card rounded-lg p-4">
+                        <div className="text-sm font-extrabold">KPI Mix หลัก</div>
+                        <div className="mt-3 grid gap-2">
+                          {detail.kpiMix.map((item) => (
+                            <div key={item.name} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-bold leading-5 break-words">{item.name}</div>
+                                  <div className="mt-1 text-xs text-[var(--mx-muted)]">Active {item.active} • Done {item.completed} • Total {item.tasks}</div>
+                                </div>
+                                <span className="mx-badge mx-status-cancelled flex-shrink-0">{formatWeightPercent(item.weight)}</span>
+                              </div>
+                            </div>
+                          ))}
+                          {detail.kpiMix.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มี KPI active สำหรับคนนี้</div>}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-extrabold text-lg">{person.weightedSlaScore ?? '-'}%</div>
-                    <div className="text-xs text-[var(--mx-muted)]">Weighted SLA</div>
-                  </div>
-                </div>
-              </div>
-            ))}
+                </button>
+              );
+            })}
+            {leadRows.length === 0 && <div className="mx-data-card text-center text-[var(--mx-muted)]">ไม่มีข้อมูลทีมในช่วงที่เลือก</div>}
           </div>
         </Panel>
+        <LeadPersonDetailModal row={selectedLeadRow} onClose={() => setSelectedLeadRow(null)} />
       </div>
     );
   }
