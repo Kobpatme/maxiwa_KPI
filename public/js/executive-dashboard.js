@@ -316,6 +316,39 @@ function matchesBand(value, filter) {
   return filter === 'all' || performanceBand(value) === filter;
 }
 
+function compareSortValues(a, b) {
+  const aNum = Number(a);
+  const bNum = Number(b);
+  if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
+  return String(a ?? '').localeCompare(String(b ?? ''), 'th');
+}
+
+function sortRows(rows, sortConfig) {
+  if (!sortConfig?.key) return rows;
+  const direction = sortConfig.direction === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => compareSortValues(a?.[sortConfig.key], b?.[sortConfig.key]) * direction);
+}
+
+function nextSort(current, key) {
+  if (current?.key === key) {
+    return { key, direction: current.direction === 'desc' ? 'asc' : 'desc' };
+  }
+  return { key, direction: 'desc' };
+}
+
+function SortHeader({ label, sortKey, sortConfig, onSort }) {
+  const active = sortConfig?.key === sortKey;
+  const icon = active && sortConfig.direction === 'asc' ? 'fa-arrow-up-short-wide' : 'fa-arrow-down-wide-short';
+  return (
+    <th className="p-4">
+      <button type="button" className="inline-flex items-center gap-2 font-black uppercase" onClick={() => onSort(sortKey)}>
+        <span>{label}</span>
+        <i className={`fa-solid ${icon} ${active ? 'text-[var(--mx-brass)]' : 'text-[var(--mx-muted)]'}`}></i>
+      </button>
+    </th>
+  );
+}
+
 function statusClass(status) {
   const raw = String(status || '').toLowerCase();
   if (raw === 'completed') return 'status-good';
@@ -1111,9 +1144,10 @@ function TeamsPanel({ teamRows, holidays = [] }) {
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [teamSearch, setTeamSearch] = useState('');
   const [teamBandFilter, setTeamBandFilter] = useState('all');
-  const filteredTeams = teamRows.filter((row) =>
+  const [teamSort, setTeamSort] = useState({ key: 'total', direction: 'desc' });
+  const filteredTeams = sortRows(teamRows.filter((row) =>
     matchesSearch(row, ['team', 'topKpi'], teamSearch) && matchesBand(row.sla, teamBandFilter)
-  );
+  ), teamSort);
   return (
     <div className="grid gap-6">
       <div className="detail-grid">
@@ -1172,7 +1206,17 @@ function TeamsPanel({ teamRows, holidays = [] }) {
         <DataTable minWidth={980}>
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-              <th className="p-4">Rank</th><th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">Completed</th><th className="p-4">Backlog</th><th className="p-4">On Process</th><th className="p-4">SLA Pass</th><th className="p-4">SLA Fail</th><th className="p-4">W.SLA</th><th className="p-4">W.Completion</th><th className="p-4">Band</th>
+              <th className="p-4">Rank</th>
+              <SortHeader label="Team" sortKey="team" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
+              <SortHeader label="Total" sortKey="total" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
+              <SortHeader label="Completed" sortKey="completed" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
+              <SortHeader label="Backlog" sortKey="backlog" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
+              <SortHeader label="On Process" sortKey="onProcess" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
+              <SortHeader label="SLA Pass" sortKey="slaPass" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
+              <SortHeader label="SLA Fail" sortKey="slaFail" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
+              <SortHeader label="W.SLA" sortKey="sla" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
+              <SortHeader label="W.Completion" sortKey="completion" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
+              <th className="p-4">Band</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--mx-line)]">
@@ -1555,12 +1599,13 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
 function KpiWeightsPanel({ kpiWeightRows, kpiSearch, setKpiSearch }) {
   const [weightTeamFilter, setWeightTeamFilter] = useState('all');
   const [weightBandFilter, setWeightBandFilter] = useState('all');
+  const [weightSort, setWeightSort] = useState({ key: 'weight', direction: 'desc' });
   const search = kpiSearch.trim().toLowerCase();
   const teams = [...new Set(kpiWeightRows.map((row) => row.team))].sort((a, b) => a.localeCompare(b));
-  const filtered = kpiWeightRows
+  const filtered = sortRows(kpiWeightRows
     .filter((row) => !search || [row.team, row.main, row.sub].join(' ').toLowerCase().includes(search))
     .filter((row) => weightTeamFilter === 'all' || row.team === weightTeamFilter)
-    .filter((row) => matchesBand(row.sla, weightBandFilter));
+    .filter((row) => matchesBand(row.sla, weightBandFilter)), weightSort);
   return (
     <section className="mx-card p-5 md:p-7">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
@@ -1589,7 +1634,18 @@ function KpiWeightsPanel({ kpiWeightRows, kpiSearch, setKpiSearch }) {
         <DataTable minWidth={1120}>
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-              <th className="p-4">Rank</th><th className="p-4">Team</th><th className="p-4">Main KPI</th><th className="p-4">Sub KPI</th><th className="p-4">Weight</th><th className="p-4">Total</th><th className="p-4">Completed</th><th className="p-4">Pending</th><th className="p-4">SLA Pass</th><th className="p-4">SLA Fail</th><th className="p-4">SLA %</th><th className="p-4">Band</th>
+              <th className="p-4">Rank</th>
+              <SortHeader label="Team" sortKey="team" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
+              <SortHeader label="Main KPI" sortKey="main" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
+              <SortHeader label="Sub KPI" sortKey="sub" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
+              <SortHeader label="Weight" sortKey="weight" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
+              <SortHeader label="Total" sortKey="total" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
+              <SortHeader label="Completed" sortKey="completed" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
+              <SortHeader label="Pending" sortKey="pending" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
+              <SortHeader label="SLA Pass" sortKey="slaPass" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
+              <SortHeader label="SLA Fail" sortKey="slaFail" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
+              <SortHeader label="SLA %" sortKey="sla" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
+              <th className="p-4">Band</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--mx-line)]">
