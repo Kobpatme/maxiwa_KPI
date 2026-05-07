@@ -3337,6 +3337,8 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     holidaySource(holiday).includes('thai') ||
     String(holiday.country_code || holiday.countryCode || '').toUpperCase() === 'TH' ||
     String(holiday.id || '').startsWith('th-public-') ||
+    String(holiday.external_id || holiday.externalId || '').startsWith('iapp-th-') ||
+    String(holiday.external_id || holiday.externalId || '').startsWith('nager.date-th-') ||
     String(holiday.external_id || holiday.externalId || '').startsWith('nager-th-')
   );
   const companyHolidays = filteredHolidays.filter((holiday) => !isThaiPublicHoliday(holiday));
@@ -4229,7 +4231,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
         </div>
         <div className="grid lg:grid-cols-2 gap-4">
           {renderHolidayGroup('วันหยุดบริษัท', 'รายการที่ Admin เพิ่มหรือแก้ไขเอง', companyHolidays, 'Company')}
-          {renderHolidayGroup('วันหยุดไทยจากภายนอก', 'ข้อมูลจาก Nager.Date สำหรับประเทศไทย', thaiPublicHolidays, 'Thailand API')}
+          {renderHolidayGroup('วันหยุดไทยจากภายนอก', 'ข้อมูลจาก iApp API สำหรับประเทศไทย', thaiPublicHolidays, 'iApp API')}
         </div>
       </div>
     </Panel>

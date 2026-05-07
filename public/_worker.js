@@ -1,4 +1,5 @@
 const DEFAULT_BACKEND_API_BASE = "";
+const DEFAULT_THAI_HOLIDAY_API_URL = "https://api.iapp.co.th/v3/store/data/thai-holiday";
 const PAGE_SIZE = 1000;
 const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log", "app_system_links"];
 
@@ -166,12 +167,66 @@ function normalizeHolidayYears(input) {
 }
 
 async function fetchThaiPublicHolidays(year) {
-  const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/TH`, {
-    headers: { Accept: "application/json" },
-  });
+  const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/TH`, { headers: { Accept: "application/json" } });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.message || `Thai holiday provider HTTP ${res.status}`);
-  return Array.isArray(data) ? data : [];
+  if (!res.ok) throw new Error(data?.message || `Nager.Date HTTP ${res.status}`);
+  return normalizeThaiHolidayResponse(data, year, "nager.date");
+}
+
+function thaiHolidayApiUrl(env) {
+  return env.THAI_HOLIDAY_API_URL || env.IAPP_THAI_HOLIDAY_API_URL || DEFAULT_THAI_HOLIDAY_API_URL;
+}
+
+function thaiHolidayHeaders(env) {
+  const headers = { Accept: "application/json" };
+  const key = env.THAI_HOLIDAY_API_KEY || env.IAPP_API_KEY || env.IAPP_KEY || "";
+  if (key) {
+    headers.apikey = key;
+    headers["x-api-key"] = key;
+    headers.Authorization = key.startsWith("Bearer ") ? key : `Bearer ${key}`;
+  }
+  return headers;
+}
+
+function pickHolidayArray(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return [];
+  for (const key of ["data", "items", "holidays", "holiday", "results", "rows"]) {
+    if (Array.isArray(data[key])) return data[key];
+  }
+  return [];
+}
+
+function normalizeThaiHolidayResponse(data, year, provider = "iapp") {
+  const rows = pickHolidayArray(data);
+  return rows.map((item) => {
+    const date = String(item.date || item.holiday_date || item.holidayDate || item.startDate || item.start_date || "").slice(0, 10);
+    if (!date || (year && !date.startsWith(String(year)))) return null;
+    return {
+      date,
+      localName: item.localName || item.local_name || item.nameTh || item.name_th || item.name || item.title || item.summary || "",
+      name: item.name || item.nameEn || item.name_en || item.localName || item.title || item.summary || "",
+      countryCode: "TH",
+      global: item.global ?? item.active ?? true,
+      types: item.types || item.type || ["Public"],
+      provider,
+    };
+  }).filter(Boolean);
+}
+
+async function fetchThaiPublicHolidaysFromIapp(env, year) {
+  const apiUrl = new URL(thaiHolidayApiUrl(env));
+  if (!apiUrl.searchParams.has("year")) apiUrl.searchParams.set("year", String(year));
+  const res = await fetch(apiUrl.toString(), { headers: thaiHolidayHeaders(env) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.message || data?.error || `iApp Thai holiday HTTP ${res.status}`);
+  return normalizeThaiHolidayResponse(data, year, "iapp");
+}
+
+async function fetchThaiPublicHolidaysForYear(env, year) {
+  const iappRows = await fetchThaiPublicHolidaysFromIapp(env, year).catch(() => []);
+  if (iappRows.length > 0) return iappRows;
+  return fetchThaiPublicHolidays(year);
 }
 
 async function upsertHolidayRow(env, row, columns) {
@@ -216,10 +271,11 @@ async function syncThaiPublicHolidays(env, body = {}) {
   const rawRows = [];
 
   for (const year of years) {
-    const holidays = await fetchThaiPublicHolidays(year);
+    const holidays = await fetchThaiPublicHolidaysForYear(env, year);
     for (const item of holidays) {
       const date = String(item.date || "").slice(0, 10);
       if (!date) continue;
+      const provider = item.provider || "iapp";
       rawRows.push({
         id: `th-public-${date}`,
         holiday_date: date,
@@ -229,8 +285,8 @@ async function syncThaiPublicHolidays(env, body = {}) {
         holiday_source: "thai_public",
         type: "thai_public",
         country_code: "TH",
-        external_id: `nager-th-${date}`,
-        provider: "nager.date",
+        external_id: `${provider}-th-${date}`,
+        provider,
       });
     }
   }
