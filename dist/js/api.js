@@ -2,9 +2,10 @@ const API = (() => {
   const BASE = (typeof window !== "undefined" && window.API_BASE) ? window.API_BASE : "/api";
 
   async function post(endpoint, body, headers = {}) {
+    const hasCustomHeaders = Object.keys(headers || {}).length > 0;
     const res = await fetch(`${BASE}/${endpoint}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
+      headers: { "Content-Type": hasCustomHeaders ? "application/json" : "text/plain", ...headers },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
