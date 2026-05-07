@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_API_BASE = "https://spds-1.kobpatme.workers.dev/api";
+const DEFAULT_BACKEND_API_BASE = "";
 
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "*";
@@ -208,6 +208,12 @@ async function proxyApiRequest(request, env) {
   const url = new URL(request.url);
   const apiPath = url.pathname.replace(/^\/api\/?/, "");
   const backendBase = (env.MAXIWA_BACKEND_API_BASE || DEFAULT_BACKEND_API_BASE).replace(/\/+$/, "");
+  if (!backendBase) {
+    return jsonResponse(request, {
+      error: "Backend API is not configured",
+      endpoint: `/api/${apiPath}`,
+    }, 503, { "X-Maxiwa-Proxy": "disabled" });
+  }
   const targetUrl = `${backendBase}/${apiPath}${url.search}`;
   const headers = new Headers(request.headers);
   const headersToStrip = [
@@ -268,8 +274,6 @@ export default {
         return new Response(null, { status: 204, headers: corsHeaders(request) });
       }
       const fallbackRequest = request.clone();
-      const proxied = await proxyApiRequest(request, env);
-      if (proxied.ok) return proxied;
       const apiPath = url.pathname.replace(/^\/api\/?/, "");
       try {
         const fallback = await handleSupabaseFallback(fallbackRequest, env, apiPath);
@@ -280,6 +284,8 @@ export default {
           endpoint: `/api/${apiPath}`,
         }, 500, { "X-Maxiwa-Fallback": "supabase-error" });
       }
+      const proxied = await proxyApiRequest(request, env);
+      if (proxied.ok) return proxied;
       return proxied;
     }
 
