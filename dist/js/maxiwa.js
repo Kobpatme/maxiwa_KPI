@@ -548,6 +548,19 @@ var MaxiwaKpiApp = (() => {
   function personKey(value) {
     return String(value || "").trim().toLowerCase();
   }
+  function isResignedText(value) {
+    const text = String(value || "").trim().toLowerCase();
+    return text.includes("\u0E25\u0E32\u0E2D\u0E2D\u0E01") || text.includes("resign") || text.includes("inactive");
+  }
+  function isResignedPerson(person = {}) {
+    return isResignedText(person.team) || isResignedText(person.department) || isResignedText(person.status);
+  }
+  function isResignedTask(task = {}) {
+    return isResignedText(task.team) || isResignedText(task.name) || isResignedText(task.assignee);
+  }
+  function filterPerformanceTasks(tasks = []) {
+    return (tasks || []).filter((task) => !isResignedTask(task));
+  }
   function taskMatchesPerson(task, person) {
     const taskEmp = personKey(task.empId || task.empid || task.assignedToEmpId);
     const personEmp = personKey(person.empId || person.empid);
@@ -555,8 +568,8 @@ var MaxiwaKpiApp = (() => {
     return personKey(task.name) === personKey(person.name) && (!person.team || task.team === person.team);
   }
   function enrichSummaryWithTaskWeights(summary, tasks) {
-    const sourceSummary = summary || [];
-    const sourceTasks = tasks || [];
+    const sourceSummary = (summary || []).filter((person) => !isResignedPerson(person));
+    const sourceTasks = filterPerformanceTasks(tasks || []);
     return sourceSummary.map((person) => {
       const personTasks = sourceTasks.filter((task) => taskMatchesPerson(task, person));
       if (personTasks.length === 0) return person;
@@ -576,7 +589,7 @@ var MaxiwaKpiApp = (() => {
   }
   function buildPeopleSummaryFromTasks(tasks = []) {
     const people = /* @__PURE__ */ new Map();
-    (tasks || []).forEach((task) => {
+    filterPerformanceTasks(tasks || []).forEach((task) => {
       const key = personKey(task.empId || task.empid || task.assignedToEmpId || `${task.name || "Unassigned"}|${task.team || ""}`);
       if (!people.has(key)) {
         people.set(key, {
@@ -590,7 +603,7 @@ var MaxiwaKpiApp = (() => {
     return Array.from(people.values()).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "th"));
   }
   function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
-    const personTasks = (tasks || []).filter((task) => taskMatchesPerson(task, person));
+    const personTasks = filterPerformanceTasks(tasks || []).filter((task) => taskMatchesPerson(task, person));
     const activeTasks = personTasks.filter(isActiveTask);
     const completedTasks = personTasks.filter((task) => String(task.status || "").toLowerCase() === "completed");
     const statusCounts = personTasks.reduce((acc, task) => {
@@ -1201,7 +1214,7 @@ var MaxiwaKpiApp = (() => {
     if (!data) {
       return /* @__PURE__ */ React.createElement(Panel, { title: "Executive View", subtitle: "Preparing executive summary..." }, /* @__PURE__ */ React.createElement("div", { className: "text-[var(--mx-muted)]" }, "Loading..."));
     }
-    const tasks = getExecutiveTasks(data);
+    const tasks = filterPerformanceTasks(getExecutiveTasks(data));
     const holidaySet = useMemo(() => buildHolidaySet([...holidays || [], ...data && data.holidays || []]), [holidays, data]);
     const activeTasks = tasks.filter(isActiveTask);
     const completedTasks = tasks.filter((task) => String(task.status || "").toLowerCase() === "completed");
@@ -1335,7 +1348,7 @@ var MaxiwaKpiApp = (() => {
       ));
     }
     if (user.role === "Lead") {
-      const tasks2 = data.tasks || [];
+      const tasks2 = filterPerformanceTasks(data.tasks || []);
       const holidaySet = buildHolidaySet([...holidays || [], ...data && data.holidays || []]);
       const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks2);
       const teamScores = tasks2.length > 0 ? calcTaskWeightedScores(tasks2) : null;
@@ -1363,7 +1376,7 @@ var MaxiwaKpiApp = (() => {
       }), leadRows.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "mx-data-card text-center text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E17\u0E35\u0E21\u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07\u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01"))));
     }
     if (user.role === "Manager") {
-      const tasks2 = data.tasks || [];
+      const tasks2 = filterPerformanceTasks(data.tasks || []);
       const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks2);
       const risky = tasks2.filter((t) => ["Pending", "On Hold"].includes(t.status)).length;
       const orgScores = tasks2.length > 0 ? calcTaskWeightedScores(tasks2) : null;
@@ -2238,6 +2251,38 @@ var MaxiwaKpiApp = (() => {
     };
     const previewUser = (staff || []).find((person) => String(person.empId || person.empid || "").toUpperCase() === previewEmpId.trim().toUpperCase());
     const previewSystems = previewUser ? visibleSystemLinksForUser(normalizedSystemLinks, previewUser) : [];
+    const syncUserChangesToTasks = async (originalUser, nextUser) => {
+      const empId = String(nextUser.empid || nextUser.empId || (originalUser == null ? void 0 : originalUser.empid) || (originalUser == null ? void 0 : originalUser.empId) || "").trim();
+      const nextName = String(nextUser.name || "").trim();
+      const nextTeam = String(nextUser.team || "").trim();
+      const oldName = String((originalUser == null ? void 0 : originalUser.name) || "").trim();
+      const oldTeam = String((originalUser == null ? void 0 : originalUser.team) || "").trim();
+      if (!empId && !oldName) return { ok: true, updated: 0 };
+      if (nextName === oldName && nextTeam === oldTeam) return { ok: true, updated: 0 };
+      const client = await initSupabaseClient();
+      if (!client) throw new Error("Supabase client is not available");
+      const updates = { name: nextName, team: nextTeam };
+      let updated = 0;
+      const tryUpdate = async (applyFilter) => {
+        try {
+          const { count, error } = await applyFilter(client.from("tasks").update(updates, { count: "exact" }));
+          if (error) throw error;
+          updated += count || 0;
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      if (empId) {
+        await tryUpdate((query) => query.eq("empid", empId));
+        await tryUpdate((query) => query.eq("empId", empId));
+        await tryUpdate((query) => query.eq("assignedToEmpId", empId));
+      }
+      if (updated === 0 && oldName) {
+        await tryUpdate((query) => oldTeam ? query.eq("name", oldName).eq("team", oldTeam) : query.eq("name", oldName));
+      }
+      return { ok: true, updated };
+    };
     const kpiFormFromItem = (item = {}) => ({
       id: item.id,
       main: item.main || item.mainkpi || "",
@@ -2290,15 +2335,20 @@ var MaxiwaKpiApp = (() => {
         pigurl: String(userForm.pigurl || "").trim()
       };
       const payload = { ...basePayload, permissions };
+      const originalUser = staff.find((person) => String(person.empId || person.empid || "").trim().toUpperCase() === basePayload.empid);
       await runAdminAction("user", async () => {
+        let result;
         try {
-          return await adminPost("admin/saveUser", payload, user.empId);
+          result = await adminPost("admin/saveUser", payload, user.empId);
         } catch (error) {
           if (error.status >= 500) {
-            return adminPost("admin/saveUser", basePayload, user.empId);
+            result = await adminPost("admin/saveUser", basePayload, user.empId);
+          } else {
+            throw error;
           }
-          throw error;
         }
+        await syncUserChangesToTasks(originalUser, basePayload);
+        return result;
       }, "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
       setUserForm({ empid: "", name: "", department: "", team: "", role: "Staff", accessScope: "Self", pigurl: "" });
     };

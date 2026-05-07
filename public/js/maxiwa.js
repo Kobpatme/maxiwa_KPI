@@ -627,6 +627,23 @@ function personKey(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function isResignedText(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return text.includes('ลาออก') || text.includes('resign') || text.includes('inactive');
+}
+
+function isResignedPerson(person = {}) {
+  return isResignedText(person.team) || isResignedText(person.department) || isResignedText(person.status);
+}
+
+function isResignedTask(task = {}) {
+  return isResignedText(task.team) || isResignedText(task.name) || isResignedText(task.assignee);
+}
+
+function filterPerformanceTasks(tasks = []) {
+  return (tasks || []).filter((task) => !isResignedTask(task));
+}
+
 function taskMatchesPerson(task, person) {
   const taskEmp = personKey(task.empId || task.empid || task.assignedToEmpId);
   const personEmp = personKey(person.empId || person.empid);
@@ -635,8 +652,8 @@ function taskMatchesPerson(task, person) {
 }
 
 function enrichSummaryWithTaskWeights(summary, tasks) {
-  const sourceSummary = summary || [];
-  const sourceTasks = tasks || [];
+  const sourceSummary = (summary || []).filter((person) => !isResignedPerson(person));
+  const sourceTasks = filterPerformanceTasks(tasks || []);
   return sourceSummary.map((person) => {
     const personTasks = sourceTasks.filter((task) => taskMatchesPerson(task, person));
     if (personTasks.length === 0) return person;
@@ -657,7 +674,7 @@ function enrichSummaryWithTaskWeights(summary, tasks) {
 
 function buildPeopleSummaryFromTasks(tasks = []) {
   const people = new Map();
-  (tasks || []).forEach((task) => {
+  filterPerformanceTasks(tasks || []).forEach((task) => {
     const key = personKey(task.empId || task.empid || task.assignedToEmpId || `${task.name || 'Unassigned'}|${task.team || ''}`);
     if (!people.has(key)) {
       people.set(key, {
@@ -672,7 +689,7 @@ function buildPeopleSummaryFromTasks(tasks = []) {
 }
 
 function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
-  const personTasks = (tasks || []).filter((task) => taskMatchesPerson(task, person));
+  const personTasks = filterPerformanceTasks(tasks || []).filter((task) => taskMatchesPerson(task, person));
   const activeTasks = personTasks.filter(isActiveTask);
   const completedTasks = personTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed');
   const statusCounts = personTasks.reduce((acc, task) => {
@@ -1700,7 +1717,7 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
     );
   }
 
-  const tasks = getExecutiveTasks(data);
+  const tasks = filterPerformanceTasks(getExecutiveTasks(data));
   const holidaySet = useMemo(() => buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]), [holidays, data]);
   const activeTasks = tasks.filter(isActiveTask);
   const completedTasks = tasks.filter((task) => String(task.status || '').toLowerCase() === 'completed');
@@ -2081,7 +2098,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
   }
 
   if (user.role === 'Lead') {
-    const tasks = data.tasks || [];
+    const tasks = filterPerformanceTasks(data.tasks || []);
     const holidaySet = buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]);
     const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks);
     const teamScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
@@ -2208,7 +2225,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
   }
 
   if (user.role === 'Manager') {
-    const tasks = data.tasks || [];
+    const tasks = filterPerformanceTasks(data.tasks || []);
     const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks);
     const risky = tasks.filter((t) => ['Pending', 'On Hold'].includes(t.status)).length;
     const orgScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
@@ -3521,6 +3538,43 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const previewUser = (staff || []).find((person) => String(person.empId || person.empid || '').toUpperCase() === previewEmpId.trim().toUpperCase());
   const previewSystems = previewUser ? visibleSystemLinksForUser(normalizedSystemLinks, previewUser) : [];
 
+  const syncUserChangesToTasks = async (originalUser, nextUser) => {
+    const empId = String(nextUser.empid || nextUser.empId || originalUser?.empid || originalUser?.empId || '').trim();
+    const nextName = String(nextUser.name || '').trim();
+    const nextTeam = String(nextUser.team || '').trim();
+    const oldName = String(originalUser?.name || '').trim();
+    const oldTeam = String(originalUser?.team || '').trim();
+    if (!empId && !oldName) return { ok: true, updated: 0 };
+    if (nextName === oldName && nextTeam === oldTeam) return { ok: true, updated: 0 };
+
+    const client = await initSupabaseClient();
+    if (!client) throw new Error('Supabase client is not available');
+    const updates = { name: nextName, team: nextTeam };
+    let updated = 0;
+
+    const tryUpdate = async (applyFilter) => {
+      try {
+        const { count, error } = await applyFilter(client.from('tasks').update(updates, { count: 'exact' }));
+        if (error) throw error;
+        updated += count || 0;
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    if (empId) {
+      await tryUpdate((query) => query.eq('empid', empId));
+      await tryUpdate((query) => query.eq('empId', empId));
+      await tryUpdate((query) => query.eq('assignedToEmpId', empId));
+    }
+    if (updated === 0 && oldName) {
+      await tryUpdate((query) => oldTeam ? query.eq('name', oldName).eq('team', oldTeam) : query.eq('name', oldName));
+    }
+
+    return { ok: true, updated };
+  };
+
   const kpiFormFromItem = (item = {}) => ({
       id: item.id,
       main: item.main || item.mainkpi || '',
@@ -3581,15 +3635,20 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
       pigurl: String(userForm.pigurl || '').trim(),
     };
     const payload = { ...basePayload, permissions };
+    const originalUser = staff.find((person) => String(person.empId || person.empid || '').trim().toUpperCase() === basePayload.empid);
     await runAdminAction('user', async () => {
+      let result;
       try {
-        return await adminPost('admin/saveUser', payload, user.empId);
+        result = await adminPost('admin/saveUser', payload, user.empId);
       } catch (error) {
         if (error.status >= 500) {
-          return adminPost('admin/saveUser', basePayload, user.empId);
+          result = await adminPost('admin/saveUser', basePayload, user.empId);
+        } else {
+          throw error;
         }
-        throw error;
       }
+      await syncUserChangesToTasks(originalUser, basePayload);
+      return result;
     }, 'บันทึกผู้ใช้สำเร็จ');
     setUserForm({ empid: '', name: '', department: '', team: '', role: 'Staff', accessScope: 'Self', pigurl: '' });
   };
