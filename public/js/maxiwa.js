@@ -4243,11 +4243,15 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   };
 
   const recalc = async (successMessage = 'คำนวณกำหนดส่งใหม่สำเร็จ') => {
-    await runAdminAction('recalc', async () => adminPost('admin/recalculateDeadlines', {}, user.empId), successMessage);
+    await runAdminAction('recalc-deadlines', async () => adminPost('admin/recalculateDeadlines', {}, user.empId), successMessage);
+  };
+
+  const recalcTaskKpiValues = async () => {
+    await runAdminAction('recalc-tasks', async () => adminPost('admin/recalculateTaskKpiValues', {}, user.empId), 'คำนวณงานเดิมใหม่และปรับ mainKPI สำเร็จ');
   };
 
   const recalcPersonalKpiTasks = async () => {
-    await recalc('คำนวณงานเดิมใหม่สำเร็จ');
+    await recalcTaskKpiValues();
   };
 
   const renderHolidayGroup = (title, subtitle, items, badge) => (
@@ -4532,8 +4536,8 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
                   })}
                 </select>
               </label>
-              <button className="mx-btn mx-btn-soft self-end" onClick={recalcPersonalKpiTasks} disabled={saving === 'recalc'}>
-                <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังคำนวณ...' : 'คำนวณงานเดิมใหม่'}
+              <button className="mx-btn mx-btn-soft self-end" onClick={recalcPersonalKpiTasks} disabled={saving === 'recalc-tasks'}>
+                <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc-tasks' ? 'กำลังคำนวณ...' : 'คำนวณงานเดิมใหม่'}
               </button>
             </div>
           </div>
