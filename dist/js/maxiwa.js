@@ -460,12 +460,12 @@ var MaxiwaKpiApp = (() => {
       ["Amount", ed.amount ? Number(ed.amount).toLocaleString("th-TH") : ""]
     ].filter(([, v]) => v !== void 0 && v !== null && v !== "");
     if (entries.length === 0) return null;
-    return /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, entries.map(([label, value]) => /* @__PURE__ */ React.createElement("span", { key: label, className: "mx-badge mx-status-process" }, label, ": ", value)));
+    return /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, entries.map(([label, value]) => /* @__PURE__ */ React.createElement("span", { key: label, className: "mx-badge mx-status-process" }, label === "SSR" ? value : `${label}: ${value}`)));
   }
   function SsrBadge({ extraData }) {
     const ssrNumber = getSsrNumber(extraData);
     if (!ssrNumber) return null;
-    return /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, "SSR: ", ssrNumber);
+    return /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, ssrNumber);
   }
   function keepSsrExtraData(extraData) {
     const ed = normalizeExtraData(extraData);

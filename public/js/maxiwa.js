@@ -505,7 +505,7 @@ function renderExtraData(extraData) {
   return (
     <div className="mt-3 flex flex-wrap gap-2">
       {entries.map(([label, value]) => (
-        <span key={label} className="mx-badge mx-status-process">{label}: {value}</span>
+        <span key={label} className="mx-badge mx-status-process">{label === 'SSR' ? value : `${label}: ${value}`}</span>
       ))}
     </div>
   );
@@ -514,7 +514,7 @@ function renderExtraData(extraData) {
 function SsrBadge({ extraData }) {
   const ssrNumber = getSsrNumber(extraData);
   if (!ssrNumber) return null;
-  return <span className="mx-badge mx-status-process">SSR: {ssrNumber}</span>;
+  return <span className="mx-badge mx-status-process">{ssrNumber}</span>;
 }
 
 function keepSsrExtraData(extraData) {
