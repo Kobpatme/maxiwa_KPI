@@ -162,6 +162,24 @@ function getEffectiveKpiWeight(user, kpi) {
   return getPersonalKpiOverride(user, kpi) || getKpiBaseWeight(kpi);
 }
 
+function getKpiAssignments(user) {
+  return userPermissions(user).kpiAssignments || user?.kpiAssignments || {};
+}
+
+function hasAnyKpiAssignments(user) {
+  return Object.keys(getKpiAssignments(user)).length > 0;
+}
+
+function isKpiAssignedToUser(user, kpi) {
+  const assignments = getKpiAssignments(user);
+  if (Object.keys(assignments).length === 0) return true;
+  return kpiOverrideKeysOf(kpi).some((key) => assignments[key] === true);
+}
+
+function filterKpisForUser(kpis, user) {
+  return (kpis || []).filter((kpi) => isKpiAssignedToUser(user, kpi));
+}
+
 function normalizeAppUser(user, fallbackEmpId = '') {
   if (!user) return null;
   const normalizedEmpId = String(user.empId || user.empid || fallbackEmpId).trim();
@@ -513,11 +531,25 @@ function isSessionSuperseded(userOrEmpId) {
 }
 
 function getStatusClass(status) {
-  if (status === 'Completed') return 'mx-status-completed';
-  if (status === 'On Process') return 'mx-status-process';
-  if (status === 'Pending') return 'mx-status-pending';
-  if (status === 'On Hold') return 'mx-status-hold';
+  const key = statusKey(status);
+  if (key === 'completed') return 'mx-status-completed';
+  if (key === 'on process') return 'mx-status-process';
+  if (key === 'pending') return 'mx-status-pending';
+  if (key === 'on hold') return 'mx-status-hold';
   return 'mx-status-cancelled';
+}
+
+function statusKey(status) {
+  return String(status || '').trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+}
+
+function statusEquals(status, expected) {
+  return statusKey(status) === statusKey(expected);
+}
+
+function statusIn(status, expectedStatuses = []) {
+  const key = statusKey(status);
+  return expectedStatuses.some((expected) => key === statusKey(expected));
 }
 
 function extractJobCode(jobStr) {
@@ -605,7 +637,7 @@ function formatWeightPercent(value) {
 }
 
 function getKpiGroupKey(task) {
-  return String(task?.mainkpi ?? task?.mainKpi ?? task?.main ?? task?.subkpi ?? task?.sub ?? 'Other').trim() || 'Other';
+  return String(task?.subkpi ?? task?.subKpi ?? task?.sub ?? task?.mainkpi ?? task?.mainKpi ?? task?.main ?? 'Other').trim() || 'Other';
 }
 
 function isCompletedOnTime(task) {
@@ -638,7 +670,7 @@ function calcTaskWeightedScores(tasks) {
   (tasks || []).forEach((task) => {
     const key = getKpiGroupKey(task);
     const weight = getTaskWeight(task);
-    const status = String(task?.status || '').toLowerCase();
+    const status = statusKey(task?.status);
     if (!groups[key]) groups[key] = { weight, total: 0, completed: 0, onTime: 0, cancelled: 0 };
     else if (groups[key].weight === 1 && weight !== 1) groups[key].weight = weight;
     if (status === 'cancelled') {
@@ -738,7 +770,7 @@ function enrichSummaryWithTaskWeights(summary, tasks) {
     return {
       ...person,
       totalTasks: personTasks.length,
-      completedTasks: personTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed').length,
+      completedTasks: personTasks.filter((task) => statusEquals(task.status, 'Completed')).length,
       weightedSlaScore: weighted.sla,
       weightedCompletionScore: weighted.completion,
       totalWeight: weighted.totalWeight,
@@ -768,9 +800,9 @@ function buildPeopleSummaryFromTasks(tasks = []) {
 function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
   const personTasks = filterPerformanceTasks(tasks || []).filter((task) => taskMatchesPerson(task, person));
   const activeTasks = personTasks.filter(isActiveTask);
-  const completedTasks = personTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed');
+  const completedTasks = personTasks.filter((task) => statusEquals(task.status, 'Completed'));
   const statusCounts = personTasks.reduce((acc, task) => {
-    const status = task.status || 'Unknown';
+    const status = statusKey(task.status) || 'unknown';
     acc[status] = (acc[status] || 0) + 1;
     return acc;
   }, {});
@@ -786,12 +818,12 @@ function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
   const dueSoon = riskItems.filter((item) => item.days >= 0 && item.days <= 3).length;
   const kpiMap = {};
   personTasks.forEach((task) => {
-    if (String(task.status || '').toLowerCase() === 'cancelled') return;
+    if (statusEquals(task.status, 'Cancelled')) return;
     const key = getKpiGroupKey(task);
     if (!kpiMap[key]) kpiMap[key] = { name: key, tasks: 0, active: 0, completed: 0, weight: getTaskWeight(task) };
     kpiMap[key].tasks += 1;
     if (isActiveTask(task)) kpiMap[key].active += 1;
-    if (String(task.status || '').toLowerCase() === 'completed') kpiMap[key].completed += 1;
+    if (statusEquals(task.status, 'Completed')) kpiMap[key].completed += 1;
     kpiMap[key].weight = Math.max(kpiMap[key].weight, getTaskWeight(task));
   });
   const kpiMix = Object.values(kpiMap).sort((a, b) => (b.weight - a.weight) || (b.active - a.active)).slice(0, 3);
@@ -800,10 +832,10 @@ function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
     tasks: personTasks,
     active: activeTasks.length,
     completed: completedTasks.length,
-    pending: statusCounts.Pending || 0,
-    inProcess: statusCounts['On Process'] || 0,
-    onHold: statusCounts['On Hold'] || 0,
-    cancelled: statusCounts.Cancelled || 0,
+    pending: statusCounts.pending || 0,
+    inProcess: statusCounts['on process'] || 0,
+    onHold: statusCounts['on hold'] || 0,
+    cancelled: statusCounts.cancelled || 0,
     overdue,
     dueSoon,
     riskItems,
@@ -915,7 +947,7 @@ function LeadPersonDetailModal({ row, dialogId }) {
               </div>
 
               <div className="mx-muted-card rounded-lg p-4">
-                <div className="text-sm font-extrabold">KPI Mix ที่กินโหลด</div>
+                <div className="text-sm font-extrabold">Sub KPI Mix ที่กินโหลด</div>
                 <div className="mt-3 grid gap-2">
                   {detail.kpiMix.map((item) => (
                     <div key={item.name} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-3">
@@ -928,7 +960,7 @@ function LeadPersonDetailModal({ row, dialogId }) {
                       </div>
                     </div>
                   ))}
-                  {detail.kpiMix.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มี KPI active สำหรับคนนี้</div>}
+                  {detail.kpiMix.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มี Sub KPI active สำหรับคนนี้</div>}
                 </div>
               </div>
             </div>
@@ -1615,7 +1647,7 @@ function getExecutiveTasks(data) {
 }
 
 function isActiveTask(task) {
-  return !['completed', 'cancelled'].includes(String(task?.status || '').toLowerCase());
+  return !statusIn(task?.status, ['Completed', 'Cancelled']);
 }
 
 function normalizeDateOnly(value) {
@@ -1706,7 +1738,7 @@ function getTaskHoldDays(task, holidays = [], endValue = new Date()) {
 
 function getEffectiveDeadline(task, holidays = []) {
   if (!task?.deadline) return null;
-  const activeHoldDays = String(task?.status || '').toLowerCase() === 'on hold'
+  const activeHoldDays = statusEquals(task?.status, 'On Hold')
     ? getTaskHoldDays(task, holidays)
     : 0;
   return activeHoldDays > 0 ? addBusinessDays(task.deadline, activeHoldDays, holidays) : normalizeDateOnly(task.deadline);
@@ -1725,7 +1757,7 @@ function getHoldSummary(task, holidays = []) {
 }
 
 function buildHoldExtraData(task, nextStatus, holidays = [], changedBy = '') {
-  const currentStatus = String(task?.status || '').toLowerCase();
+  const currentStatus = statusKey(task?.status);
   const targetStatus = String(nextStatus || '').toLowerCase();
   const extra = { ...normalizeExtraData(task?.extra_data) };
   const now = new Date().toISOString();
@@ -1795,7 +1827,7 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
   const tasks = filterPerformanceTasks(getExecutiveTasks(data));
   const holidaySet = useMemo(() => buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]), [holidays, data]);
   const activeTasks = tasks.filter(isActiveTask);
-  const completedTasks = tasks.filter((task) => String(task.status || '').toLowerCase() === 'completed');
+  const completedTasks = tasks.filter((task) => statusEquals(task.status, 'Completed'));
   const overdueTasks = activeTasks.filter((task) => {
     const days = getDaysUntilDeadline(task, holidaySet);
     return days !== null && days < 0;
@@ -1827,7 +1859,7 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
       const days = getDaysUntilDeadline(task, holidaySet);
       return days !== null && days >= 0 && days <= 3;
     }).length;
-    const teamCompletion = teamScores.completion ?? (teamTasks.length ? Math.round((teamTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed').length / teamTasks.length) * 100) : null);
+    const teamCompletion = teamScores.completion ?? (teamTasks.length ? Math.round((teamTasks.filter((task) => statusEquals(task.status, 'Completed')).length / teamTasks.length) * 100) : null);
     const health = Math.round(((teamScores.sla ?? teamCompletion ?? 0) + (teamCompletion ?? teamScores.sla ?? 0)) / 2) - overdue * 5 - atRisk * 2;
     return { team, total: teamTasks.length, active: active.length, overdue, atRisk, sla: teamScores.sla, completion: teamCompletion, health };
   }).sort((a, b) => (a.overdue - b.overdue) || (a.atRisk - b.atRisk) || (b.health - a.health));
@@ -1989,25 +2021,27 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
 
   if (user.role === 'Staff') {
     const tasks = data.tasks || [];
-    const completed = tasks.filter((t) => t.status === 'Completed').length;
-    const active = tasks.filter((t) => ['On Process', 'Pending', 'On Hold'].includes(t.status)).length;
+    const completed = tasks.filter((t) => statusEquals(t.status, 'Completed')).length;
+    const active = tasks.filter((t) => statusIn(t.status, ['On Process', 'Pending', 'On Hold'])).length;
     const holidaySet = buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]);
 
     const scores = calcTaskWeightedScores(tasks);
 
-    // KPI distribution bar
+    // Sub KPI distribution bar
     const kpiDist = {};
+    let totalKpiWeight = 0;
     tasks.forEach((t) => {
-      if (String(t.status || '').toLowerCase() === 'cancelled') return;
-      const k = t.mainkpi || 'Other';
+      if (statusEquals(t.status, 'Cancelled')) return;
+      const k = String(t.subkpi || t.subKpi || t.sub || t.mainkpi || t.mainKpi || t.main || 'Other').trim() || 'Other';
       const weight = getTaskWeight(t);
-      if (!kpiDist[k] || (kpiDist[k] === 1 && weight !== 1)) kpiDist[k] = weight;
+      kpiDist[k] = (kpiDist[k] || 0) + weight;
+      totalKpiWeight += weight;
     });
     const kpiEntries = Object.entries(kpiDist).sort((a, b) => b[1] - a[1]);
-    const maxKpi = kpiEntries.length > 0 ? kpiEntries[0][1] : 1;
+    const totalWeight = totalKpiWeight > 0 ? totalKpiWeight : 1;
 
     // All active tasks (not completed/cancelled)
-    const activeTasks = tasks.filter((t) => !['Completed', 'Cancelled'].includes(t.status));
+    const activeTasks = tasks.filter((t) => !statusIn(t.status, ['Completed', 'Cancelled']));
 
     const periodLabel = filterMonth === 0 ? `ทุกเดือน ${filterYear}` : `${MONTH_NAMES[filterMonth - 1]} ${filterYear}`;
 
@@ -2075,7 +2109,6 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
         {/* Metric Cards */}
         <div className="mx-grid-auto">
           <MetricCard label="Total Tasks" value={tasks.length} sub={`งานใน${periodLabel}`} icon="fa-list-check" />
-          <MetricCard label="Total Weight" value={formatWeightPercent(scores.totalWeight)} sub="น้ำหนักงานที่ใช้คำนวณ KPI" icon="fa-scale-balanced" accent="var(--mx-blue)" />
           <MetricCard label="Weighted Completion" value={formatScorePercent(scores.completion)} sub={completionMetricSub(scores)} icon="fa-check-double" accent="var(--mx-green)" />
           <MetricCard label="Weighted SLA" value={formatScorePercent(scores.sla)} sub={slaMetricSub(scores)} icon="fa-chart-line" accent="var(--mx-amber)" />
         </div>
@@ -2084,15 +2117,15 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
 
         {/* KPI Distribution */}
         {kpiEntries.length > 0 && (
-          <Panel title="KPI Weight Distribution" subtitle="สัดส่วนน้ำหนักงานแยกตาม Main KPI">
+          <Panel title="Sub KPI Weight Distribution" subtitle="สัดส่วนน้ำหนักงานแยกตาม Sub KPI">
             <div className="grid gap-3">
               {kpiEntries.map(([kpi, count]) => (
                 <div key={kpi} className="flex items-center gap-3">
                   <div className="text-sm font-bold w-44 truncate flex-shrink-0">{kpi}</div>
                   <div className="flex-1 h-3 rounded-full mx-progress-track overflow-hidden">
-                    <div className="h-full rounded-full mx-progress-fill" style={{ width: `${(count / maxKpi) * 100}%` }} />
+                    <div className="h-full rounded-full mx-progress-fill" style={{ width: `${(count / totalWeight) * 100}%` }} />
                   </div>
-                  <div className="text-sm text-[var(--mx-muted)] w-20 text-right flex-shrink-0">{formatWeightPercent(count)}</div>
+                  <div className="text-sm text-[var(--mx-muted)] w-20 text-right flex-shrink-0">{formatWeightPercent((count / totalWeight) * 100)}</div>
                 </div>
               ))}
             </div>
@@ -2151,23 +2184,23 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                       <TaskActionBusy actionState={actionState} taskId={task.id} />
                     </div>
                     <div className="flex flex-wrap gap-2 flex-shrink-0 items-start">
-                      {task.status === 'Pending' && (
+                      {statusEquals(task.status, 'Pending') && (
                         <ActionBtn icon="fa-play" color="blue" onClick={() => handleDashAction(task, 'accept')} label="เริ่มงาน" loading={taskBusy} disabled={actionsDisabled} />
                       )}
-                      {task.status === 'On Process' && (
+                      {statusEquals(task.status, 'On Process') && (
                         <>
                           <ActionBtn icon="fa-check" color="emerald" onClick={() => handleDashAction(task, 'complete')} label="เสร็จสิ้น" loading={taskBusy} disabled={actionsDisabled} />
                           <ActionBtn icon="fa-pause" color="amber" onClick={() => handleDashAction(task, 'hold')} label="พักงาน" loading={taskBusy} disabled={actionsDisabled} />
                           <ActionBtn icon="fa-comment-dots" color="blue" onClick={() => handleDashAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
                         </>
                       )}
-                      {task.status === 'On Hold' && (
+                      {statusEquals(task.status, 'On Hold') && (
                         <>
                           <ActionBtn icon="fa-play" color="blue" onClick={() => handleDashAction(task, 'resume')} label="ดำเนินการต่อ" loading={taskBusy} disabled={actionsDisabled} />
                           <ActionBtn icon="fa-comment-dots" color="blue" onClick={() => handleDashAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
                         </>
                       )}
-                      {!['Completed', 'Cancelled'].includes(task.status) && (
+                      {!statusIn(task.status, ['Completed', 'Cancelled']) && (
                         <ActionBtn icon="fa-trash" color="rose" onClick={() => handleDashAction(task, 'cancel')} label="ยกเลิก" loading={taskBusy} disabled={actionsDisabled} />
                       )}
                     </div>
@@ -2278,7 +2311,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                         </div>
 
                         <div className="mx-muted-card rounded-lg p-4">
-                          <div className="text-sm font-extrabold">KPI Mix หลัก</div>
+                          <div className="text-sm font-extrabold">Sub KPI Mix หลัก</div>
                           <div className="mt-3 grid gap-2">
                             {detail.kpiMix.map((item) => (
                               <div key={item.name} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-3">
@@ -2291,7 +2324,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                                 </div>
                               </div>
                             ))}
-                            {detail.kpiMix.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มี KPI active สำหรับคนนี้</div>}
+                            {detail.kpiMix.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มี Sub KPI active สำหรับคนนี้</div>}
                           </div>
                         </div>
                       </div>
@@ -2311,7 +2344,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
   if (user.role === 'Manager') {
     const tasks = filterPerformanceTasks(data.tasks || []);
     const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks);
-    const risky = tasks.filter((t) => ['Pending', 'On Hold'].includes(t.status)).length;
+    const risky = tasks.filter((t) => statusIn(t.status, ['Pending', 'On Hold'])).length;
     const orgScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
     const avgSla = orgScores && orgScores.sla !== null
       ? orgScores.sla
@@ -2429,7 +2462,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
 
   const filtered = useMemo(() => {
     return (tasks || []).filter((task) => {
-      if (statusFilter !== 'all' && task.status !== statusFilter) return false;
+      if (statusFilter !== 'all' && !statusEquals(task.status, statusFilter)) return false;
       const q = search.trim().toLowerCase();
       if (!q) return true;
       return [task.job, task.name, task.team, task.mainkpi, task.subkpi, task.status]
@@ -2439,9 +2472,9 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
 
   const taskSummary = useMemo(() => ({
     total: (tasks || []).length,
-    active: (tasks || []).filter((t) => ['On Process', 'Pending', 'On Hold'].includes(t.status)).length,
-    completed: (tasks || []).filter((t) => t.status === 'Completed').length,
-    risk: (tasks || []).filter((t) => ['Pending', 'On Hold'].includes(t.status)).length,
+    active: (tasks || []).filter((t) => statusIn(t.status, ['On Process', 'Pending', 'On Hold'])).length,
+    completed: (tasks || []).filter((t) => statusEquals(t.status, 'Completed')).length,
+    risk: (tasks || []).filter((t) => statusIn(t.status, ['Pending', 'On Hold'])).length,
   }), [tasks]);
   const taskScores = useMemo(() => calcTaskWeightedScores(tasks || []), [tasks]);
   const holidaySet = useMemo(() => buildHolidaySet(holidays || []), [holidays]);
@@ -2599,8 +2632,8 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
     }
   };
 
-  const canEdit = (task) => ['Manager', 'Admin'].includes(user.role) || !['Completed', 'Cancelled'].includes(task.status);
-  const canCancel = (task) => !['Completed', 'Cancelled'].includes(task.status);
+  const canEdit = (task) => ['Manager', 'Admin'].includes(user.role) || !statusIn(task.status, ['Completed', 'Cancelled']);
+  const canCancel = (task) => !statusIn(task.status, ['Completed', 'Cancelled']);
 
   return (
     <div className="grid gap-5">
@@ -2843,17 +2876,17 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                   {/* Staff actions */}
                   {user.role === 'Staff' && (
                     <>
-                      {task.status === 'Pending' && (
+                      {statusEquals(task.status, 'Pending') && (
                         <ActionButton icon="fa-play" color="blue" onClick={() => handleStaffAction(task, 'accept')} label="เริ่มงาน" loading={taskBusy} disabled={actionsDisabled} />
                       )}
-                      {task.status === 'On Process' && (
+                      {statusEquals(task.status, 'On Process') && (
                         <>
                           <ActionButton icon="fa-check" color="emerald" onClick={() => handleStaffAction(task, 'complete')} label="เสร็จสิ้น" loading={taskBusy} disabled={actionsDisabled} />
                           <ActionButton icon="fa-pause" color="amber" onClick={() => handleStaffAction(task, 'hold')} label="พักงาน" loading={taskBusy} disabled={actionsDisabled} />
                           <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
                         </>
                       )}
-                      {task.status === 'On Hold' && (
+                      {statusEquals(task.status, 'On Hold') && (
                         <>
                           <ActionButton icon="fa-play" color="blue" onClick={() => handleStaffAction(task, 'resume')} label="ดำเนินการต่อ" loading={taskBusy} disabled={actionsDisabled} />
                           <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
@@ -3126,14 +3159,11 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
       .catch(() => setAssigneeKpis([]));
   }, [form.assignedToEmpId, isPersonalTask, people]);
 
-  const activeKpis = isPersonalTask ? (loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis) : assigneeKpis;
   const selectedAssignee = isPersonalTask
     ? user
     : (people || []).find((person) => String(person.empId || person.empid || '') === String(form.assignedToEmpId || ''));
-  const selectedKpi = activeKpis.find((kpi) => kpi.sub === form.subkpi);
-  const baseKpiWeight = selectedKpi ? getKpiBaseWeight(selectedKpi) : '';
-  const personalKpiOverride = selectedKpi ? getPersonalKpiOverride(selectedAssignee, selectedKpi) : '';
-  const effectiveKpiWeight = selectedKpi ? getEffectiveKpiWeight(selectedAssignee, selectedKpi) : '';
+  const rawActiveKpis = isPersonalTask ? (loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis) : assigneeKpis;
+  const activeKpis = selectedAssignee ? filterKpisForUser(rawActiveKpis, selectedAssignee) : rawActiveKpis;
 
   const handleSubKpiChange = async (subkpi) => {
     if (!subkpi) {
@@ -3285,17 +3315,8 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
               className="mx-input"
               value={form.subkpi}
               onChange={(e) => setForm((p) => ({ ...p, subkpi: e.target.value }))}
-              placeholder={isPersonalTask ? 'Sub KPI' : 'เลือกผู้รับผิดชอบก่อน'}
+              placeholder={isPersonalTask ? 'ยังไม่มี SubKPI ที่กำหนดให้ใช้งาน' : 'เลือกผู้รับผิดชอบก่อน'}
             />
-          )}
-          {selectedKpi && (
-            <div className="mt-2 flex flex-wrap gap-2 text-xs">
-              <span className="mx-badge mx-status-process">Weight กลาง {formatWeightPercent(baseKpiWeight)}</span>
-              <span className={`mx-badge ${personalKpiOverride ? 'mx-status-completed' : 'mx-status-cancelled'}`}>
-                {personalKpiOverride ? `Weight เฉพาะคน ${formatWeightPercent(personalKpiOverride)}` : 'ใช้ Weight กลาง'}
-              </span>
-              <span className="mx-badge mx-status-process">ใช้จริง {formatWeightPercent(effectiveKpiWeight)}</span>
-            </div>
           )}
         </div>
 
@@ -3502,35 +3523,11 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const normalizedKpiText = (value) => String(value || '').trim().toLowerCase();
 
   const saveKpiDirect = async (payload, fallbackPayload) => {
-    const client = await initSupabaseClient();
-    if (!client) throw new Error('Supabase client is not available');
-
-    const writeRow = async (row) => {
-      if (row.id) {
-        const { data, error } = await client
-          .from('kpis')
-          .update(row)
-          .eq('id', row.id)
-          .select()
-          .maybeSingle();
-        if (error) throw error;
-        return data || row;
-      }
-
-      const { data, error } = await client
-        .from('kpis')
-        .insert(row)
-        .select()
-        .single();
-      if (error) throw error;
-      return data || row;
-    };
-
     try {
-      return { ok: true, kpi: await writeRow(payload) };
+      return await adminPost('admin/saveKpi', payload, user.empId);
     } catch (error) {
       if (fallbackPayload && String(error.message || '').includes('main_weight')) {
-        return { ok: true, kpi: await writeRow(fallbackPayload) };
+        return adminPost('admin/saveKpi', fallbackPayload, user.empId);
       }
       throw error;
     }
@@ -3746,6 +3743,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const selectedOverrideUser = staff.find((person) => String(person.empId || person.empid || '').trim().toUpperCase() === selectedOverrideEmpId);
   const selectedOverridePermissions = userPermissions(selectedOverrideUser);
   const selectedKpiOverrides = selectedOverridePermissions.kpiOverrides || {};
+  const selectedKpiAssignments = selectedOverridePermissions.kpiAssignments || {};
   const selectedOverrideTeam = userTeamValue(selectedOverrideUser) || selectedOverrideUser?.team || '';
   const overrideKpiRows = filteredKpis.filter((kpi) => !selectedOverrideTeam || normalizedKpiText(kpi.team) === normalizedKpiText(selectedOverrideTeam));
   const getKpiOverrideValue = (person, kpi) => {
@@ -3759,15 +3757,40 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     return '';
   };
   const overrideDraftKey = (empId, kpi) => `${empId || 'none'}::${kpiRuleKey(kpi)}`;
+  const isAssignedForSelectedUser = (kpi) => isKpiAssignedToUser(selectedOverrideUser, kpi);
   const overrideCountForUser = (person) => Object.keys(userPermissions(person).kpiOverrides || {}).length;
+  const assignmentCountForUser = (person) => Object.entries(userPermissions(person).kpiAssignments || {}).filter(([key, value]) => key !== '__configured' && value === true).length;
   const overrideTotalCount = staff.reduce((sum, person) => sum + overrideCountForUser(person), 0);
+  const assignmentTotalCount = staff.reduce((sum, person) => sum + assignmentCountForUser(person), 0);
   const overrideCountForKpi = (kpi) => staff.filter((person) => getKpiOverrideValue(person, kpi)).length;
+  const assignmentCountForKpi = (kpi) => staff.filter((person) => hasAnyKpiAssignments(person) && isKpiAssignedToUser(person, kpi)).length;
   const activeOverrideCount = overrideCountForUser(selectedOverrideUser);
+  const activeAssignmentCount = assignmentCountForUser(selectedOverrideUser);
   const overrideInputValue = (kpi) => {
     const key = overrideDraftKey(selectedOverrideEmpId, kpi);
-    if (Object.prototype.hasOwnProperty.call(kpiOverrideDrafts, key)) return kpiOverrideDrafts[key];
+    if (Object.prototype.hasOwnProperty.call(kpiOverrideDrafts, key)) return kpiOverrideDrafts[key]?.weight ?? '';
     return getKpiOverrideValue(selectedOverrideUser, kpi);
   };
+  const batchAssignmentValue = (kpi) => {
+    const key = overrideDraftKey(selectedOverrideEmpId, kpi);
+    if (Object.prototype.hasOwnProperty.call(kpiOverrideDrafts, key)) return kpiOverrideDrafts[key]?.assigned === true;
+    return hasAnyKpiAssignments(selectedOverrideUser) ? isAssignedForSelectedUser(kpi) : false;
+  };
+  const setBatchDraft = (kpi, patch) => {
+    const key = overrideDraftKey(selectedOverrideEmpId, kpi);
+    setKpiOverrideDrafts((prev) => {
+      const current = Object.prototype.hasOwnProperty.call(prev, key)
+        ? prev[key]
+        : {
+            assigned: batchAssignmentValue(kpi),
+            weight: getKpiOverrideValue(selectedOverrideUser, kpi) || '',
+          };
+      return { ...prev, [key]: { ...current, ...patch } };
+    });
+  };
+  const selectedBatchRows = selectedOverrideUser ? overrideKpiRows.filter((kpi) => batchAssignmentValue(kpi)) : [];
+  const selectedBatchWeight = selectedBatchRows.reduce((sum, kpi) => sum + toPositiveNumber(overrideInputValue(kpi), 0), 0);
+  const selectedBatchRemaining = Math.round((100 - selectedBatchWeight) * 10) / 10;
 
   const editKpi = (item) => {
     setEditingKpi(kpiFormFromItem(item));
@@ -3855,11 +3878,8 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
       ...basePayload,
       main_weight: mainWeight,
     };
-    const originalKpi = sourceForm.id ? kpis.find((item) => String(item.id) === String(sourceForm.id)) : null;
     await runAdminAction('kpi', async () => {
       const result = await saveKpiDirect(payload, basePayload);
-      await syncKpiChangesToTasks(originalKpi, payload);
-      await adminPost('admin/recalculateDeadlines', {}, user.empId);
       return result;
     }, 'บันทึก KPI และอัปเดตงานเดิมสำเร็จ');
     if (options.closeModal) setEditingKpi(null);
@@ -3902,7 +3922,6 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
 
     await runAdminAction(`kpi-override-${kpiRuleKey(kpi)}`, async () => {
       const result = await adminPost('admin/saveUser', payload, user.empId);
-      await adminPost('admin/recalculateDeadlines', {}, user.empId);
       setKpiOverrideDrafts((prev) => {
         const next = { ...prev };
         delete next[key];
@@ -3910,6 +3929,119 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
       });
       return result;
     }, personalWeight ? 'บันทึกน้ำหนักเฉพาะบุคคลสำเร็จ' : 'กลับไปใช้ค่าน้ำหนักกลางสำเร็จ');
+  };
+
+  const setPersonalKpiAssignment = async (kpi, assigned) => {
+    if (!selectedOverrideUser) return alert('กรุณาเลือกพนักงานก่อน');
+    const empid = String(selectedOverrideUser.empId || selectedOverrideUser.empid || '').trim().toUpperCase();
+    const permissions = {
+      ...userPermissions(selectedOverrideUser),
+      kpiOverrides: { ...selectedKpiOverrides },
+      kpiAssignments: { ...selectedKpiAssignments },
+    };
+    permissions.kpiAssignments.__configured = true;
+
+    if (!hasAnyKpiAssignments(selectedOverrideUser) && !assigned) {
+      overrideKpiRows.forEach((row) => {
+        permissions.kpiAssignments[kpiRuleKey(row)] = true;
+      });
+    }
+    for (const assignmentKey of kpiOverrideKeys(kpi)) delete permissions.kpiAssignments[assignmentKey];
+    if (assigned) permissions.kpiAssignments[kpiRuleKey(kpi)] = true;
+
+    if (!assigned) {
+      for (const overrideKey of kpiOverrideKeys(kpi)) delete permissions.kpiOverrides[overrideKey];
+    }
+
+    const payload = {
+      empid,
+      name: selectedOverrideUser.name || '',
+      role: selectedOverrideUser.role || 'Staff',
+      team: selectedOverrideUser.team || '',
+      pigurl: selectedOverrideUser.pigurl || selectedOverrideUser.pigUrl || selectedOverrideUser.avatar || selectedOverrideUser.photoUrl || '',
+      permissions,
+    };
+
+    await runAdminAction(`kpi-assignment-${kpiRuleKey(kpi)}`, async () => {
+      const result = await adminPost('admin/saveUser', payload, user.empId);
+      return result;
+    }, assigned ? 'เปิดใช้ SubKPI ให้พนักงานแล้ว' : 'ปิด SubKPI ของพนักงานแล้ว');
+  };
+
+  const assignAllVisibleKpis = async () => {
+    if (!selectedOverrideUser) return alert('กรุณาเลือกพนักงานก่อน');
+    overrideKpiRows.forEach((kpi) => {
+      setBatchDraft(kpi, {
+        assigned: true,
+        weight: overrideInputValue(kpi) || toPositiveNumber(kpiWeightValue(kpi), 1),
+      });
+    });
+  };
+
+  const clearVisibleKpiDrafts = () => {
+    if (!selectedOverrideUser) return alert('กรุณาเลือกพนักงานก่อน');
+    overrideKpiRows.forEach((kpi) => setBatchDraft(kpi, { assigned: false, weight: '' }));
+  };
+
+  const savePersonalKpiBatch = async () => {
+    if (!selectedOverrideUser) return alert('กรุณาเลือกพนักงานก่อน');
+    const empid = String(selectedOverrideUser.empId || selectedOverrideUser.empid || '').trim().toUpperCase();
+    const permissions = {
+      ...userPermissions(selectedOverrideUser),
+      kpiOverrides: { ...selectedKpiOverrides },
+      kpiAssignments: { ...selectedKpiAssignments },
+    };
+    permissions.kpiAssignments.__configured = true;
+
+    for (const kpi of overrideKpiRows) {
+      const assigned = batchAssignmentValue(kpi);
+      const rawWeight = String(overrideInputValue(kpi) || '').trim();
+      const personalWeight = rawWeight === '' ? 0 : toPositiveNumber(rawWeight, 0);
+      if (assigned && (!personalWeight || personalWeight <= 0)) {
+        return alert(`กรุณาระบุน้ำหนักของ ${kpiSubValue(kpi) || 'SubKPI'} ให้มากกว่า 0`);
+      }
+
+      for (const assignmentKey of kpiOverrideKeys(kpi)) delete permissions.kpiAssignments[assignmentKey];
+      for (const overrideKey of kpiOverrideKeys(kpi)) delete permissions.kpiOverrides[overrideKey];
+
+      if (assigned) {
+        permissions.kpiAssignments[kpiRuleKey(kpi)] = true;
+        permissions.kpiOverrides[kpiRuleKey(kpi)] = {
+          weight: personalWeight,
+          baseWeight: toPositiveNumber(kpiWeightValue(kpi), 1),
+          team: kpi.team || '',
+          main: kpiMainValue(kpi),
+          sub: kpiSubValue(kpi),
+          updatedAt: new Date().toISOString(),
+          updatedBy: userEmpId(user),
+        };
+      }
+    }
+    const totalWeight = overrideKpiRows
+      .filter((kpi) => batchAssignmentValue(kpi))
+      .reduce((sum, kpi) => sum + toPositiveNumber(overrideInputValue(kpi), 0), 0);
+    if (totalWeight > 100) {
+      return alert(`น้ำหนักรวมของคนนี้เกิน 100% ตอนนี้รวม ${formatWeightPercent(totalWeight)}`);
+    }
+
+    const payload = {
+      empid,
+      name: selectedOverrideUser.name || '',
+      role: selectedOverrideUser.role || 'Staff',
+      team: selectedOverrideUser.team || '',
+      pigurl: selectedOverrideUser.pigurl || selectedOverrideUser.pigUrl || selectedOverrideUser.avatar || selectedOverrideUser.photoUrl || '',
+      permissions,
+    };
+
+    await runAdminAction('kpi-assignment-batch', async () => {
+      const result = await adminPost('admin/saveUser', payload, user.empId);
+      setKpiOverrideDrafts((prev) => {
+        const next = { ...prev };
+        overrideKpiRows.forEach((kpi) => delete next[overrideDraftKey(empid, kpi)]);
+        return next;
+      });
+      return result;
+    }, 'บันทึก SubKPI และน้ำหนักรายบุคคลทั้งหมดแล้ว');
   };
 
   const migrateOldTasksToKpi = async () => {
@@ -4110,8 +4242,12 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     );
   };
 
-  const recalc = async () => {
-    await runAdminAction('recalc', async () => adminPost('admin/recalculateDeadlines', {}, user.empId), 'คำนวณกำหนดส่งใหม่สำเร็จ');
+  const recalc = async (successMessage = 'คำนวณกำหนดส่งใหม่สำเร็จ') => {
+    await runAdminAction('recalc', async () => adminPost('admin/recalculateDeadlines', {}, user.empId), successMessage);
+  };
+
+  const recalcPersonalKpiTasks = async () => {
+    await recalc('คำนวณงานเดิมใหม่สำเร็จ');
   };
 
   const renderHolidayGroup = (title, subtitle, items, badge) => (
@@ -4372,10 +4508,17 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
           <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
             <div>
               <div className="text-sm font-extrabold">น้ำหนัก SubKPI รายบุคคล</div>
-              <div className="mt-1 text-xs text-[var(--mx-muted)]">ใช้เมื่อคนในทีมทำงานชนิดเดียวกันแต่ความรับผิดชอบไม่เท่ากัน ถ้าไม่กรอก ระบบจะใช้ Weight กลางของ KPI</div>
+              <div className="mt-1 text-xs text-[var(--mx-muted)]">เลือกก่อนว่าคนนี้ใช้ SubKPI ไหนบ้าง แล้วค่อยตั้ง Weight เฉพาะคน เฉพาะรายการที่ใช้งานจริง</div>
               <div className="mt-3 flex flex-wrap gap-2">
+                <span className="mx-badge mx-status-process">{assignmentTotalCount} assignments ทั้งระบบ</span>
                 <span className="mx-badge mx-status-process">{overrideTotalCount} overrides ทั้งระบบ</span>
+                {selectedOverrideUser && <span className="mx-badge mx-status-completed">{activeAssignmentCount} assignments ของคนนี้</span>}
                 {selectedOverrideUser && <span className="mx-badge mx-status-completed">{activeOverrideCount} overrides ของคนนี้</span>}
+                {selectedOverrideUser && (
+                  <span className={`mx-badge ${selectedBatchWeight > 100 ? 'mx-status-hold' : selectedBatchWeight === 100 ? 'mx-status-completed' : 'mx-status-pending'}`}>
+                    เลือกอยู่ {formatWeightPercent(selectedBatchWeight)} / เหลือ {formatWeightPercent(Math.max(0, selectedBatchRemaining))}
+                  </span>
+                )}
               </div>
             </div>
             <div className="grid sm:grid-cols-[minmax(240px,1fr)_auto] gap-3 xl:w-[560px]">
@@ -4389,23 +4532,39 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
                   })}
                 </select>
               </label>
-              <button className="mx-btn mx-btn-soft self-end" onClick={recalc} disabled={saving === 'recalc'}>
+              <button className="mx-btn mx-btn-soft self-end" onClick={recalcPersonalKpiTasks} disabled={saving === 'recalc'}>
                 <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังคำนวณ...' : 'คำนวณงานเดิมใหม่'}
               </button>
             </div>
           </div>
+          {selectedOverrideUser && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={assignAllVisibleKpis} disabled={saving === 'kpi-assignment-all'}>
+                <i className="fa-solid fa-list-check mr-2"></i>เลือกทั้งหมดตามตัวกรอง
+              </button>
+              <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={clearVisibleKpiDrafts}>
+                <i className="fa-solid fa-eraser mr-2"></i>ล้างรายการตามตัวกรอง
+              </button>
+              <button className="mx-btn mx-btn-primary !py-2 !px-3" onClick={savePersonalKpiBatch} disabled={saving === 'kpi-assignment-batch'}>
+                <i className="fa-solid fa-floppy-disk mr-2"></i>{saving === 'kpi-assignment-batch' ? 'กำลังบันทึก...' : 'บันทึกทั้งหมด'}
+              </button>
+              {!hasAnyKpiAssignments(selectedOverrideUser) && (
+                <span className="text-xs text-[var(--mx-muted)] self-center">ยังไม่เคยตั้ง assignment: ระบบจะแสดง SubKPI ทั้งหมดของทีมจนกว่าจะเริ่มเลือก</span>
+              )}
+            </div>
+          )}
 
           {selectedOverrideUser ? (
             <div className="mt-4 overflow-auto rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)]">
               <table className="w-full min-w-[920px] text-sm">
                 <thead className="bg-[var(--mx-panel)] text-left text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)]">
                   <tr>
+                    <th className="p-3">ใช้กับคนนี้</th>
                     <th className="p-3">KPI</th>
                     <th className="p-3">Team</th>
-                    <th className="p-3">Weight กลาง</th>
-                    <th className="p-3">Weight เฉพาะคน</th>
-                    <th className="p-3">Effective</th>
-                    <th className="p-3 text-right">Action</th>
+                    <th className="p-3">น้ำหนักกลาง</th>
+                    <th className="p-3">น้ำหนักของคนนี้ (%)</th>
+                    <th className="p-3">สถานะ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--mx-line)]">
@@ -4413,11 +4572,21 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
                     const empId = selectedOverrideEmpId;
                     const draftKey = overrideDraftKey(empId, kpi);
                     const overrideValue = overrideInputValue(kpi);
+                    const assigned = batchAssignmentValue(kpi);
                     const baseWeight = toPositiveNumber(kpiWeightValue(kpi), 1);
-                    const effectiveWeight = overrideValue ? toPositiveNumber(overrideValue, baseWeight) : baseWeight;
-                    const isSaving = saving === `kpi-override-${kpiRuleKey(kpi)}`;
+                    const currentWeight = toPositiveNumber(overrideValue, 0);
+                    const totalWithoutCurrent = selectedBatchWeight - (assigned ? currentWeight : 0);
+                    const remainingAfterCurrent = Math.round((100 - selectedBatchWeight) * 10) / 10;
+                    const maxForCurrentRow = Math.max(0, Math.round((100 - totalWithoutCurrent) * 10) / 10);
+                    const isOverBatchLimit = assigned && selectedBatchWeight > 100;
                     return (
                       <tr key={`override-${kpiRuleKey(kpi)}`}>
+                        <td className="p-3 align-top">
+                          <label className="inline-flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2 font-bold">
+                            <input type="checkbox" checked={assigned} onChange={(e) => setBatchDraft(kpi, { assigned: e.target.checked, weight: e.target.checked ? (overrideValue || baseWeight) : '' })} />
+                            <span>{assigned ? 'ใช้' : 'ไม่ใช้'}</span>
+                          </label>
+                        </td>
                         <td className="p-3 align-top">
                           <div className="font-extrabold break-words">{kpiMainValue(kpi) || '-'}</div>
                           <div className="mt-1 text-xs text-[var(--mx-muted)] break-words">{kpiSubValue(kpi) || '-'}</div>
@@ -4428,25 +4597,24 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
                           <input
                             className="mx-input !w-32"
                             type="number"
-                            min="0"
+                            min="0.1"
+                            max={maxForCurrentRow || undefined}
                             step="0.1"
-                            placeholder="ใช้ค่ากลาง"
+                            placeholder="เช่น 70"
                             value={overrideValue}
-                            onChange={(e) => setKpiOverrideDrafts((prev) => ({ ...prev, [draftKey]: e.target.value }))}
+                            disabled={!assigned}
+                            onChange={(e) => setBatchDraft(kpi, { weight: e.target.value })}
                           />
                         </td>
                         <td className="p-3 align-top">
-                          <span className={`mx-badge ${overrideValue ? 'mx-status-completed' : 'mx-status-process'}`}>{effectiveWeight}%</span>
-                        </td>
-                        <td className="p-3 align-top">
-                          <div className="flex justify-end gap-2">
-                            <button className="mx-btn mx-btn-primary !py-2 !px-3" onClick={() => savePersonalKpiOverride(kpi)} disabled={isSaving}>
-                              {isSaving ? 'กำลังบันทึก...' : 'บันทึก'}
-                            </button>
-                            <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => savePersonalKpiOverride(kpi, 'reset')} disabled={isSaving || !getKpiOverrideValue(selectedOverrideUser, kpi)}>
-                              ใช้ค่ากลาง
-                            </button>
-                          </div>
+                          <span className={`mx-badge ${isOverBatchLimit ? 'mx-status-hold' : assigned && overrideValue ? 'mx-status-completed' : assigned ? 'mx-status-pending' : 'mx-status-cancelled'}`}>
+                            {assigned ? (overrideValue ? `เลือกอยู่ ${formatWeightPercent(selectedBatchWeight)} / 100%` : 'ต้องใส่น้ำหนัก') : 'ไม่แสดงในฟอร์ม'}
+                          </span>
+                          {assigned && (
+                            <div className={`mt-2 text-xs font-bold ${isOverBatchLimit ? 'text-red-400' : 'text-[var(--mx-muted)]'}`}>
+                              แถวนี้ใส่ได้ไม่เกิน {formatWeightPercent(maxForCurrentRow)} / เหลือ {formatWeightPercent(Math.max(0, remainingAfterCurrent))}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -4480,11 +4648,15 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
               <tbody className="divide-y divide-[var(--mx-line)]">
                 {filteredKpis.map((kpi) => {
                   const overrideCount = overrideCountForKpi(kpi);
+                  const assignmentCount = assignmentCountForKpi(kpi);
                   return (
                     <tr key={kpi.id || `${kpi.team}-${kpi.main}-${kpi.sub}`} className="bg-[var(--mx-surface)]">
                       <td className="p-4 align-top font-extrabold break-words max-w-[260px]">{kpi.main}</td>
                       <td className="p-4 align-top break-words max-w-[320px]">
                         <div>{kpi.sub}</div>
+                        {assignmentCount > 0 && (
+                          <span className="mx-badge mx-status-process mt-2 mr-2">assigned {assignmentCount} คน</span>
+                        )}
                         {overrideCount > 0 && (
                           <span className="mx-badge mx-status-completed mt-2">มี override {overrideCount} คน</span>
                         )}
@@ -4557,13 +4729,17 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
           return (
             <div key={log.id || `${log.action}-${log.timestamp}`} className="mx-data-card">
               <div className="font-bold text-sm">{log.action || 'Activity'}</div>
-              {log.action === 'save_kpi_override' && overrideChanges.length > 0 ? (
+              {['save_kpi_override', 'save_kpi_assignment'].includes(log.action) && overrideChanges.length > 0 ? (
                 <div className="mt-2 grid gap-2 text-sm text-[var(--mx-muted)]">
                   <div>Emp ID: {details.empid || '-'}</div>
                   {overrideChanges.map((change) => (
                     <div key={change.key} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2">
                       <div className="font-bold text-[var(--mx-text)] break-words">{change.key}</div>
-                      <div className="mt-1">จาก {change.from ?? 'ค่ากลาง'} เป็น {change.to ?? 'ค่ากลาง'}</div>
+                      <div className="mt-1">
+                        {log.action === 'save_kpi_assignment'
+                          ? `จาก ${change.from ? 'ใช้' : 'ไม่ใช้'} เป็น ${change.to ? 'ใช้' : 'ไม่ใช้'}`
+                          : `จาก ${change.from ?? 'ค่ากลาง'} เป็น ${change.to ?? 'ค่ากลาง'}`}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -4839,7 +5015,7 @@ function App() {
     const holidaySet = buildHolidaySet(state.holidays || []);
     const result = [];
     state.tasks.forEach((task) => {
-      const st = (task.status || '').toLowerCase();
+      const st = statusKey(task.status);
       if (st === 'pending') {
         result.push({
           id: `pending-${task.id}`,
@@ -5036,7 +5212,7 @@ function App() {
     const rows = src.map((t, i) => {
       const dl = t.deadline ? new Date(t.deadline) : null;
       const cp = t.completiondate ? new Date(t.completiondate) : null;
-      const onTime = t.status === 'Completed' && dl && cp && cp <= dl;
+      const onTime = statusEquals(t.status, 'Completed') && dl && cp && cp <= dl;
       const extra = normalizeExtraData(t.extra_data);
       const baseWeight = extra.kpi_base_weight || t.kpi_base_weight || getTaskWeight(t);
       const effectiveWeight = extra.kpi_effective_weight || t.kpi_effective_weight || getTaskWeight(t);
@@ -5047,7 +5223,7 @@ function App() {
         esc(t.name), esc(t.team), esc(t.status),
         esc(formatDate(t.startdate)), esc(formatDate(t.deadline)),
         esc(formatDate(t.completiondate)),
-        t.status === 'Completed' ? (onTime ? 'ตรงเวลา' : 'เกินกำหนด') : '-',
+        statusEquals(t.status, 'Completed') ? (onTime ? 'ตรงเวลา' : 'เกินกำหนด') : '-',
       ].join(',');
     });
     const period = filterMonth === 0 ? `all_${filterYear}` : `${filterMonth}_${filterYear}`;

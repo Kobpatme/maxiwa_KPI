@@ -241,7 +241,7 @@ function taskWeight(task) {
 }
 
 function kpiGroupKey(task) {
-  return String(task?.mainkpi ?? task?.mainKpi ?? task?.main ?? task?.subkpi ?? task?.sub ?? "Other").trim() || "Other";
+  return String(task?.subkpi ?? task?.subKpi ?? task?.sub ?? task?.mainkpi ?? task?.mainKpi ?? task?.main ?? "Other").trim() || "Other";
 }
 
 function isTaskCompletedOnTime(task) {
@@ -293,7 +293,7 @@ function calcWeightedScores(input) {
     const kpiGroups = {};
 
     input.forEach((task) => {
-      const status = String(task?.status || "").toLowerCase();
+      const status = String(task?.status || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
       const key = kpiGroupKey(task);
       const weight = taskWeight(task);
       if (!kpiGroups[key]) {

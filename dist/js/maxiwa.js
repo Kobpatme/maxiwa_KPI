@@ -105,6 +105,56 @@ var MaxiwaKpiApp = (() => {
   function userEmpId(user) {
     return String((user == null ? void 0 : user.empId) || (user == null ? void 0 : user.empid) || "").trim();
   }
+  function kpiMainValueOf(item = {}) {
+    return item.main || item.mainkpi || item.mainKpi || "";
+  }
+  function kpiSubValueOf(item = {}) {
+    return item.sub || item.subkpi || item.subKpi || "";
+  }
+  function normalizeKpiKeyPart(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+  function kpiCompositeKeyOf(item = {}) {
+    return `${normalizeKpiKeyPart(item.team)}::${normalizeKpiKeyPart(kpiMainValueOf(item))}::${normalizeKpiKeyPart(kpiSubValueOf(item))}`;
+  }
+  function kpiOverrideKeysOf(item = {}) {
+    return [item.id ? String(item.id) : "", kpiCompositeKeyOf(item)].filter(Boolean);
+  }
+  function readPositiveWeight(value, fallback = "") {
+    var _a, _b;
+    const raw = typeof value === "object" && value !== null ? (_b = (_a = value.weight) != null ? _a : value.main_weight) != null ? _b : value.mainWeight : value;
+    const number = typeof raw === "string" ? Number.parseFloat(raw.replace("%", "").trim()) : Number(raw);
+    return Number.isFinite(number) && number > 0 ? number : fallback;
+  }
+  function getKpiBaseWeight(kpi) {
+    var _a, _b;
+    return readPositiveWeight((_b = (_a = kpi == null ? void 0 : kpi.main_weight) != null ? _a : kpi == null ? void 0 : kpi.mainWeight) != null ? _b : kpi == null ? void 0 : kpi.weight, 1);
+  }
+  function getPersonalKpiOverride(user, kpi) {
+    const overrides = userPermissions(user).kpiOverrides || (user == null ? void 0 : user.kpiOverrides) || {};
+    for (const key of kpiOverrideKeysOf(kpi)) {
+      const weight = readPositiveWeight(overrides[key], "");
+      if (weight) return weight;
+    }
+    return "";
+  }
+  function getEffectiveKpiWeight(user, kpi) {
+    return getPersonalKpiOverride(user, kpi) || getKpiBaseWeight(kpi);
+  }
+  function getKpiAssignments(user) {
+    return userPermissions(user).kpiAssignments || (user == null ? void 0 : user.kpiAssignments) || {};
+  }
+  function hasAnyKpiAssignments(user) {
+    return Object.keys(getKpiAssignments(user)).length > 0;
+  }
+  function isKpiAssignedToUser(user, kpi) {
+    const assignments = getKpiAssignments(user);
+    if (Object.keys(assignments).length === 0) return true;
+    return kpiOverrideKeysOf(kpi).some((key) => assignments[key] === true);
+  }
+  function filterKpisForUser(kpis, user) {
+    return (kpis || []).filter((kpi) => isKpiAssignedToUser(user, kpi));
+  }
   function normalizeAppUser(user, fallbackEmpId = "") {
     if (!user) return null;
     const normalizedEmpId = String(user.empId || user.empid || fallbackEmpId).trim();
@@ -423,11 +473,22 @@ var MaxiwaKpiApp = (() => {
     return String(lock.empId).toLowerCase() === String(empId || "").trim().toLowerCase() && lock.sessionId !== getBrowserSessionId();
   }
   function getStatusClass(status) {
-    if (status === "Completed") return "mx-status-completed";
-    if (status === "On Process") return "mx-status-process";
-    if (status === "Pending") return "mx-status-pending";
-    if (status === "On Hold") return "mx-status-hold";
+    const key = statusKey(status);
+    if (key === "completed") return "mx-status-completed";
+    if (key === "on process") return "mx-status-process";
+    if (key === "pending") return "mx-status-pending";
+    if (key === "on hold") return "mx-status-hold";
     return "mx-status-cancelled";
+  }
+  function statusKey(status) {
+    return String(status || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  }
+  function statusEquals(status, expected) {
+    return statusKey(status) === statusKey(expected);
+  }
+  function statusIn(status, expectedStatuses = []) {
+    const key = statusKey(status);
+    return expectedStatuses.some((expected) => key === statusKey(expected));
   }
   function extractJobCode(jobStr) {
     if (!jobStr) return "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E23\u0E2B\u0E31\u0E2A";
@@ -520,7 +581,7 @@ var MaxiwaKpiApp = (() => {
     (tasks || []).forEach((task) => {
       const key = getKpiGroupKey(task);
       const weight = getTaskWeight(task);
-      const status = String((task == null ? void 0 : task.status) || "").toLowerCase();
+      const status = statusKey(task == null ? void 0 : task.status);
       if (!groups[key]) groups[key] = { weight, total: 0, completed: 0, onTime: 0, cancelled: 0 };
       else if (groups[key].weight === 1 && weight !== 1) groups[key].weight = weight;
       if (status === "cancelled") {
@@ -593,7 +654,7 @@ var MaxiwaKpiApp = (() => {
       return {
         ...person,
         totalTasks: personTasks.length,
-        completedTasks: personTasks.filter((task) => String(task.status || "").toLowerCase() === "completed").length,
+        completedTasks: personTasks.filter((task) => statusEquals(task.status, "Completed")).length,
         weightedSlaScore: weighted.sla,
         weightedCompletionScore: weighted.completion,
         totalWeight: weighted.totalWeight,
@@ -621,9 +682,9 @@ var MaxiwaKpiApp = (() => {
   function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
     const personTasks = filterPerformanceTasks(tasks || []).filter((task) => taskMatchesPerson(task, person));
     const activeTasks = personTasks.filter(isActiveTask);
-    const completedTasks = personTasks.filter((task) => String(task.status || "").toLowerCase() === "completed");
+    const completedTasks = personTasks.filter((task) => statusEquals(task.status, "Completed"));
     const statusCounts = personTasks.reduce((acc, task) => {
-      const status = task.status || "Unknown";
+      const status = statusKey(task.status) || "unknown";
       acc[status] = (acc[status] || 0) + 1;
       return acc;
     }, {});
@@ -636,12 +697,12 @@ var MaxiwaKpiApp = (() => {
     const dueSoon = riskItems.filter((item) => item.days >= 0 && item.days <= 3).length;
     const kpiMap = {};
     personTasks.forEach((task) => {
-      if (String(task.status || "").toLowerCase() === "cancelled") return;
+      if (statusEquals(task.status, "Cancelled")) return;
       const key = getKpiGroupKey(task);
       if (!kpiMap[key]) kpiMap[key] = { name: key, tasks: 0, active: 0, completed: 0, weight: getTaskWeight(task) };
       kpiMap[key].tasks += 1;
       if (isActiveTask(task)) kpiMap[key].active += 1;
-      if (String(task.status || "").toLowerCase() === "completed") kpiMap[key].completed += 1;
+      if (statusEquals(task.status, "Completed")) kpiMap[key].completed += 1;
       kpiMap[key].weight = Math.max(kpiMap[key].weight, getTaskWeight(task));
     });
     const kpiMix = Object.values(kpiMap).sort((a, b) => b.weight - a.weight || b.active - a.active).slice(0, 3);
@@ -650,10 +711,10 @@ var MaxiwaKpiApp = (() => {
       tasks: personTasks,
       active: activeTasks.length,
       completed: completedTasks.length,
-      pending: statusCounts.Pending || 0,
-      inProcess: statusCounts["On Process"] || 0,
-      onHold: statusCounts["On Hold"] || 0,
-      cancelled: statusCounts.Cancelled || 0,
+      pending: statusCounts.pending || 0,
+      inProcess: statusCounts["on process"] || 0,
+      onHold: statusCounts["on hold"] || 0,
+      cancelled: statusCounts.cancelled || 0,
       overdue,
       dueSoon,
       riskItems,
@@ -1083,7 +1144,7 @@ var MaxiwaKpiApp = (() => {
     return [];
   }
   function isActiveTask(task) {
-    return !["completed", "cancelled"].includes(String((task == null ? void 0 : task.status) || "").toLowerCase());
+    return !statusIn(task == null ? void 0 : task.status, ["Completed", "Cancelled"]);
   }
   function normalizeDateOnly(value) {
     const date = value instanceof Date ? new Date(value) : new Date(value);
@@ -1160,7 +1221,7 @@ var MaxiwaKpiApp = (() => {
   }
   function getEffectiveDeadline(task, holidays = []) {
     if (!(task == null ? void 0 : task.deadline)) return null;
-    const activeHoldDays = String((task == null ? void 0 : task.status) || "").toLowerCase() === "on hold" ? getTaskHoldDays(task, holidays) : 0;
+    const activeHoldDays = statusEquals(task == null ? void 0 : task.status, "On Hold") ? getTaskHoldDays(task, holidays) : 0;
     return activeHoldDays > 0 ? addBusinessDays(task.deadline, activeHoldDays, holidays) : normalizeDateOnly(task.deadline);
   }
   function getHoldSummary(task, holidays = []) {
@@ -1175,7 +1236,7 @@ var MaxiwaKpiApp = (() => {
     };
   }
   function buildHoldExtraData(task, nextStatus, holidays = [], changedBy = "") {
-    const currentStatus = String((task == null ? void 0 : task.status) || "").toLowerCase();
+    const currentStatus = statusKey(task == null ? void 0 : task.status);
     const targetStatus = String(nextStatus || "").toLowerCase();
     const extra = { ...normalizeExtraData(task == null ? void 0 : task.extra_data) };
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -1233,7 +1294,7 @@ var MaxiwaKpiApp = (() => {
     const tasks = filterPerformanceTasks(getExecutiveTasks(data));
     const holidaySet = useMemo(() => buildHolidaySet([...holidays || [], ...data && data.holidays || []]), [holidays, data]);
     const activeTasks = tasks.filter(isActiveTask);
-    const completedTasks = tasks.filter((task) => String(task.status || "").toLowerCase() === "completed");
+    const completedTasks = tasks.filter((task) => statusEquals(task.status, "Completed"));
     const overdueTasks = activeTasks.filter((task) => {
       const days = getDaysUntilDeadline(task, holidaySet);
       return days !== null && days < 0;
@@ -1265,7 +1326,7 @@ var MaxiwaKpiApp = (() => {
         const days = getDaysUntilDeadline(task, holidaySet);
         return days !== null && days >= 0 && days <= 3;
       }).length;
-      const teamCompletion = (_a2 = teamScores.completion) != null ? _a2 : teamTasks.length ? Math.round(teamTasks.filter((task) => String(task.status || "").toLowerCase() === "completed").length / teamTasks.length * 100) : null;
+      const teamCompletion = (_a2 = teamScores.completion) != null ? _a2 : teamTasks.length ? Math.round(teamTasks.filter((task) => statusEquals(task.status, "Completed")).length / teamTasks.length * 100) : null;
       const health = Math.round((((_c = (_b = teamScores.sla) != null ? _b : teamCompletion) != null ? _c : 0) + ((_d = teamCompletion != null ? teamCompletion : teamScores.sla) != null ? _d : 0)) / 2) - overdue * 5 - atRisk * 2;
       return { team, total: teamTasks.length, active: active.length, overdue, atRisk, sla: teamScores.sla, completion: teamCompletion, health };
     }).sort((a, b) => a.overdue - b.overdue || a.atRisk - b.atRisk || b.health - a.health);
@@ -1297,20 +1358,20 @@ var MaxiwaKpiApp = (() => {
     }
     if (user.role === "Staff") {
       const tasks2 = data.tasks || [];
-      const completed = tasks2.filter((t) => t.status === "Completed").length;
-      const active = tasks2.filter((t) => ["On Process", "Pending", "On Hold"].includes(t.status)).length;
+      const completed = tasks2.filter((t) => statusEquals(t.status, "Completed")).length;
+      const active = tasks2.filter((t) => statusIn(t.status, ["On Process", "Pending", "On Hold"])).length;
       const holidaySet = buildHolidaySet([...holidays || [], ...data && data.holidays || []]);
       const scores = calcTaskWeightedScores(tasks2);
       const kpiDist = {};
       tasks2.forEach((t) => {
-        if (String(t.status || "").toLowerCase() === "cancelled") return;
+        if (statusEquals(t.status, "Cancelled")) return;
         const k = t.mainkpi || "Other";
         const weight = getTaskWeight(t);
         if (!kpiDist[k] || kpiDist[k] === 1 && weight !== 1) kpiDist[k] = weight;
       });
       const kpiEntries = Object.entries(kpiDist).sort((a, b) => b[1] - a[1]);
       const maxKpi = kpiEntries.length > 0 ? kpiEntries[0][1] : 1;
-      const activeTasks = tasks2.filter((t) => !["Completed", "Cancelled"].includes(t.status));
+      const activeTasks = tasks2.filter((t) => !statusIn(t.status, ["Completed", "Cancelled"]));
       const periodLabel = filterMonth === 0 ? `\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19 ${filterYear}` : `${MONTH_NAMES[filterMonth - 1]} ${filterYear}`;
       const [dashModal, setDashModal] = useState({ show: false });
       const [dashNotePopup, setDashNotePopup] = useState({ show: false, note: "" });
@@ -1370,7 +1431,7 @@ var MaxiwaKpiApp = (() => {
           const holdSummary = getHoldSummary(task, holidaySet);
           const taskBusy = (actionState == null ? void 0 : actionState.busy) && String(actionState.taskId || "") === String(task.id || "");
           const actionsDisabled = actionState == null ? void 0 : actionState.busy;
-          return /* @__PURE__ */ React.createElement("div", { key: task.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold break-all" }, task.job), /* @__PURE__ */ React.createElement(SsrBadge, { extraData: task.extra_data }), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", formatWeightPercent(getTaskWeight(task))), task.note && /* @__PURE__ */ React.createElement("button", { onClick: () => setDashNotePopup({ show: true, note: task.note }), className: "mx-note-btn text-xs px-3 py-1.5 rounded-lg font-bold" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-sticky-note mr-1" }), "\u0E14\u0E39\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, task.mainkpi || "-", " \u2022 ", task.subkpi || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, "Deadline ", formatDate(task.deadline), holdSummary.activeStart && holdSummary.activeDays > 0 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-info)] font-bold" }, "Effective ", formatDate(holdSummary.effectiveDeadline)), isOverdue && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-red-400 font-bold" }, "\u0E40\u0E01\u0E34\u0E19 ", Math.abs(daysLeft), " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23"), !isOverdue && daysLeft !== null && daysLeft <= 3 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-warning)] font-bold" }, "\u0E2D\u0E35\u0E01 ", daysLeft, " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23")), holdSummary.activeStart && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-warning)] font-bold" }, "SLA paused since ", formatDate(holdSummary.activeStart), " - ", holdSummary.activeDays, " business day(s) will be added on resume"), /* @__PURE__ */ React.createElement(TaskActionBusy, { actionState, taskId: task.id })), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 flex-shrink-0 items-start" }, task.status === "Pending" && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "accept"), label: "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19", loading: taskBusy, disabled: actionsDisabled }), task.status === "On Process" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-check", color: "emerald", onClick: () => handleDashAction(task, "complete"), label: "\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-pause", color: "amber", onClick: () => handleDashAction(task, "hold"), label: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01", loading: taskBusy, disabled: actionsDisabled })), task.status === "On Hold" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "resume"), label: "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01", loading: taskBusy, disabled: actionsDisabled })), !["Completed", "Cancelled"].includes(task.status) && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-trash", color: "rose", onClick: () => handleDashAction(task, "cancel"), label: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01", loading: taskBusy, disabled: actionsDisabled }))));
+          return /* @__PURE__ */ React.createElement("div", { key: task.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold break-all" }, task.job), /* @__PURE__ */ React.createElement(SsrBadge, { extraData: task.extra_data }), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", formatWeightPercent(getTaskWeight(task))), task.note && /* @__PURE__ */ React.createElement("button", { onClick: () => setDashNotePopup({ show: true, note: task.note }), className: "mx-note-btn text-xs px-3 py-1.5 rounded-lg font-bold" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-sticky-note mr-1" }), "\u0E14\u0E39\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, task.mainkpi || "-", " \u2022 ", task.subkpi || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, "Deadline ", formatDate(task.deadline), holdSummary.activeStart && holdSummary.activeDays > 0 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-info)] font-bold" }, "Effective ", formatDate(holdSummary.effectiveDeadline)), isOverdue && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-red-400 font-bold" }, "\u0E40\u0E01\u0E34\u0E19 ", Math.abs(daysLeft), " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23"), !isOverdue && daysLeft !== null && daysLeft <= 3 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-warning)] font-bold" }, "\u0E2D\u0E35\u0E01 ", daysLeft, " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23")), holdSummary.activeStart && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-warning)] font-bold" }, "SLA paused since ", formatDate(holdSummary.activeStart), " - ", holdSummary.activeDays, " business day(s) will be added on resume"), /* @__PURE__ */ React.createElement(TaskActionBusy, { actionState, taskId: task.id })), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 flex-shrink-0 items-start" }, statusEquals(task.status, "Pending") && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "accept"), label: "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19", loading: taskBusy, disabled: actionsDisabled }), statusEquals(task.status, "On Process") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-check", color: "emerald", onClick: () => handleDashAction(task, "complete"), label: "\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-pause", color: "amber", onClick: () => handleDashAction(task, "hold"), label: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01", loading: taskBusy, disabled: actionsDisabled })), statusEquals(task.status, "On Hold") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "resume"), label: "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01", loading: taskBusy, disabled: actionsDisabled })), !statusIn(task.status, ["Completed", "Cancelled"]) && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-trash", color: "rose", onClick: () => handleDashAction(task, "cancel"), label: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01", loading: taskBusy, disabled: actionsDisabled }))));
         }))
       ));
     }
@@ -1405,7 +1466,7 @@ var MaxiwaKpiApp = (() => {
     if (user.role === "Manager") {
       const tasks2 = filterPerformanceTasks(data.tasks || []);
       const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks2);
-      const risky = tasks2.filter((t) => ["Pending", "On Hold"].includes(t.status)).length;
+      const risky = tasks2.filter((t) => statusIn(t.status, ["Pending", "On Hold"])).length;
       const orgScores = tasks2.length > 0 ? calcTaskWeightedScores(tasks2) : null;
       const avgSla = orgScores && orgScores.sla !== null ? orgScores.sla : summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0;
       const topPeople = [...summary].sort((a, b) => (b.weightedSlaScore || 0) - (a.weightedSlaScore || 0)).slice(0, 6);
@@ -1457,7 +1518,7 @@ var MaxiwaKpiApp = (() => {
     };
     const filtered = useMemo(() => {
       return (tasks || []).filter((task) => {
-        if (statusFilter !== "all" && task.status !== statusFilter) return false;
+        if (statusFilter !== "all" && !statusEquals(task.status, statusFilter)) return false;
         const q = search.trim().toLowerCase();
         if (!q) return true;
         return [task.job, task.name, task.team, task.mainkpi, task.subkpi, task.status].some((v) => String(v || "").toLowerCase().includes(q));
@@ -1465,9 +1526,9 @@ var MaxiwaKpiApp = (() => {
     }, [tasks, statusFilter, search]);
     const taskSummary = useMemo(() => ({
       total: (tasks || []).length,
-      active: (tasks || []).filter((t) => ["On Process", "Pending", "On Hold"].includes(t.status)).length,
-      completed: (tasks || []).filter((t) => t.status === "Completed").length,
-      risk: (tasks || []).filter((t) => ["Pending", "On Hold"].includes(t.status)).length
+      active: (tasks || []).filter((t) => statusIn(t.status, ["On Process", "Pending", "On Hold"])).length,
+      completed: (tasks || []).filter((t) => statusEquals(t.status, "Completed")).length,
+      risk: (tasks || []).filter((t) => statusIn(t.status, ["Pending", "On Hold"])).length
     }), [tasks]);
     const taskScores = useMemo(() => calcTaskWeightedScores(tasks || []), [tasks]);
     const holidaySet = useMemo(() => buildHolidaySet(holidays || []), [holidays]);
@@ -1639,8 +1700,8 @@ var MaxiwaKpiApp = (() => {
         setSavingPr(false);
       }
     };
-    const canEdit = (task) => ["Manager", "Admin"].includes(user.role) || !["Completed", "Cancelled"].includes(task.status);
-    const canCancel = (task) => !["Completed", "Cancelled"].includes(task.status);
+    const canEdit = (task) => ["Manager", "Admin"].includes(user.role) || !statusIn(task.status, ["Completed", "Cancelled"]);
+    const canCancel = (task) => !statusIn(task.status, ["Completed", "Cancelled"]);
     return /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement(ActionModal, { config: modal, onClose: closeModal }), notePopup.show && /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-4", style: { background: "rgba(0,0,0,0.75)" } }, /* @__PURE__ */ React.createElement("div", { className: "mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl" }, /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-extrabold mb-4" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-sticky-note mr-2 text-[var(--mx-info)]" }), "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E07\u0E32\u0E19"), /* @__PURE__ */ React.createElement("div", { className: "max-h-80 overflow-y-auto rounded-[16px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm leading-7 whitespace-pre-wrap" }, notePopup.note || "-")), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft w-full mt-5", onClick: () => setNotePopup({ show: false, note: "" }) }, "\u0E1B\u0E34\u0E14"))), statusTarget && /* @__PURE__ */ React.createElement(
       StatusChangeModal,
       {
@@ -1759,7 +1820,7 @@ var MaxiwaKpiApp = (() => {
           },
           /* @__PURE__ */ React.createElement("i", { className: "fas fa-sticky-note mr-1" }),
           "\u0E14\u0E39\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01"
-        )), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, task.name || "-", " \u2022 ", task.team || "-", " \u2022 Main KPI: ", task.mainkpi || "-", " \u2022 Sub KPI: ", task.subkpi || "\u0E44\u0E21\u0E48\u0E23\u0E30\u0E1A\u0E38 Sub KPI"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, "Start ", formatDate(task.startdate), " \u2022 Deadline ", formatDate(task.deadline), task.completiondate ? ` \u2022 \u0E40\u0E2A\u0E23\u0E47\u0E08 ${formatDate(task.completiondate)}` : ""), holdSummary.activeStart && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-warning)] font-bold" }, "SLA paused since ", formatDate(holdSummary.activeStart), " - effective deadline ", formatDate(holdSummary.effectiveDeadline)), /* @__PURE__ */ React.createElement(TaskActionBusy, { actionState, taskId: task.id }), expandedTaskId === task.id && /* @__PURE__ */ React.createElement("div", { className: "mt-4 rounded-[18px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-[var(--mx-muted)]" }, "Task ID: ", task.id), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, "Weight: ", formatWeightPercent(getTaskWeight(task))), holdSummary.totalDays > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, "Total hold: ", holdSummary.totalDays, " business day(s)"), task.note ? /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-sm leading-7 whitespace-pre-wrap" }, task.note) : /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35 note"), renderExtraData(task.extra_data))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 flex-shrink-0 items-start" }, user.role === "Staff" && /* @__PURE__ */ React.createElement(React.Fragment, null, task.status === "Pending" && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-play", color: "blue", onClick: () => handleStaffAction(task, "accept"), label: "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19", loading: taskBusy, disabled: actionsDisabled }), task.status === "On Process" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-check", color: "emerald", onClick: () => handleStaffAction(task, "complete"), label: "\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-pause", color: "amber", onClick: () => handleStaffAction(task, "hold"), label: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-comment-dots", color: "blue", onClick: () => handleStaffAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01", loading: taskBusy, disabled: actionsDisabled })), task.status === "On Hold" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-play", color: "blue", onClick: () => handleStaffAction(task, "resume"), label: "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-comment-dots", color: "blue", onClick: () => handleStaffAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01", loading: taskBusy, disabled: actionsDisabled })), canCancel(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-trash", color: "rose", onClick: () => handleStaffAction(task, "cancel"), label: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01", loading: taskBusy, disabled: actionsDisabled }), canEdit(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-edit", color: "indigo", onClick: () => handleEditOpen(task), label: "\u0E41\u0E01\u0E49\u0E44\u0E02", disabled: actionsDisabled })), ["Lead", "Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-arrow-right-arrow-left", color: "blue", onClick: () => setStatusTarget(task), label: "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30", loading: taskBusy, disabled: actionsDisabled }), canEdit(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-edit", color: "indigo", onClick: () => handleEditOpen(task), label: "\u0E41\u0E01\u0E49\u0E44\u0E02", disabled: actionsDisabled }), ["Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-trash", color: "rose", onClick: () => onDelete(task), label: "\u0E25\u0E1A\u0E07\u0E32\u0E19", loading: taskBusy, disabled: actionsDisabled })))));
+        )), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, task.name || "-", " \u2022 ", task.team || "-", " \u2022 Main KPI: ", task.mainkpi || "-", " \u2022 Sub KPI: ", task.subkpi || "\u0E44\u0E21\u0E48\u0E23\u0E30\u0E1A\u0E38 Sub KPI"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, "Start ", formatDate(task.startdate), " \u2022 Deadline ", formatDate(task.deadline), task.completiondate ? ` \u2022 \u0E40\u0E2A\u0E23\u0E47\u0E08 ${formatDate(task.completiondate)}` : ""), holdSummary.activeStart && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-warning)] font-bold" }, "SLA paused since ", formatDate(holdSummary.activeStart), " - effective deadline ", formatDate(holdSummary.effectiveDeadline)), /* @__PURE__ */ React.createElement(TaskActionBusy, { actionState, taskId: task.id }), expandedTaskId === task.id && /* @__PURE__ */ React.createElement("div", { className: "mt-4 rounded-[18px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ React.createElement("div", { className: "text-xs text-[var(--mx-muted)]" }, "Task ID: ", task.id), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, "Weight: ", formatWeightPercent(getTaskWeight(task))), holdSummary.totalDays > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, "Total hold: ", holdSummary.totalDays, " business day(s)"), task.note ? /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-sm leading-7 whitespace-pre-wrap" }, task.note) : /* @__PURE__ */ React.createElement("div", { className: "mt-3 text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35 note"), renderExtraData(task.extra_data))), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 flex-shrink-0 items-start" }, user.role === "Staff" && /* @__PURE__ */ React.createElement(React.Fragment, null, statusEquals(task.status, "Pending") && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-play", color: "blue", onClick: () => handleStaffAction(task, "accept"), label: "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19", loading: taskBusy, disabled: actionsDisabled }), statusEquals(task.status, "On Process") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-check", color: "emerald", onClick: () => handleStaffAction(task, "complete"), label: "\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-pause", color: "amber", onClick: () => handleStaffAction(task, "hold"), label: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-comment-dots", color: "blue", onClick: () => handleStaffAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01", loading: taskBusy, disabled: actionsDisabled })), statusEquals(task.status, "On Hold") && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-play", color: "blue", onClick: () => handleStaffAction(task, "resume"), label: "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D", loading: taskBusy, disabled: actionsDisabled }), /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-comment-dots", color: "blue", onClick: () => handleStaffAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01", loading: taskBusy, disabled: actionsDisabled })), canCancel(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-trash", color: "rose", onClick: () => handleStaffAction(task, "cancel"), label: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01", loading: taskBusy, disabled: actionsDisabled }), canEdit(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-edit", color: "indigo", onClick: () => handleEditOpen(task), label: "\u0E41\u0E01\u0E49\u0E44\u0E02", disabled: actionsDisabled })), ["Lead", "Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-arrow-right-arrow-left", color: "blue", onClick: () => setStatusTarget(task), label: "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E2A\u0E16\u0E32\u0E19\u0E30", loading: taskBusy, disabled: actionsDisabled }), canEdit(task) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-edit", color: "indigo", onClick: () => handleEditOpen(task), label: "\u0E41\u0E01\u0E49\u0E44\u0E02", disabled: actionsDisabled }), ["Manager", "Admin"].includes(user.role) && /* @__PURE__ */ React.createElement(ActionButton, { icon: "fa-trash", color: "rose", onClick: () => onDelete(task), label: "\u0E25\u0E1A\u0E07\u0E32\u0E19", loading: taskBusy, disabled: actionsDisabled })))));
       }))
     ));
   }
@@ -1888,7 +1949,9 @@ var MaxiwaKpiApp = (() => {
       setForm((prev) => ({ ...prev, assignedToName: person.name, assignedToTeam: person.team, subkpi: "", mainkpi: "", deadline: "", extra_data: keepSsrExtraData(prev.extra_data) }));
       API.getKPIsByTeam(person.team).then((res) => setAssigneeKpis(res.kpis || [])).catch(() => setAssigneeKpis([]));
     }, [form.assignedToEmpId, isPersonalTask, people]);
-    const activeKpis = isPersonalTask ? loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis : assigneeKpis;
+    const selectedAssignee = isPersonalTask ? user : (people || []).find((person) => String(person.empId || person.empid || "") === String(form.assignedToEmpId || ""));
+    const rawActiveKpis = isPersonalTask ? loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis : assigneeKpis;
+    const activeKpis = selectedAssignee ? filterKpisForUser(rawActiveKpis, selectedAssignee) : rawActiveKpis;
     const handleSubKpiChange = async (subkpi) => {
       if (!subkpi) {
         setForm((p) => ({ ...p, subkpi: "", mainkpi: "", deadline: "", extra_data: keepSsrExtraData(p.extra_data) }));
@@ -1899,13 +1962,25 @@ var MaxiwaKpiApp = (() => {
       setLoadingDeadline(true);
       try {
         const targetTeam = isPersonalTask ? user.team : form.assignedToTeam;
+        const targetEmpId = isPersonalTask ? userEmpId(user) : form.assignedToEmpId;
         const res = await API.calculateDeadlinePreview({
           team: targetTeam,
           subkpi,
+          empId: targetEmpId,
           startDate: (/* @__PURE__ */ new Date()).toISOString()
         });
         if (res && !res.error) {
-          setForm((p) => ({ ...p, mainkpi: res.mainkpi || (kpi == null ? void 0 : kpi.main) || "", deadline: res.deadline || "" }));
+          setForm((p) => ({
+            ...p,
+            mainkpi: res.mainkpi || (kpi == null ? void 0 : kpi.main) || "",
+            deadline: res.deadline || "",
+            extra_data: {
+              ...keepSsrExtraData(p.extra_data),
+              kpi_base_weight: res.baseWeight || getKpiBaseWeight(kpi),
+              kpi_effective_weight: res.effectiveWeight || getEffectiveKpiWeight(selectedAssignee, kpi),
+              kpi_personal_override: Boolean(res.hasPersonalOverride || getPersonalKpiOverride(selectedAssignee, kpi))
+            }
+          }));
         }
       } catch {
       }
@@ -1938,6 +2013,9 @@ var MaxiwaKpiApp = (() => {
             jobs,
             name: form.assignedToName,
             team: form.assignedToTeam || user.team,
+            assignedToEmpId: form.assignedToEmpId,
+            empId: form.assignedToEmpId,
+            empid: form.assignedToEmpId,
             mainkpi: form.mainkpi,
             subkpi: form.subkpi,
             deadline: form.deadline,
@@ -2005,7 +2083,7 @@ var MaxiwaKpiApp = (() => {
           className: "mx-input",
           value: form.subkpi,
           onChange: (e) => setForm((p) => ({ ...p, subkpi: e.target.value })),
-          placeholder: isPersonalTask ? "Sub KPI" : "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A\u0E01\u0E48\u0E2D\u0E19"
+          placeholder: isPersonalTask ? "\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E21\u0E35 SubKPI \u0E17\u0E35\u0E48\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E43\u0E2B\u0E49\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19" : "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A\u0E01\u0E48\u0E2D\u0E19"
         }
       )), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Main KPI"), /* @__PURE__ */ React.createElement(
         "input",
@@ -2105,6 +2183,8 @@ var MaxiwaKpiApp = (() => {
     const [adminSearch, setAdminSearch] = useState("");
     const [kpiSearch, setKpiSearch] = useState("");
     const [kpiTeamFilter, setKpiTeamFilter] = useState("");
+    const [selectedOverrideEmpId, setSelectedOverrideEmpId] = useState("");
+    const [kpiOverrideDrafts, setKpiOverrideDrafts] = useState({});
     const [saving, setSaving] = useState("");
     const teams = (adminData == null ? void 0 : adminData.teams) || [];
     const staff = (adminData == null ? void 0 : adminData.staff) || [];
@@ -2133,12 +2213,14 @@ var MaxiwaKpiApp = (() => {
     const selectedRoleNeedsDepartment = roleRequiresDepartment(userForm.role);
     const selectedRoleUsesTeamVisibility = isDepartmentManagerRole(userForm.role) || isStrategicViewRole(userForm.role);
     const userDepartmentValue = (item) => {
+      if (!item) return "";
       const permissions = userPermissions(item);
       const explicitDepartment = item.department || item.departmentId || item.division || permissions.department || permissions.division;
       if (explicitDepartment) return explicitDepartment;
       return item.team || "";
     };
     const userTeamValue = (item) => {
+      if (!item) return "";
       return roleRequiresTeam(item.role) ? item.team || "" : "";
     };
     const toPositiveNumber = (value, fallback = 1) => {
@@ -2148,23 +2230,11 @@ var MaxiwaKpiApp = (() => {
     };
     const normalizedKpiText = (value) => String(value || "").trim().toLowerCase();
     const saveKpiDirect = async (payload, fallbackPayload) => {
-      const client = await initSupabaseClient();
-      if (!client) throw new Error("Supabase client is not available");
-      const writeRow = async (row) => {
-        if (row.id) {
-          const { data: data2, error: error2 } = await client.from("kpis").update(row).eq("id", row.id).select().maybeSingle();
-          if (error2) throw error2;
-          return data2 || row;
-        }
-        const { data, error } = await client.from("kpis").insert(row).select().single();
-        if (error) throw error;
-        return data || row;
-      };
       try {
-        return { ok: true, kpi: await writeRow(payload) };
+        return await adminPost("admin/saveKpi", payload, user.empId);
       } catch (error) {
         if (fallbackPayload && String(error.message || "").includes("main_weight")) {
-          return { ok: true, kpi: await writeRow(fallbackPayload) };
+          return adminPost("admin/saveKpi", fallbackPayload, user.empId);
         }
         throw error;
       }
@@ -2341,10 +2411,64 @@ var MaxiwaKpiApp = (() => {
     const kpiMainValue = (item = {}) => item.main || item.mainkpi || "";
     const kpiSubValue = (item = {}) => item.sub || item.subkpi || "";
     const kpiWeightValue = (item = {}) => item.main_weight || item.mainWeight || 1;
-    const kpiRuleKey = (item = {}) => String(item.id || `${item.team || ""}::${kpiMainValue(item)}::${kpiSubValue(item)}`);
+    const kpiCompositeKey = (item = {}) => `${normalizedKpiText(item.team)}::${normalizedKpiText(kpiMainValue(item))}::${normalizedKpiText(kpiSubValue(item))}`;
+    const kpiRuleKey = (item = {}) => String(item.id || kpiCompositeKey(item));
+    const kpiOverrideKeys = (item = {}) => [item.id ? String(item.id) : "", kpiCompositeKey(item)].filter(Boolean);
     const findKpiByKey = (key) => kpis.find((item) => kpiRuleKey(item) === key);
     const kpiRuleLabel = (item = {}) => `${item.team || "-"} / ${kpiMainValue(item) || "-"} / ${kpiSubValue(item) || "-"}`;
     const taskMatchesKpiRule = (task, kpi) => normalizedKpiText(task.team) === normalizedKpiText(kpi.team) && normalizedKpiText(task.mainkpi || task.mainKpi || task.main) === normalizedKpiText(kpiMainValue(kpi)) && normalizedKpiText(task.subkpi || task.subKpi || task.sub) === normalizedKpiText(kpiSubValue(kpi));
+    const selectedOverrideUser = staff.find((person) => String(person.empId || person.empid || "").trim().toUpperCase() === selectedOverrideEmpId);
+    const selectedOverridePermissions = userPermissions(selectedOverrideUser);
+    const selectedKpiOverrides = selectedOverridePermissions.kpiOverrides || {};
+    const selectedKpiAssignments = selectedOverridePermissions.kpiAssignments || {};
+    const selectedOverrideTeam = userTeamValue(selectedOverrideUser) || (selectedOverrideUser == null ? void 0 : selectedOverrideUser.team) || "";
+    const overrideKpiRows = filteredKpis.filter((kpi) => !selectedOverrideTeam || normalizedKpiText(kpi.team) === normalizedKpiText(selectedOverrideTeam));
+    const getKpiOverrideValue = (person, kpi) => {
+      var _a2, _b;
+      const overrides = userPermissions(person).kpiOverrides || {};
+      for (const key of kpiOverrideKeys(kpi)) {
+        const value = overrides[key];
+        const raw = typeof value === "object" && value !== null ? (_b = (_a2 = value.weight) != null ? _a2 : value.main_weight) != null ? _b : value.mainWeight : value;
+        const number = typeof raw === "string" ? Number.parseFloat(raw.replace("%", "").trim()) : Number(raw);
+        if (Number.isFinite(number) && number > 0) return number;
+      }
+      return "";
+    };
+    const overrideDraftKey = (empId, kpi) => `${empId || "none"}::${kpiRuleKey(kpi)}`;
+    const isAssignedForSelectedUser = (kpi) => isKpiAssignedToUser(selectedOverrideUser, kpi);
+    const overrideCountForUser = (person) => Object.keys(userPermissions(person).kpiOverrides || {}).length;
+    const assignmentCountForUser = (person) => Object.entries(userPermissions(person).kpiAssignments || {}).filter(([key, value]) => key !== "__configured" && value === true).length;
+    const overrideTotalCount = staff.reduce((sum, person) => sum + overrideCountForUser(person), 0);
+    const assignmentTotalCount = staff.reduce((sum, person) => sum + assignmentCountForUser(person), 0);
+    const overrideCountForKpi = (kpi) => staff.filter((person) => getKpiOverrideValue(person, kpi)).length;
+    const assignmentCountForKpi = (kpi) => staff.filter((person) => hasAnyKpiAssignments(person) && isKpiAssignedToUser(person, kpi)).length;
+    const activeOverrideCount = overrideCountForUser(selectedOverrideUser);
+    const activeAssignmentCount = assignmentCountForUser(selectedOverrideUser);
+    const overrideInputValue = (kpi) => {
+      var _a2, _b;
+      const key = overrideDraftKey(selectedOverrideEmpId, kpi);
+      if (Object.prototype.hasOwnProperty.call(kpiOverrideDrafts, key)) return (_b = (_a2 = kpiOverrideDrafts[key]) == null ? void 0 : _a2.weight) != null ? _b : "";
+      return getKpiOverrideValue(selectedOverrideUser, kpi);
+    };
+    const batchAssignmentValue = (kpi) => {
+      var _a2;
+      const key = overrideDraftKey(selectedOverrideEmpId, kpi);
+      if (Object.prototype.hasOwnProperty.call(kpiOverrideDrafts, key)) return ((_a2 = kpiOverrideDrafts[key]) == null ? void 0 : _a2.assigned) === true;
+      return hasAnyKpiAssignments(selectedOverrideUser) ? isAssignedForSelectedUser(kpi) : false;
+    };
+    const setBatchDraft = (kpi, patch) => {
+      const key = overrideDraftKey(selectedOverrideEmpId, kpi);
+      setKpiOverrideDrafts((prev) => {
+        const current = Object.prototype.hasOwnProperty.call(prev, key) ? prev[key] : {
+          assigned: batchAssignmentValue(kpi),
+          weight: getKpiOverrideValue(selectedOverrideUser, kpi) || ""
+        };
+        return { ...prev, [key]: { ...current, ...patch } };
+      });
+    };
+    const selectedBatchRows = selectedOverrideUser ? overrideKpiRows.filter((kpi) => batchAssignmentValue(kpi)) : [];
+    const selectedBatchWeight = selectedBatchRows.reduce((sum, kpi) => sum + toPositiveNumber(overrideInputValue(kpi), 0), 0);
+    const selectedBatchRemaining = Math.round((100 - selectedBatchWeight) * 10) / 10;
     const editKpi = (item) => {
       setEditingKpi(kpiFormFromItem(item));
     };
@@ -2427,14 +2551,152 @@ var MaxiwaKpiApp = (() => {
         ...basePayload,
         main_weight: mainWeight
       };
-      const originalKpi = sourceForm.id ? kpis.find((item) => String(item.id) === String(sourceForm.id)) : null;
       await runAdminAction("kpi", async () => {
         const result = await saveKpiDirect(payload, basePayload);
-        await syncKpiChangesToTasks(originalKpi, payload);
         return result;
       }, "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 KPI \u0E41\u0E25\u0E30\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E07\u0E32\u0E19\u0E40\u0E14\u0E34\u0E21\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
       if (options.closeModal) setEditingKpi(null);
       else setKpiForm({ main: "", sub: "", team: "", days: 1, main_weight: 1 });
+    };
+    const savePersonalKpiOverride = async (kpi, mode = "save") => {
+      var _a2, _b;
+      if (!selectedOverrideUser) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E01\u0E48\u0E2D\u0E19");
+      const empid = String(selectedOverrideUser.empId || selectedOverrideUser.empid || "").trim().toUpperCase();
+      const key = overrideDraftKey(empid, kpi);
+      const draftValue = mode === "reset" ? "" : String((_b = (_a2 = kpiOverrideDrafts[key]) != null ? _a2 : getKpiOverrideValue(selectedOverrideUser, kpi)) != null ? _b : "").trim();
+      const personalWeight = draftValue === "" ? null : toPositiveNumber(draftValue, 0);
+      if (mode !== "reset" && (!personalWeight || personalWeight <= 0)) return alert("\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E1A\u0E38\u0E04\u0E04\u0E25\u0E15\u0E49\u0E2D\u0E07\u0E21\u0E32\u0E01\u0E01\u0E27\u0E48\u0E32 0 \u0E2B\u0E23\u0E37\u0E2D\u0E1B\u0E25\u0E48\u0E2D\u0E22\u0E27\u0E48\u0E32\u0E07\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E43\u0E0A\u0E49\u0E04\u0E48\u0E32\u0E01\u0E25\u0E32\u0E07");
+      const permissions = {
+        ...userPermissions(selectedOverrideUser),
+        kpiOverrides: { ...selectedKpiOverrides }
+      };
+      for (const overrideKey of kpiOverrideKeys(kpi)) delete permissions.kpiOverrides[overrideKey];
+      if (personalWeight) {
+        permissions.kpiOverrides[kpiRuleKey(kpi)] = {
+          weight: personalWeight,
+          baseWeight: toPositiveNumber(kpiWeightValue(kpi), 1),
+          team: kpi.team || "",
+          main: kpiMainValue(kpi),
+          sub: kpiSubValue(kpi),
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          updatedBy: userEmpId(user)
+        };
+      }
+      const payload = {
+        empid,
+        name: selectedOverrideUser.name || "",
+        role: selectedOverrideUser.role || "Staff",
+        team: selectedOverrideUser.team || "",
+        pigurl: selectedOverrideUser.pigurl || selectedOverrideUser.pigUrl || selectedOverrideUser.avatar || selectedOverrideUser.photoUrl || "",
+        permissions
+      };
+      await runAdminAction(`kpi-override-${kpiRuleKey(kpi)}`, async () => {
+        const result = await adminPost("admin/saveUser", payload, user.empId);
+        setKpiOverrideDrafts((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        return result;
+      }, personalWeight ? "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E1A\u0E38\u0E04\u0E04\u0E25\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" : "\u0E01\u0E25\u0E31\u0E1A\u0E44\u0E1B\u0E43\u0E0A\u0E49\u0E04\u0E48\u0E32\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E01\u0E25\u0E32\u0E07\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
+    };
+    const setPersonalKpiAssignment = async (kpi, assigned) => {
+      if (!selectedOverrideUser) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E01\u0E48\u0E2D\u0E19");
+      const empid = String(selectedOverrideUser.empId || selectedOverrideUser.empid || "").trim().toUpperCase();
+      const permissions = {
+        ...userPermissions(selectedOverrideUser),
+        kpiOverrides: { ...selectedKpiOverrides },
+        kpiAssignments: { ...selectedKpiAssignments }
+      };
+      permissions.kpiAssignments.__configured = true;
+      if (!hasAnyKpiAssignments(selectedOverrideUser) && !assigned) {
+        overrideKpiRows.forEach((row) => {
+          permissions.kpiAssignments[kpiRuleKey(row)] = true;
+        });
+      }
+      for (const assignmentKey of kpiOverrideKeys(kpi)) delete permissions.kpiAssignments[assignmentKey];
+      if (assigned) permissions.kpiAssignments[kpiRuleKey(kpi)] = true;
+      if (!assigned) {
+        for (const overrideKey of kpiOverrideKeys(kpi)) delete permissions.kpiOverrides[overrideKey];
+      }
+      const payload = {
+        empid,
+        name: selectedOverrideUser.name || "",
+        role: selectedOverrideUser.role || "Staff",
+        team: selectedOverrideUser.team || "",
+        pigurl: selectedOverrideUser.pigurl || selectedOverrideUser.pigUrl || selectedOverrideUser.avatar || selectedOverrideUser.photoUrl || "",
+        permissions
+      };
+      await runAdminAction(`kpi-assignment-${kpiRuleKey(kpi)}`, async () => {
+        const result = await adminPost("admin/saveUser", payload, user.empId);
+        return result;
+      }, assigned ? "\u0E40\u0E1B\u0E34\u0E14\u0E43\u0E0A\u0E49 SubKPI \u0E43\u0E2B\u0E49\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E41\u0E25\u0E49\u0E27" : "\u0E1B\u0E34\u0E14 SubKPI \u0E02\u0E2D\u0E07\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E41\u0E25\u0E49\u0E27");
+    };
+    const assignAllVisibleKpis = async () => {
+      if (!selectedOverrideUser) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E01\u0E48\u0E2D\u0E19");
+      overrideKpiRows.forEach((kpi) => {
+        setBatchDraft(kpi, {
+          assigned: true,
+          weight: overrideInputValue(kpi) || toPositiveNumber(kpiWeightValue(kpi), 1)
+        });
+      });
+    };
+    const clearVisibleKpiDrafts = () => {
+      if (!selectedOverrideUser) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E01\u0E48\u0E2D\u0E19");
+      overrideKpiRows.forEach((kpi) => setBatchDraft(kpi, { assigned: false, weight: "" }));
+    };
+    const savePersonalKpiBatch = async () => {
+      if (!selectedOverrideUser) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E01\u0E48\u0E2D\u0E19");
+      const empid = String(selectedOverrideUser.empId || selectedOverrideUser.empid || "").trim().toUpperCase();
+      const permissions = {
+        ...userPermissions(selectedOverrideUser),
+        kpiOverrides: { ...selectedKpiOverrides },
+        kpiAssignments: { ...selectedKpiAssignments }
+      };
+      permissions.kpiAssignments.__configured = true;
+      for (const kpi of overrideKpiRows) {
+        const assigned = batchAssignmentValue(kpi);
+        const rawWeight = String(overrideInputValue(kpi) || "").trim();
+        const personalWeight = rawWeight === "" ? 0 : toPositiveNumber(rawWeight, 0);
+        if (assigned && (!personalWeight || personalWeight <= 0)) {
+          return alert(`\u0E01\u0E23\u0E38\u0E13\u0E32\u0E23\u0E30\u0E1A\u0E38\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E02\u0E2D\u0E07 ${kpiSubValue(kpi) || "SubKPI"} \u0E43\u0E2B\u0E49\u0E21\u0E32\u0E01\u0E01\u0E27\u0E48\u0E32 0`);
+        }
+        for (const assignmentKey of kpiOverrideKeys(kpi)) delete permissions.kpiAssignments[assignmentKey];
+        for (const overrideKey of kpiOverrideKeys(kpi)) delete permissions.kpiOverrides[overrideKey];
+        if (assigned) {
+          permissions.kpiAssignments[kpiRuleKey(kpi)] = true;
+          permissions.kpiOverrides[kpiRuleKey(kpi)] = {
+            weight: personalWeight,
+            baseWeight: toPositiveNumber(kpiWeightValue(kpi), 1),
+            team: kpi.team || "",
+            main: kpiMainValue(kpi),
+            sub: kpiSubValue(kpi),
+            updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            updatedBy: userEmpId(user)
+          };
+        }
+      }
+      const totalWeight = overrideKpiRows.filter((kpi) => batchAssignmentValue(kpi)).reduce((sum, kpi) => sum + toPositiveNumber(overrideInputValue(kpi), 0), 0);
+      if (totalWeight > 100) {
+        return alert(`\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E23\u0E27\u0E21\u0E02\u0E2D\u0E07\u0E04\u0E19\u0E19\u0E35\u0E49\u0E40\u0E01\u0E34\u0E19 100% \u0E15\u0E2D\u0E19\u0E19\u0E35\u0E49\u0E23\u0E27\u0E21 ${formatWeightPercent(totalWeight)}`);
+      }
+      const payload = {
+        empid,
+        name: selectedOverrideUser.name || "",
+        role: selectedOverrideUser.role || "Staff",
+        team: selectedOverrideUser.team || "",
+        pigurl: selectedOverrideUser.pigurl || selectedOverrideUser.pigUrl || selectedOverrideUser.avatar || selectedOverrideUser.photoUrl || "",
+        permissions
+      };
+      await runAdminAction("kpi-assignment-batch", async () => {
+        const result = await adminPost("admin/saveUser", payload, user.empId);
+        setKpiOverrideDrafts((prev) => {
+          const next = { ...prev };
+          overrideKpiRows.forEach((kpi) => delete next[overrideDraftKey(empid, kpi)]);
+          return next;
+        });
+        return result;
+      }, "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 SubKPI \u0E41\u0E25\u0E30\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E23\u0E32\u0E22\u0E1A\u0E38\u0E04\u0E04\u0E25\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14\u0E41\u0E25\u0E49\u0E27");
     };
     const migrateOldTasksToKpi = async () => {
       const sourceKpi = findKpiByKey(kpiMigration == null ? void 0 : kpiMigration.sourceKey);
@@ -2495,8 +2757,11 @@ var MaxiwaKpiApp = (() => {
         "\u0E14\u0E36\u0E07\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14\u0E44\u0E17\u0E22\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08"
       );
     };
-    const recalc = async () => {
-      await runAdminAction("recalc", async () => adminPost("admin/recalculateDeadlines", {}, user.empId), "\u0E04\u0E33\u0E19\u0E27\u0E13\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E2A\u0E48\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
+    const recalc = async (successMessage = "\u0E04\u0E33\u0E19\u0E27\u0E13\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E2A\u0E48\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08") => {
+      await runAdminAction("recalc", async () => adminPost("admin/recalculateDeadlines", {}, user.empId), successMessage);
+    };
+    const recalcPersonalKpiTasks = async () => {
+      await recalc("\u0E04\u0E33\u0E19\u0E27\u0E13\u0E07\u0E32\u0E19\u0E40\u0E14\u0E34\u0E21\u0E43\u0E2B\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
     };
     const renderHolidayGroup = (title, subtitle, items, badge) => /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-end md:justify-between gap-1" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, title), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, subtitle)), /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold uppercase tracking-wide text-[var(--mx-muted)]" }, items.length, " \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23")), items.slice(0, 80).map((holiday) => /* @__PURE__ */ React.createElement("div", { key: holiday.id || holiday.holiday_date, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold" }, holiday.name), /* @__PURE__ */ React.createElement("span", { className: "rounded-md border border-[var(--mx-border)] px-2 py-1 text-xs text-[var(--mx-muted)]" }, badge)), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, holiday.holiday_date, " / ", holiday.is_active ? "Active" : "Inactive")), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => editHoliday(holiday) }, "\u0E41\u0E01\u0E49\u0E44\u0E02"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => removeHoliday(holiday.id), disabled: !holiday.id }, "\u0E25\u0E1A"))))), items.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14"));
     const removeUser = async (empId) => {
@@ -2552,7 +2817,39 @@ var MaxiwaKpiApp = (() => {
       /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, renderKpiEditModal(), renderKpiMigrationModal(), showKpiCreate && /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "mb-4 flex items-start justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold" }, "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E01\u0E0E KPI/SLA \u0E43\u0E2B\u0E21\u0E48"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-xs text-[var(--mx-muted)]" }, "\u0E43\u0E0A\u0E49\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E15\u0E49\u0E2D\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E01\u0E0E\u0E43\u0E2B\u0E21\u0E48\u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19 \u0E07\u0E32\u0E19\u0E41\u0E01\u0E49\u0E44\u0E02\u0E43\u0E2B\u0E49\u0E01\u0E14\u0E08\u0E32\u0E01\u0E15\u0E32\u0E23\u0E32\u0E07\u0E14\u0E49\u0E32\u0E19\u0E25\u0E48\u0E32\u0E07")), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => setShowKpiCreate(false) }, "\u0E1B\u0E34\u0E14")), /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Main KPI", /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "Main KPI", value: kpiForm.main, onChange: (e) => setKpiForm((p) => ({ ...p, main: e.target.value })) })), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Sub KPI", /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "Sub KPI", value: kpiForm.sub, onChange: (e) => setKpiForm((p) => ({ ...p, sub: e.target.value })) })), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Team", /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: kpiForm.team, onChange: (e) => setKpiForm((p) => ({ ...p, team: e.target.value })) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E35\u0E21"), teams.map((team) => /* @__PURE__ */ React.createElement("option", { key: team.id || team.name, value: team.name }, team.name)))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "SLA Days", /* @__PURE__ */ React.createElement("input", { className: "mx-input", type: "number", min: "1", placeholder: "1", value: kpiForm.days, onChange: (e) => setKpiForm((p) => ({ ...p, days: e.target.value })) })), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "Weight", /* @__PURE__ */ React.createElement("input", { className: "mx-input", type: "number", min: "1", step: "0.1", placeholder: "1", value: kpiForm.main_weight, onChange: (e) => setKpiForm((p) => ({ ...p, main_weight: e.target.value })) })))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3 mt-3" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary w-full", onClick: () => saveKpi(), disabled: saving === "kpi" }, saving === "kpi" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01 KPI"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft w-full", onClick: () => setKpiForm({ main: "", sub: "", team: "", days: 1, main_weight: 1 }) }, "\u0E25\u0E49\u0E32\u0E07\u0E1F\u0E2D\u0E23\u0E4C\u0E21"))), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-[1fr_220px_auto] gap-3 lg:items-end" }, /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "\u0E04\u0E49\u0E19\u0E2B\u0E32\u0E01\u0E0E KPI/SLA", /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E04\u0E49\u0E19\u0E2B\u0E32 Main, Sub, Team, Days, Weight", value: kpiSearch, onChange: (e) => setKpiSearch(e.target.value) })), /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "\u0E17\u0E35\u0E21", /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: kpiTeamFilter, onChange: (e) => setKpiTeamFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u0E17\u0E38\u0E01\u0E17\u0E35\u0E21"), teams.map((team) => /* @__PURE__ */ React.createElement("option", { key: team.id || team.name, value: team.name }, team.name)))), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft", onClick: () => {
         setKpiSearch("");
         setKpiTeamFilter("");
-      } }, "\u0E25\u0E49\u0E32\u0E07\u0E15\u0E31\u0E27\u0E01\u0E23\u0E2D\u0E07")), /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2 text-xs text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, "\u0E41\u0E2A\u0E14\u0E07 ", filteredKpis.length, " \u0E08\u0E32\u0E01 ", kpis.length))), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "max-h-[62vh] overflow-auto" }, /* @__PURE__ */ React.createElement("table", { className: "w-full min-w-[980px] text-sm" }, /* @__PURE__ */ React.createElement("thead", { className: "sticky top-0 z-10 bg-[var(--mx-panel)] border-b border-[var(--mx-line)]" }, /* @__PURE__ */ React.createElement("tr", { className: "text-left text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("th", { className: "p-4" }, "Main KPI"), /* @__PURE__ */ React.createElement("th", { className: "p-4" }, "Sub KPI"), /* @__PURE__ */ React.createElement("th", { className: "p-4" }, "Team"), /* @__PURE__ */ React.createElement("th", { className: "p-4" }, "Days"), /* @__PURE__ */ React.createElement("th", { className: "p-4" }, "Weight"), /* @__PURE__ */ React.createElement("th", { className: "p-4 text-right" }, "Action"))), /* @__PURE__ */ React.createElement("tbody", { className: "divide-y divide-[var(--mx-line)]" }, filteredKpis.map((kpi) => /* @__PURE__ */ React.createElement("tr", { key: kpi.id || `${kpi.team}-${kpi.main}-${kpi.sub}`, className: "bg-[var(--mx-surface)]" }, /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top font-extrabold break-words max-w-[260px]" }, kpi.main), /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top break-words max-w-[320px]" }, kpi.sub), /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top" }, kpi.team), /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top font-bold" }, kpi.days), /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top font-bold" }, kpi.main_weight), /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-end gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary !py-2 !px-3", onClick: () => editKpi(kpi) }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-pen-to-square mr-2" }), "\u0E41\u0E01\u0E49\u0E44\u0E02"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => openKpiMigration(kpi) }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-right-left mr-2" }), "\u0E22\u0E49\u0E32\u0E22\u0E07\u0E32\u0E19\u0E40\u0E01\u0E48\u0E32"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => removeKpi(kpi.id), disabled: !kpi.id }, "\u0E25\u0E1A"))))), filteredKpis.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { className: "p-8 text-center text-[var(--mx-muted)]", colSpan: "6" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E0E KPI/SLA \u0E17\u0E35\u0E48\u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A\u0E15\u0E31\u0E27\u0E01\u0E23\u0E2D\u0E07")))))))
+      } }, "\u0E25\u0E49\u0E32\u0E07\u0E15\u0E31\u0E27\u0E01\u0E23\u0E2D\u0E07")), /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2 text-xs text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, "\u0E41\u0E2A\u0E14\u0E07 ", filteredKpis.length, " \u0E08\u0E32\u0E01 ", kpis.length))), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold" }, "\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01 SubKPI \u0E23\u0E32\u0E22\u0E1A\u0E38\u0E04\u0E04\u0E25"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-xs text-[var(--mx-muted)]" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E01\u0E48\u0E2D\u0E19\u0E27\u0E48\u0E32\u0E04\u0E19\u0E19\u0E35\u0E49\u0E43\u0E0A\u0E49 SubKPI \u0E44\u0E2B\u0E19\u0E1A\u0E49\u0E32\u0E07 \u0E41\u0E25\u0E49\u0E27\u0E04\u0E48\u0E2D\u0E22\u0E15\u0E31\u0E49\u0E07 Weight \u0E40\u0E09\u0E1E\u0E32\u0E30\u0E04\u0E19 \u0E40\u0E09\u0E1E\u0E32\u0E30\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E17\u0E35\u0E48\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E08\u0E23\u0E34\u0E07"), /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, assignmentTotalCount, " assignments \u0E17\u0E31\u0E49\u0E07\u0E23\u0E30\u0E1A\u0E1A"), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, overrideTotalCount, " overrides \u0E17\u0E31\u0E49\u0E07\u0E23\u0E30\u0E1A\u0E1A"), selectedOverrideUser && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-completed" }, activeAssignmentCount, " assignments \u0E02\u0E2D\u0E07\u0E04\u0E19\u0E19\u0E35\u0E49"), selectedOverrideUser && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-completed" }, activeOverrideCount, " overrides \u0E02\u0E2D\u0E07\u0E04\u0E19\u0E19\u0E35\u0E49"), selectedOverrideUser && /* @__PURE__ */ React.createElement("span", { className: `mx-badge ${selectedBatchWeight > 100 ? "mx-status-hold" : selectedBatchWeight === 100 ? "mx-status-completed" : "mx-status-pending"}` }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2D\u0E22\u0E39\u0E48 ", formatWeightPercent(selectedBatchWeight), " / \u0E40\u0E2B\u0E25\u0E37\u0E2D ", formatWeightPercent(Math.max(0, selectedBatchRemaining))))), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-[minmax(240px,1fr)_auto] gap-3 xl:w-[560px]" }, /* @__PURE__ */ React.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19", /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: selectedOverrideEmpId, onChange: (e) => setSelectedOverrideEmpId(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E1B\u0E23\u0E31\u0E1A\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01"), staff.map((person) => {
+        const empId = String(person.empId || person.empid || "").trim().toUpperCase();
+        return /* @__PURE__ */ React.createElement("option", { key: empId || person.name, value: empId }, person.name || "-", " / ", empId || "-");
+      }))), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft self-end", onClick: recalcPersonalKpiTasks, disabled: saving === "recalc" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-rotate mr-2" }), saving === "recalc" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E04\u0E33\u0E19\u0E27\u0E13..." : "\u0E04\u0E33\u0E19\u0E27\u0E13\u0E07\u0E32\u0E19\u0E40\u0E14\u0E34\u0E21\u0E43\u0E2B\u0E21\u0E48"))), selectedOverrideUser && /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: assignAllVisibleKpis, disabled: saving === "kpi-assignment-all" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-list-check mr-2" }), "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14\u0E15\u0E32\u0E21\u0E15\u0E31\u0E27\u0E01\u0E23\u0E2D\u0E07"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: clearVisibleKpiDrafts }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-eraser mr-2" }), "\u0E25\u0E49\u0E32\u0E07\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E15\u0E32\u0E21\u0E15\u0E31\u0E27\u0E01\u0E23\u0E2D\u0E07"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary !py-2 !px-3", onClick: savePersonalKpiBatch, disabled: saving === "kpi-assignment-batch" }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-floppy-disk mr-2" }), saving === "kpi-assignment-batch" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14"), !hasAnyKpiAssignments(selectedOverrideUser) && /* @__PURE__ */ React.createElement("span", { className: "text-xs text-[var(--mx-muted)] self-center" }, "\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E40\u0E04\u0E22\u0E15\u0E31\u0E49\u0E07 assignment: \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E30\u0E41\u0E2A\u0E14\u0E07 SubKPI \u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14\u0E02\u0E2D\u0E07\u0E17\u0E35\u0E21\u0E08\u0E19\u0E01\u0E27\u0E48\u0E32\u0E08\u0E30\u0E40\u0E23\u0E34\u0E48\u0E21\u0E40\u0E25\u0E37\u0E2D\u0E01")), selectedOverrideUser ? /* @__PURE__ */ React.createElement("div", { className: "mt-4 overflow-auto rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)]" }, /* @__PURE__ */ React.createElement("table", { className: "w-full min-w-[920px] text-sm" }, /* @__PURE__ */ React.createElement("thead", { className: "bg-[var(--mx-panel)] text-left text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "p-3" }, "\u0E43\u0E0A\u0E49\u0E01\u0E31\u0E1A\u0E04\u0E19\u0E19\u0E35\u0E49"), /* @__PURE__ */ React.createElement("th", { className: "p-3" }, "KPI"), /* @__PURE__ */ React.createElement("th", { className: "p-3" }, "Team"), /* @__PURE__ */ React.createElement("th", { className: "p-3" }, "\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E01\u0E25\u0E32\u0E07"), /* @__PURE__ */ React.createElement("th", { className: "p-3" }, "\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E02\u0E2D\u0E07\u0E04\u0E19\u0E19\u0E35\u0E49 (%)"), /* @__PURE__ */ React.createElement("th", { className: "p-3" }, "\u0E2A\u0E16\u0E32\u0E19\u0E30"))), /* @__PURE__ */ React.createElement("tbody", { className: "divide-y divide-[var(--mx-line)]" }, overrideKpiRows.map((kpi) => {
+        const empId = selectedOverrideEmpId;
+        const draftKey = overrideDraftKey(empId, kpi);
+        const overrideValue = overrideInputValue(kpi);
+        const assigned = batchAssignmentValue(kpi);
+        const baseWeight = toPositiveNumber(kpiWeightValue(kpi), 1);
+        const currentWeight = toPositiveNumber(overrideValue, 0);
+        const totalWithoutCurrent = selectedBatchWeight - (assigned ? currentWeight : 0);
+        const remainingAfterCurrent = Math.round((100 - selectedBatchWeight) * 10) / 10;
+        const maxForCurrentRow = Math.max(0, Math.round((100 - totalWithoutCurrent) * 10) / 10);
+        const isOverBatchLimit = assigned && selectedBatchWeight > 100;
+        return /* @__PURE__ */ React.createElement("tr", { key: `override-${kpiRuleKey(kpi)}` }, /* @__PURE__ */ React.createElement("td", { className: "p-3 align-top" }, /* @__PURE__ */ React.createElement("label", { className: "inline-flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2 font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: assigned, onChange: (e) => setBatchDraft(kpi, { assigned: e.target.checked, weight: e.target.checked ? overrideValue || baseWeight : "" }) }), /* @__PURE__ */ React.createElement("span", null, assigned ? "\u0E43\u0E0A\u0E49" : "\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E49"))), /* @__PURE__ */ React.createElement("td", { className: "p-3 align-top" }, /* @__PURE__ */ React.createElement("div", { className: "font-extrabold break-words" }, kpiMainValue(kpi) || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-xs text-[var(--mx-muted)] break-words" }, kpiSubValue(kpi) || "-")), /* @__PURE__ */ React.createElement("td", { className: "p-3 align-top" }, kpi.team || "-"), /* @__PURE__ */ React.createElement("td", { className: "p-3 align-top font-bold" }, baseWeight, "%"), /* @__PURE__ */ React.createElement("td", { className: "p-3 align-top" }, /* @__PURE__ */ React.createElement(
+          "input",
+          {
+            className: "mx-input !w-32",
+            type: "number",
+            min: "0.1",
+            max: maxForCurrentRow || void 0,
+            step: "0.1",
+            placeholder: "\u0E40\u0E0A\u0E48\u0E19 70",
+            value: overrideValue,
+            disabled: !assigned,
+            onChange: (e) => setBatchDraft(kpi, { weight: e.target.value })
+          }
+        )), /* @__PURE__ */ React.createElement("td", { className: "p-3 align-top" }, /* @__PURE__ */ React.createElement("span", { className: `mx-badge ${isOverBatchLimit ? "mx-status-hold" : assigned && overrideValue ? "mx-status-completed" : assigned ? "mx-status-pending" : "mx-status-cancelled"}` }, assigned ? overrideValue ? `\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2D\u0E22\u0E39\u0E48 ${formatWeightPercent(selectedBatchWeight)} / 100%` : "\u0E15\u0E49\u0E2D\u0E07\u0E43\u0E2A\u0E48\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01" : "\u0E44\u0E21\u0E48\u0E41\u0E2A\u0E14\u0E07\u0E43\u0E19\u0E1F\u0E2D\u0E23\u0E4C\u0E21"), assigned && /* @__PURE__ */ React.createElement("div", { className: `mt-2 text-xs font-bold ${isOverBatchLimit ? "text-red-400" : "text-[var(--mx-muted)]"}` }, "\u0E41\u0E16\u0E27\u0E19\u0E35\u0E49\u0E43\u0E2A\u0E48\u0E44\u0E14\u0E49\u0E44\u0E21\u0E48\u0E40\u0E01\u0E34\u0E19 ", formatWeightPercent(maxForCurrentRow), " / \u0E40\u0E2B\u0E25\u0E37\u0E2D ", formatWeightPercent(Math.max(0, remainingAfterCurrent)))));
+      }), overrideKpiRows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { className: "p-8 text-center text-[var(--mx-muted)]", colSpan: "6" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A KPI \u0E17\u0E35\u0E48\u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A\u0E17\u0E35\u0E21/\u0E15\u0E31\u0E27\u0E01\u0E23\u0E2D\u0E07\u0E02\u0E2D\u0E07\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E19\u0E35\u0E49"))))) : /* @__PURE__ */ React.createElement("div", { className: "mt-4 rounded-lg border border-dashed border-[var(--mx-line)] p-4 text-sm text-[var(--mx-muted)]" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E01\u0E48\u0E2D\u0E19 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E30\u0E41\u0E2A\u0E14\u0E07 SubKPI \u0E02\u0E2D\u0E07\u0E17\u0E35\u0E21\u0E04\u0E19\u0E19\u0E31\u0E49\u0E19\u0E43\u0E2B\u0E49\u0E1B\u0E23\u0E31\u0E1A\u0E44\u0E14\u0E49\u0E17\u0E31\u0E19\u0E17\u0E35")), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-0 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "max-h-[62vh] overflow-auto" }, /* @__PURE__ */ React.createElement("table", { className: "w-full min-w-[980px] text-sm" }, /* @__PURE__ */ React.createElement("thead", { className: "sticky top-0 z-10 bg-[var(--mx-panel)] border-b border-[var(--mx-line)]" }, /* @__PURE__ */ React.createElement("tr", { className: "text-left text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("th", { className: "p-4" }, "Main KPI"), /* @__PURE__ */ React.createElement("th", { className: "p-4" }, "Sub KPI"), /* @__PURE__ */ React.createElement("th", { className: "p-4" }, "Team"), /* @__PURE__ */ React.createElement("th", { className: "p-4" }, "Days"), /* @__PURE__ */ React.createElement("th", { className: "p-4" }, "Weight"), /* @__PURE__ */ React.createElement("th", { className: "p-4 text-right" }, "Action"))), /* @__PURE__ */ React.createElement("tbody", { className: "divide-y divide-[var(--mx-line)]" }, filteredKpis.map((kpi) => {
+        const overrideCount = overrideCountForKpi(kpi);
+        const assignmentCount = assignmentCountForKpi(kpi);
+        return /* @__PURE__ */ React.createElement("tr", { key: kpi.id || `${kpi.team}-${kpi.main}-${kpi.sub}`, className: "bg-[var(--mx-surface)]" }, /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top font-extrabold break-words max-w-[260px]" }, kpi.main), /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top break-words max-w-[320px]" }, /* @__PURE__ */ React.createElement("div", null, kpi.sub), assignmentCount > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process mt-2 mr-2" }, "assigned ", assignmentCount, " \u0E04\u0E19"), overrideCount > 0 && /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-completed mt-2" }, "\u0E21\u0E35 override ", overrideCount, " \u0E04\u0E19")), /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top" }, kpi.team), /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top font-bold" }, kpi.days), /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top font-bold" }, kpi.main_weight), /* @__PURE__ */ React.createElement("td", { className: "p-4 align-top" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-end gap-2" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary !py-2 !px-3", onClick: () => editKpi(kpi) }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-pen-to-square mr-2" }), "\u0E41\u0E01\u0E49\u0E44\u0E02"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => openKpiMigration(kpi) }, /* @__PURE__ */ React.createElement("i", { className: "fa-solid fa-right-left mr-2" }), "\u0E22\u0E49\u0E32\u0E22\u0E07\u0E32\u0E19\u0E40\u0E01\u0E48\u0E32"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3", onClick: () => removeKpi(kpi.id), disabled: !kpi.id }, "\u0E25\u0E1A"))));
+      }), filteredKpis.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { className: "p-8 text-center text-[var(--mx-muted)]", colSpan: "6" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E0E KPI/SLA \u0E17\u0E35\u0E48\u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A\u0E15\u0E31\u0E27\u0E01\u0E23\u0E2D\u0E07")))))))
     );
     const CalendarControls = () => /* @__PURE__ */ React.createElement(
       Panel,
@@ -2566,7 +2863,14 @@ var MaxiwaKpiApp = (() => {
       },
       /* @__PURE__ */ React.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-[180px_1fr_150px] gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", type: "date", value: holidayForm.holiday_date, onChange: (e) => setHolidayForm((p) => ({ ...p, holiday_date: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E0A\u0E37\u0E48\u0E2D\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14", value: holidayForm.name, onChange: (e) => setHolidayForm((p) => ({ ...p, name: e.target.value })) }), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary", onClick: saveHoliday, disabled: saving === "holiday" }, saving === "holiday" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01"))), /* @__PURE__ */ React.createElement("div", { className: "grid lg:grid-cols-2 gap-4" }, renderHolidayGroup("\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14\u0E1A\u0E23\u0E34\u0E29\u0E31\u0E17", "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E17\u0E35\u0E48 Admin \u0E40\u0E1E\u0E34\u0E48\u0E21\u0E2B\u0E23\u0E37\u0E2D\u0E41\u0E01\u0E49\u0E44\u0E02\u0E40\u0E2D\u0E07", companyHolidays, "Company"), renderHolidayGroup("\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14\u0E44\u0E17\u0E22\u0E08\u0E32\u0E01\u0E20\u0E32\u0E22\u0E19\u0E2D\u0E01", "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E08\u0E32\u0E01 iApp API \u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E1B\u0E23\u0E30\u0E40\u0E17\u0E28\u0E44\u0E17\u0E22", thaiPublicHolidays, "iApp API")))
     );
-    const AuditPanel = () => /* @__PURE__ */ React.createElement(Panel, { title: "\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02", subtitle: "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E01\u0E32\u0E23\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E41\u0E1B\u0E25\u0E07\u0E02\u0E2D\u0E07\u0E23\u0E30\u0E1A\u0E1A\u0E42\u0E14\u0E22\u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E02\u0E49\u0E32 backend" }, /* @__PURE__ */ React.createElement("div", { className: "admin-audit-scroll grid gap-3" }, logs.slice(0, 80).map((log) => /* @__PURE__ */ React.createElement("div", { key: log.id || `${log.action}-${log.timestamp}`, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-sm" }, log.action || "Activity"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, log.details || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, log.by_user || "-", " / ", formatDate(log.timestamp, true)))), logs.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E21\u0E35\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02")));
+    const AuditPanel = () => /* @__PURE__ */ React.createElement(Panel, { title: "\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02", subtitle: "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E01\u0E32\u0E23\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E41\u0E1B\u0E25\u0E07\u0E02\u0E2D\u0E07\u0E23\u0E30\u0E1A\u0E1A\u0E42\u0E14\u0E22\u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E02\u0E49\u0E32 backend" }, /* @__PURE__ */ React.createElement("div", { className: "admin-audit-scroll grid gap-3" }, logs.slice(0, 80).map((log) => {
+      const details = typeof log.details === "string" ? parseJsonSafe(log.details, log.details) || {} : log.details || {};
+      const overrideChanges = Array.isArray(details.changes) ? details.changes : [];
+      return /* @__PURE__ */ React.createElement("div", { key: log.id || `${log.action}-${log.timestamp}`, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-sm" }, log.action || "Activity"), ["save_kpi_override", "save_kpi_assignment"].includes(log.action) && overrideChanges.length > 0 ? /* @__PURE__ */ React.createElement("div", { className: "mt-2 grid gap-2 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ React.createElement("div", null, "Emp ID: ", details.empid || "-"), overrideChanges.map((change) => {
+        var _a2, _b;
+        return /* @__PURE__ */ React.createElement("div", { key: change.key, className: "rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-[var(--mx-text)] break-words" }, change.key), /* @__PURE__ */ React.createElement("div", { className: "mt-1" }, log.action === "save_kpi_assignment" ? `\u0E08\u0E32\u0E01 ${change.from ? "\u0E43\u0E0A\u0E49" : "\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E49"} \u0E40\u0E1B\u0E47\u0E19 ${change.to ? "\u0E43\u0E0A\u0E49" : "\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E49"}` : `\u0E08\u0E32\u0E01 ${(_a2 = change.from) != null ? _a2 : "\u0E04\u0E48\u0E32\u0E01\u0E25\u0E32\u0E07"} \u0E40\u0E1B\u0E47\u0E19 ${(_b = change.to) != null ? _b : "\u0E04\u0E48\u0E32\u0E01\u0E25\u0E32\u0E07"}`));
+      })) : /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, typeof details === "object" ? JSON.stringify(details) : details || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)]" }, log.by_user || log.changed_by || log.changedby || "-", " / ", formatDate(log.timestamp || log.created_at, true)));
+    }), logs.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E21\u0E35\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02")));
     const SystemsControls = () => /* @__PURE__ */ React.createElement("div", { className: "grid xl:grid-cols-[0.9fr_1.1fr] gap-5" }, /* @__PURE__ */ React.createElement(Panel, { title: "System Link Editor", subtitle: "\u0E40\u0E1E\u0E34\u0E48\u0E21 \u0E41\u0E01\u0E49\u0E44\u0E02 \u0E41\u0E25\u0E30\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E40\u0E2B\u0E47\u0E19\u0E43\u0E19 Sidebar" }, /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "System name", value: systemForm.name, onChange: (e) => setSystemForm((p) => ({ ...p, name: e.target.value })) }), /* @__PURE__ */ React.createElement("textarea", { className: "mx-textarea min-h-[80px]", placeholder: "Description", value: systemForm.description, onChange: (e) => setSystemForm((p) => ({ ...p, description: e.target.value })) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "URL", value: systemForm.url, onChange: (e) => setSystemForm((p) => ({ ...p, url: e.target.value })) }), /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 gap-3" }, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "FontAwesome icon \u0E40\u0E0A\u0E48\u0E19 fa-file-invoice", value: systemForm.icon, onChange: (e) => setSystemForm((p) => ({ ...p, icon: e.target.value })) }), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: systemForm.status, onChange: (e) => setSystemForm((p) => ({ ...p, status: e.target.value })) }, ["Active", "Maintenance", "Coming Soon", "Hidden"].map((status) => /* @__PURE__ */ React.createElement("option", { key: status, value: status }, status)))), /* @__PURE__ */ React.createElement("label", { className: "flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-3 text-sm font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: systemForm.visibleToAll, onChange: (e) => setSystemForm((p) => ({ ...p, visibleToAll: e.target.checked })) }), /* @__PURE__ */ React.createElement("span", null, "Visible to all users")), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold mb-3" }, "\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E17\u0E35\u0E48\u0E21\u0E2D\u0E07\u0E40\u0E2B\u0E47\u0E19"), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-2" }, ROLE_OPTIONS.map((role) => /* @__PURE__ */ React.createElement("label", { key: role.value, className: "flex items-center gap-2 text-sm font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: normalizeList(systemForm.allowedRoles).includes(role.value), onChange: () => toggleSystemRole(role.value) }), /* @__PURE__ */ React.createElement("span", null, role.label))))), /* @__PURE__ */ React.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-extrabold mb-3" }, "Allowed Teams"), /* @__PURE__ */ React.createElement("div", { className: "grid sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto" }, teams.map((team) => {
       const teamName = team.name || "";
       return /* @__PURE__ */ React.createElement("label", { key: team.id || teamName, className: "flex items-center gap-2 text-sm font-bold" }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: normalizeList(systemForm.allowedTeams).includes(teamName), onChange: () => toggleSystemTeam(teamName) }), /* @__PURE__ */ React.createElement("span", { className: "truncate" }, teamName));
@@ -2664,7 +2968,7 @@ var MaxiwaKpiApp = (() => {
       const result = [];
       state.tasks.forEach((task) => {
         var _a2;
-        const st = (task.status || "").toLowerCase();
+        const st = statusKey(task.status);
         if (st === "pending") {
           result.push({
             id: `pending-${task.id}`,
@@ -2839,24 +3143,31 @@ var MaxiwaKpiApp = (() => {
     const downloadCSV = () => {
       const src = state.tasks || [];
       if (src.length === 0) return alert("\u0E44\u0E21\u0E48\u0E21\u0E35\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A export");
-      const headers = ["\u0E25\u0E33\u0E14\u0E31\u0E1A", "\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E07\u0E32\u0E19", "Main KPI", "Sub KPI", "\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A", "\u0E17\u0E35\u0E21", "\u0E2A\u0E16\u0E32\u0E19\u0E30", "\u0E27\u0E31\u0E19\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19", "Deadline", "\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48\u0E40\u0E2A\u0E23\u0E47\u0E08", "\u0E1C\u0E25"];
+      const headers = ["\u0E25\u0E33\u0E14\u0E31\u0E1A", "\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E07\u0E32\u0E19", "Main KPI", "Sub KPI", "Weight \u0E01\u0E25\u0E32\u0E07", "Weight \u0E17\u0E35\u0E48\u0E43\u0E0A\u0E49\u0E08\u0E23\u0E34\u0E07", "\u0E1B\u0E23\u0E30\u0E40\u0E20\u0E17 Weight", "\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A", "\u0E17\u0E35\u0E21", "\u0E2A\u0E16\u0E32\u0E19\u0E30", "\u0E27\u0E31\u0E19\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19", "Deadline", "\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48\u0E40\u0E2A\u0E23\u0E47\u0E08", "\u0E1C\u0E25"];
       const esc = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
       const rows = src.map((t, i) => {
         const dl = t.deadline ? new Date(t.deadline) : null;
         const cp = t.completiondate ? new Date(t.completiondate) : null;
-        const onTime = t.status === "Completed" && dl && cp && cp <= dl;
+        const onTime = statusEquals(t.status, "Completed") && dl && cp && cp <= dl;
+        const extra = normalizeExtraData(t.extra_data);
+        const baseWeight = extra.kpi_base_weight || t.kpi_base_weight || getTaskWeight(t);
+        const effectiveWeight = extra.kpi_effective_weight || t.kpi_effective_weight || getTaskWeight(t);
+        const weightType = extra.kpi_personal_override || String(baseWeight) !== String(effectiveWeight) ? "Personal Override" : "Base KPI";
         return [
           i + 1,
           esc(t.job),
           esc(t.mainkpi),
           esc(t.subkpi),
+          esc(formatWeightPercent(baseWeight)),
+          esc(formatWeightPercent(effectiveWeight)),
+          esc(weightType),
           esc(t.name),
           esc(t.team),
           esc(t.status),
           esc(formatDate(t.startdate)),
           esc(formatDate(t.deadline)),
           esc(formatDate(t.completiondate)),
-          t.status === "Completed" ? onTime ? "\u0E15\u0E23\u0E07\u0E40\u0E27\u0E25\u0E32" : "\u0E40\u0E01\u0E34\u0E19\u0E01\u0E33\u0E2B\u0E19\u0E14" : "-"
+          statusEquals(t.status, "Completed") ? onTime ? "\u0E15\u0E23\u0E07\u0E40\u0E27\u0E25\u0E32" : "\u0E40\u0E01\u0E34\u0E19\u0E01\u0E33\u0E2B\u0E19\u0E14" : "-"
         ].join(",");
       });
       const period = filterMonth === 0 ? `all_${filterYear}` : `${filterMonth}_${filterYear}`;

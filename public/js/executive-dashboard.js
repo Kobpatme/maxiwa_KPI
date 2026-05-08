@@ -1974,7 +1974,7 @@ function KpiWeightsPanel({ kpiWeightRows, kpiSearch, setKpiSearch }) {
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
         <div>
           <h2 className="section-title m-0">KPI Configurations & Weights</h2>
-          <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Searchable KPI weight detail by team, main KPI, and sub KPI.</p>
+          <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Searchable KPI weight detail by team, main KPI category, and Sub KPI weight.</p>
         </div>
         <div className="grid sm:grid-cols-[minmax(260px,420px)_180px_160px] gap-2 no-print">
           <input className="mx-input" value={kpiSearch} onChange={(e) => setKpiSearch(e.target.value)} placeholder="Search team, main KPI, or sub KPI" />
