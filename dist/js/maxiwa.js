@@ -442,14 +442,15 @@ var MaxiwaKpiApp = (() => {
     return `[${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}]`;
   }
   function renderExtraData(extraData) {
-    const ed = extraData || {};
+    const ed = normalizeExtraData(extraData);
+    const ssrNumber = ed.ssrNumber || ed.ssr_number || ed.ssrNo || ed.ssr || ed.SSR;
     const entries = [
       ["Building", ed.building],
       ["Client", ed.client],
       ["Contractor", ed.contractor],
       ["Contractor Name", ed.contractorName],
       ["Type", ed.contractorType],
-      ["SSR", ed.ssrNumber],
+      ["SSR", ssrNumber],
       ["OSP", ed.ospNumber],
       ["Fund", ed.fundNumber],
       ["Amount", ed.amount ? Number(ed.amount).toLocaleString("th-TH") : ""]
