@@ -517,6 +517,16 @@ function SsrBadge({ extraData }) {
   return <span className="mx-badge mx-status-process">{ssrNumber}</span>;
 }
 
+function TaskActionBusy({ actionState, taskId }) {
+  if (!actionState?.busy || String(actionState.taskId || '') !== String(taskId || '')) return null;
+  return (
+    <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--mx-line-strong)] bg-[var(--mx-surface)] px-3 py-2 text-sm font-bold text-[var(--mx-info)]">
+      <i className="fa-solid fa-rotate-right fa-spin"></i>
+      <span>{actionState.label || 'กำลังดำเนินการ...'}</span>
+    </div>
+  );
+}
+
 function keepSsrExtraData(extraData) {
   const ed = normalizeExtraData(extraData);
   const ssrNumber = getSsrNumber(ed);
@@ -1919,7 +1929,7 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
   );
 }
 
-function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onAccept, onStatusChange, onNavigate }) {
+function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onAccept, onStatusChange, onNavigate, actionState }) {
   if (!data) {
     return (
       <Panel title="Executive Overview" subtitle="กำลังเตรียมข้อมูล...">
@@ -1972,7 +1982,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
       }
     };
 
-    const ActionBtn = ({ icon, color, onClick, label }) => {
+    const ActionBtn = ({ icon, color, onClick, label, loading = false, disabled = false }) => {
       const variants = {
         emerald: 'mx-action-success',
         amber: 'mx-action-warning',
@@ -1982,8 +1992,13 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
       };
       return (
         <div className="relative group">
-          <button onClick={onClick} className={`w-10 h-10 flex items-center justify-center rounded-lg border transition-colors duration-200 ${variants[color] || ''}`}>
-            <i className={`fas ${icon} text-sm`}></i>
+          <button
+            onClick={onClick}
+            disabled={disabled || loading}
+            className={`w-10 h-10 flex items-center justify-center rounded-lg border transition-colors duration-200 disabled:opacity-70 disabled:cursor-wait ${variants[color] || ''}`}
+            aria-busy={loading ? 'true' : 'false'}
+          >
+            <i className={`fas ${loading ? 'fa-rotate-right fa-spin' : icon} text-sm`}></i>
           </button>
           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
             {label}
@@ -2051,6 +2066,8 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
               const daysLeft = getDaysUntilDeadline(task, holidaySet);
               const isOverdue = daysLeft !== null && daysLeft < 0;
               const holdSummary = getHoldSummary(task, holidaySet);
+              const taskBusy = actionState?.busy && String(actionState.taskId || '') === String(task.id || '');
+              const actionsDisabled = actionState?.busy;
               return (
                 <div key={task.id} className="mx-data-card">
                   <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
@@ -2082,26 +2099,27 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                           SLA paused since {formatDate(holdSummary.activeStart)} - {holdSummary.activeDays} business day(s) will be added on resume
                         </div>
                       )}
+                      <TaskActionBusy actionState={actionState} taskId={task.id} />
                     </div>
                     <div className="flex flex-wrap gap-2 flex-shrink-0 items-start">
                       {task.status === 'Pending' && (
-                        <ActionBtn icon="fa-play" color="blue" onClick={() => handleDashAction(task, 'accept')} label="เริ่มงาน" />
+                        <ActionBtn icon="fa-play" color="blue" onClick={() => handleDashAction(task, 'accept')} label="เริ่มงาน" loading={taskBusy} disabled={actionsDisabled} />
                       )}
                       {task.status === 'On Process' && (
                         <>
-                          <ActionBtn icon="fa-check" color="emerald" onClick={() => handleDashAction(task, 'complete')} label="เสร็จสิ้น" />
-                          <ActionBtn icon="fa-pause" color="amber" onClick={() => handleDashAction(task, 'hold')} label="พักงาน" />
-                          <ActionBtn icon="fa-comment-dots" color="blue" onClick={() => handleDashAction(task, 'note')} label="เพิ่มบันทึก" />
+                          <ActionBtn icon="fa-check" color="emerald" onClick={() => handleDashAction(task, 'complete')} label="เสร็จสิ้น" loading={taskBusy} disabled={actionsDisabled} />
+                          <ActionBtn icon="fa-pause" color="amber" onClick={() => handleDashAction(task, 'hold')} label="พักงาน" loading={taskBusy} disabled={actionsDisabled} />
+                          <ActionBtn icon="fa-comment-dots" color="blue" onClick={() => handleDashAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
                         </>
                       )}
                       {task.status === 'On Hold' && (
                         <>
-                          <ActionBtn icon="fa-play" color="blue" onClick={() => handleDashAction(task, 'resume')} label="ดำเนินการต่อ" />
-                          <ActionBtn icon="fa-comment-dots" color="blue" onClick={() => handleDashAction(task, 'note')} label="เพิ่มบันทึก" />
+                          <ActionBtn icon="fa-play" color="blue" onClick={() => handleDashAction(task, 'resume')} label="ดำเนินการต่อ" loading={taskBusy} disabled={actionsDisabled} />
+                          <ActionBtn icon="fa-comment-dots" color="blue" onClick={() => handleDashAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
                         </>
                       )}
                       {!['Completed', 'Cancelled'].includes(task.status) && (
-                        <ActionBtn icon="fa-trash" color="rose" onClick={() => handleDashAction(task, 'cancel')} label="ยกเลิก" />
+                        <ActionBtn icon="fa-trash" color="rose" onClick={() => handleDashAction(task, 'cancel')} label="ยกเลิก" loading={taskBusy} disabled={actionsDisabled} />
                       )}
                     </div>
                   </div>
@@ -2305,7 +2323,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
 }
 
 // ─── Task Center View ──────────────────────────────────────────────────────────
-function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, onDelete, onRefresh }) {
+function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, onDelete, onRefresh, actionState }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [expandedTaskId, setExpandedTaskId] = useState(null);
@@ -2333,7 +2351,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
   const [savingPr, setSavingPr] = useState(false);
 
   // Icon action button with tooltip (matches original ActionButton)
-  const ActionButton = ({ icon, color, onClick, label }) => {
+  const ActionButton = ({ icon, color, onClick, label, loading = false, disabled = false }) => {
     const variants = {
       emerald: 'mx-action-success',
       amber: 'mx-action-warning',
@@ -2346,9 +2364,11 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
       <div className="relative group">
         <button
           onClick={onClick}
-          className={`w-10 h-10 flex items-center justify-center rounded-lg border transition-colors duration-200 ${variants[color] || variants.slate}`}
+          disabled={disabled || loading}
+          className={`w-10 h-10 flex items-center justify-center rounded-lg border transition-colors duration-200 disabled:opacity-70 disabled:cursor-wait ${variants[color] || variants.slate}`}
+          aria-busy={loading ? 'true' : 'false'}
         >
-          <i className={`fas ${icon} text-sm`}></i>
+          <i className={`fas ${loading ? 'fa-rotate-right fa-spin' : icon} text-sm`}></i>
         </button>
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-50">
           {label}
@@ -2714,6 +2734,8 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
           {filtered.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบรายการงาน</div>}
           {filtered.map((task) => {
             const holdSummary = getHoldSummary(task, holidaySet);
+            const taskBusy = actionState?.busy && String(actionState.taskId || '') === String(task.id || '');
+            const actionsDisabled = actionState?.busy;
             return (
             <div key={task.id} className="mx-data-card">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
@@ -2750,6 +2772,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                       SLA paused since {formatDate(holdSummary.activeStart)} - effective deadline {formatDate(holdSummary.effectiveDeadline)}
                     </div>
                   )}
+                  <TaskActionBusy actionState={actionState} taskId={task.id} />
                   {expandedTaskId === task.id && (
                     <div className="mt-4 rounded-[18px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
                       <div className="text-xs text-[var(--mx-muted)]">Task ID: {task.id}</div>
@@ -2772,26 +2795,26 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                   {user.role === 'Staff' && (
                     <>
                       {task.status === 'Pending' && (
-                        <ActionButton icon="fa-play" color="blue" onClick={() => handleStaffAction(task, 'accept')} label="เริ่มงาน" />
+                        <ActionButton icon="fa-play" color="blue" onClick={() => handleStaffAction(task, 'accept')} label="เริ่มงาน" loading={taskBusy} disabled={actionsDisabled} />
                       )}
                       {task.status === 'On Process' && (
                         <>
-                          <ActionButton icon="fa-check" color="emerald" onClick={() => handleStaffAction(task, 'complete')} label="เสร็จสิ้น" />
-                          <ActionButton icon="fa-pause" color="amber" onClick={() => handleStaffAction(task, 'hold')} label="พักงาน" />
-                          <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" />
+                          <ActionButton icon="fa-check" color="emerald" onClick={() => handleStaffAction(task, 'complete')} label="เสร็จสิ้น" loading={taskBusy} disabled={actionsDisabled} />
+                          <ActionButton icon="fa-pause" color="amber" onClick={() => handleStaffAction(task, 'hold')} label="พักงาน" loading={taskBusy} disabled={actionsDisabled} />
+                          <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
                         </>
                       )}
                       {task.status === 'On Hold' && (
                         <>
-                          <ActionButton icon="fa-play" color="blue" onClick={() => handleStaffAction(task, 'resume')} label="ดำเนินการต่อ" />
-                          <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" />
+                          <ActionButton icon="fa-play" color="blue" onClick={() => handleStaffAction(task, 'resume')} label="ดำเนินการต่อ" loading={taskBusy} disabled={actionsDisabled} />
+                          <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
                         </>
                       )}
                       {canCancel(task) && (
-                        <ActionButton icon="fa-trash" color="rose" onClick={() => handleStaffAction(task, 'cancel')} label="ยกเลิก" />
+                        <ActionButton icon="fa-trash" color="rose" onClick={() => handleStaffAction(task, 'cancel')} label="ยกเลิก" loading={taskBusy} disabled={actionsDisabled} />
                       )}
                       {canEdit(task) && (
-                        <ActionButton icon="fa-edit" color="indigo" onClick={() => handleEditOpen(task)} label="แก้ไข" />
+                        <ActionButton icon="fa-edit" color="indigo" onClick={() => handleEditOpen(task)} label="แก้ไข" disabled={actionsDisabled} />
                       )}
                     </>
                   )}
@@ -2799,12 +2822,12 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                   {/* Lead / Manager / Admin actions */}
                   {['Lead', 'Manager', 'Admin'].includes(user.role) && (
                     <>
-                      <ActionButton icon="fa-arrow-right-arrow-left" color="blue" onClick={() => setStatusTarget(task)} label="เปลี่ยนสถานะ" />
+                      <ActionButton icon="fa-arrow-right-arrow-left" color="blue" onClick={() => setStatusTarget(task)} label="เปลี่ยนสถานะ" loading={taskBusy} disabled={actionsDisabled} />
                       {canEdit(task) && (
-                        <ActionButton icon="fa-edit" color="indigo" onClick={() => handleEditOpen(task)} label="แก้ไข" />
+                        <ActionButton icon="fa-edit" color="indigo" onClick={() => handleEditOpen(task)} label="แก้ไข" disabled={actionsDisabled} />
                       )}
                       {['Manager', 'Admin'].includes(user.role) && (
-                        <ActionButton icon="fa-trash" color="rose" onClick={() => onDelete(task)} label="ลบงาน" />
+                        <ActionButton icon="fa-trash" color="rose" onClick={() => onDelete(task)} label="ลบงาน" loading={taskBusy} disabled={actionsDisabled} />
                       )}
                     </>
                   )}
@@ -4491,6 +4514,7 @@ function App() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [actionState, setActionState] = useState({ busy: false, taskId: null, label: '' });
   const [showNotif, setShowNotif] = useState(false);
   const [showDashboardCreate, setShowDashboardCreate] = useState(false);
   const [adminSection, setAdminSection] = useState('overview');
@@ -4644,8 +4668,18 @@ function App() {
     setLoginError('');
   };
 
-  const handleAccept = async (task) => {
+  const beginTaskAction = (task, label) => {
     setActionLoading(true);
+    setActionState({ busy: true, taskId: task?.id || null, label: label || 'กำลังดำเนินการ...' });
+  };
+
+  const endTaskAction = () => {
+    setActionLoading(false);
+    setActionState({ busy: false, taskId: null, label: '' });
+  };
+
+  const handleAccept = async (task) => {
+    beginTaskAction(task, 'กำลังเริ่มงาน...');
     try {
       await API.acceptTask(task.id, task.team);
       await reloadTasks();
@@ -4653,12 +4687,21 @@ function App() {
     } catch (e) {
       alert(e.message || 'รับงานไม่สำเร็จ');
     } finally {
-      setActionLoading(false);
+      endTaskAction();
     }
   };
 
   const handleStatusChange = async (task, status, note = '', mode = 'normal') => {
-    setActionLoading(true);
+    const actionLabel = mode === 'note_only'
+      ? 'กำลังบันทึก note...'
+      : status === 'Completed'
+        ? 'กำลังบันทึกงานเสร็จ...'
+        : status === 'On Hold'
+          ? 'กำลังพักงาน...'
+          : status === 'Cancelled'
+            ? 'กำลังยกเลิกงาน...'
+            : 'กำลังอัปเดตสถานะ...';
+    beginTaskAction(task, actionLabel);
     try {
       const isCompleting = status === 'Completed';
       const nextNote = isCompleting ? '' : note;
@@ -4689,13 +4732,13 @@ function App() {
     } catch (e) {
       alert(e.message || 'อัปเดตสถานะไม่สำเร็จ');
     } finally {
-      setActionLoading(false);
+      endTaskAction();
     }
   };
 
   const handleDelete = async (task) => {
     if (!window.confirm(`ยืนยันการลบงาน "${(task.job || '').substring(0, 40)}"?`)) return;
-    setActionLoading(true);
+    beginTaskAction(task, 'กำลังลบงาน...');
     try {
       await API.deleteTask(task.id, task.team, user.name);
       await reloadTasks();
@@ -4703,7 +4746,7 @@ function App() {
     } catch (e) {
       alert(e.message || 'ลบงานไม่สำเร็จ');
     } finally {
-      setActionLoading(false);
+      endTaskAction();
     }
   };
 
@@ -4957,6 +5000,7 @@ function App() {
               onAccept={handleAccept}
               onStatusChange={handleStatusChange}
               onNavigate={handleNavigate}
+              actionState={actionState}
             />
           )}
           {view === 'my-dashboard' && (
@@ -4969,6 +5013,7 @@ function App() {
               onAccept={handleAccept}
               onStatusChange={handleStatusChange}
               onNavigate={handleNavigate}
+              actionState={actionState}
             />
           )}
           {view === 'tasks' && (
@@ -4980,6 +5025,7 @@ function App() {
               onStatusChange={handleStatusChange}
               onDelete={handleDelete}
               onRefresh={reloadTasks}
+              actionState={actionState}
             />
           )}
           {view === 'my-tasks' && (
@@ -4991,6 +5037,7 @@ function App() {
               onStatusChange={handleStatusChange}
               onDelete={handleDelete}
               onRefresh={reloadTasks}
+              actionState={actionState}
             />
           )}
           {view === 'create' && (
