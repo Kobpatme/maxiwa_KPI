@@ -882,7 +882,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
   const highestRisk = [...teamRows].sort((a, b) => ((b.overdue * 3 + b.risk + b.backlog / Math.max(b.total, 1)) - (a.overdue * 3 + a.risk + a.backlog / Math.max(a.total, 1))))[0];
   const strongestTeam = [...teamRows].sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
   const insights = [
-    portfolio.overdue.length ? `${portfolio.overdue.length} overdue task(s) require executive attention.` : 'No overdue active tasks in the current scope.',
+    portfolio.overdue.length ? `${portfolio.overdue.length} overdue task(s) require attention.` : 'No overdue active tasks in the current scope.',
     portfolio.atRisk.length ? `${portfolio.atRisk.length} task(s) are due within 3 business days and may affect SLA confidence.` : 'Short-term delivery risk is currently contained.',
     highestRisk ? `${highestRisk.team} carries the most visible operational pressure.` : 'No team pressure data is available yet.',
     strongestTeam ? `${strongestTeam.team} is the current SLA benchmark at ${fmtPct(strongestTeam.sla)}.` : 'No SLA benchmark is available yet.',
@@ -893,7 +893,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
       <section className="mx-card p-5 md:p-7">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
           <div>
-            <h2 className="section-title m-0">Executive Intelligence</h2>
+            <h2 className="section-title m-0">Performance Intelligence</h2>
             <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">{periodLabel} / {user?.name || empId || 'No employee selected'}</p>
           </div>
           <span className={`mx-badge ${healthClass(portfolio.weightedScore)}`}>Weighted Score {fmtPct(portfolio.weightedScore)}</span>
@@ -938,7 +938,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
 
         <section className="mx-card p-5 md:p-7">
           <h2 className="section-title m-0">Portfolio Composition</h2>
-          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Status distribution and executive workload proportions.</p>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Status distribution and workload proportions.</p>
           <DonutChart rows={statusRows} total={tasks.length} />
         </section>
       </div>
@@ -1210,7 +1210,7 @@ function TeamsPanel({ teamRows, holidays = [] }) {
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div>
             <h2 className="section-title m-0">Team SLA Summary</h2>
-            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Detailed team matrix aligned with the SPDS executive dashboard structure.</p>
+            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Detailed team matrix aligned with the SPDS performance dashboard structure.</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 no-print">
             <input className="mx-input sm:!w-72" value={teamSearch} onChange={(e) => setTeamSearch(e.target.value)} placeholder="Search team or top KPI" />
@@ -1763,7 +1763,7 @@ function App() {
           staff = [];
         }
       } catch (staffError) {
-        console.warn('Executive View staff image load failed:', staffError);
+        console.warn('Performance View staff image load failed:', staffError);
         staff = [];
       }
       let holidays = taskHolidays;
@@ -1915,12 +1915,12 @@ function App() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
               {state.user && <Avatar item={state.user} name={state.user.name || state.user.empId} className="header-avatar" />}
-              <span className="mx-badge status-info"><i className="fa-solid fa-display"></i> Executive View</span>
+              <span className="mx-badge status-info"><i className="fa-solid fa-display"></i> Performance View</span>
               <span className="mx-badge status-neutral">METRIX Verity</span>
-              {state.user && <span className="mx-badge status-good">{state.user.role} / {state.user.team}</span>}
+              {state.user && <span className="mx-badge status-good">{state.user.team}</span>}
             </div>
             <h1 className="display-title mt-6 mb-0 break-words">
-              <span className="block">Executive Performance</span>
+              <span className="block">Performance Overview</span>
               <span className="block">SLA & KPI Command Center</span>
             </h1>
             <p className="mt-4 mb-0 max-w-[84ch] text-base md:text-[18px] leading-8 text-[var(--mx-muted)]">
@@ -1943,7 +1943,7 @@ function App() {
               className="mx-btn theme-toggle"
               type="button"
               onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-              aria-label="Toggle Executive View theme"
+              aria-label="Toggle Performance View theme"
               title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
             >
               <i className={`fa-solid ${theme === 'dark' ? 'fa-sun' : 'fa-moon'}`}></i>

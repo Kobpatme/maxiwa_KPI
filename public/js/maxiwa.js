@@ -10,7 +10,7 @@ const RUNTIME_SESSION_ID = (typeof crypto !== 'undefined' && crypto.randomUUID)
   ? crypto.randomUUID()
   : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const APP_NAME = 'METRIX Verity';
-const APP_TAGLINE = 'Executive Performance System';
+const APP_TAGLINE = 'Performance System';
 const APP_LOGO_URL = 'https://img2.pic.in.th/Logo40f6c473c9a46acd.png';
 const MONTH_NAMES = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -18,13 +18,13 @@ const MONTH_NAMES = [
 ];
 
 const ROLE_DEFINITIONS = {
-  Staff: { scope: 'Self', level: 10, label: 'Staff' },
-  Lead: { scope: 'Team', level: 20, label: 'Lead' },
-  Manager: { scope: 'Department', level: 30, label: 'Manager' },
-  SrManager: { scope: 'Division', level: 40, label: 'Sr. Manager' },
-  Director: { scope: 'Division', level: 50, label: 'Director' },
-  Executive: { scope: 'Organization', level: 60, label: 'Executive' },
-  Admin: { scope: 'System', level: 90, label: 'System Admin' },
+  Staff: { scope: 'Self', level: 10, label: 'สิทธิ์ระดับ 1' },
+  Lead: { scope: 'Team', level: 20, label: 'สิทธิ์ระดับ 2' },
+  Manager: { scope: 'Department', level: 30, label: 'สิทธิ์ระดับ 3' },
+  SrManager: { scope: 'Division', level: 40, label: 'สิทธิ์ระดับ 4' },
+  Director: { scope: 'Division', level: 50, label: 'สิทธิ์ระดับ 5' },
+  Executive: { scope: 'Organization', level: 60, label: 'สิทธิ์ระดับ 6' },
+  Admin: { scope: 'System', level: 90, label: 'สิทธิ์ระบบ' },
 };
 
 const ROLE_OPTIONS = Object.entries(ROLE_DEFINITIONS).map(([value, config]) => ({ value, label: config.label }));
@@ -39,7 +39,7 @@ const DEFAULT_SYSTEM_LINKS = [
   {
     id: 'maxiwa-kpi',
     name: 'METRIX Verity',
-    description: 'KPI, SLA, task tracking, and executive performance dashboard',
+    description: 'KPI, SLA, task tracking, and performance dashboard',
     url: './maxiwa.html',
     icon: 'fa-chart-line',
     status: 'Active',
@@ -51,8 +51,8 @@ const DEFAULT_SYSTEM_LINKS = [
   },
   {
     id: 'executive-view',
-    name: 'Executive Dashboard',
-    description: 'Portfolio, risk, SLA, and weighted KPI view for management',
+    name: 'Performance Dashboard',
+    description: 'Portfolio, risk, SLA, and weighted KPI view',
     url: './dashboard.html',
     icon: 'fa-display',
     status: 'Active',
@@ -269,24 +269,24 @@ const NAV_BY_ROLE = {
     { id: 'admin', label: 'System Control', icon: 'fa-shield-halved', group: 'ระบบ' },
   ],
   SrManager: [
-    { id: 'executive', label: 'Executive View', icon: 'fa-display', group: 'มุมมองผู้บริหาร' },
-    { id: 'dashboard', label: 'Division Dashboard', icon: 'fa-chart-line', group: 'มุมมองผู้บริหาร' },
-    { id: 'tasks', label: 'Work Portfolio', icon: 'fa-list-check', group: 'มุมมองผู้บริหาร' },
-    { id: 'people', label: 'People Overview', icon: 'fa-users-viewfinder', group: 'มุมมองผู้บริหาร' },
+    { id: 'executive', label: 'Performance View', icon: 'fa-display', group: 'ภาพรวมผลงาน' },
+    { id: 'dashboard', label: 'Performance Dashboard', icon: 'fa-chart-line', group: 'ภาพรวมผลงาน' },
+    { id: 'tasks', label: 'Work Portfolio', icon: 'fa-list-check', group: 'ภาพรวมผลงาน' },
+    { id: 'people', label: 'People Overview', icon: 'fa-users-viewfinder', group: 'ภาพรวมผลงาน' },
     { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
   ],
   Director: [
-    { id: 'executive', label: 'Executive View', icon: 'fa-display', group: 'มุมมองผู้บริหาร' },
-    { id: 'dashboard', label: 'Director Dashboard', icon: 'fa-chart-line', group: 'มุมมองผู้บริหาร' },
-    { id: 'tasks', label: 'Work Portfolio', icon: 'fa-list-check', group: 'มุมมองผู้บริหาร' },
-    { id: 'people', label: 'People Overview', icon: 'fa-users-viewfinder', group: 'มุมมองผู้บริหาร' },
+    { id: 'executive', label: 'Performance View', icon: 'fa-display', group: 'ภาพรวมผลงาน' },
+    { id: 'dashboard', label: 'Performance Dashboard', icon: 'fa-chart-line', group: 'ภาพรวมผลงาน' },
+    { id: 'tasks', label: 'Work Portfolio', icon: 'fa-list-check', group: 'ภาพรวมผลงาน' },
+    { id: 'people', label: 'People Overview', icon: 'fa-users-viewfinder', group: 'ภาพรวมผลงาน' },
     { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
   ],
   Executive: [
-    { id: 'executive', label: 'Executive View', icon: 'fa-display', group: 'มุมมองผู้บริหาร' },
-    { id: 'dashboard', label: 'Organization Dashboard', icon: 'fa-chart-line', group: 'มุมมองผู้บริหาร' },
-    { id: 'tasks', label: 'Work Portfolio', icon: 'fa-list-check', group: 'มุมมองผู้บริหาร' },
-    { id: 'people', label: 'People Overview', icon: 'fa-users-viewfinder', group: 'มุมมองผู้บริหาร' },
+    { id: 'executive', label: 'Performance View', icon: 'fa-display', group: 'ภาพรวมผลงาน' },
+    { id: 'dashboard', label: 'Organization Dashboard', icon: 'fa-chart-line', group: 'ภาพรวมผลงาน' },
+    { id: 'tasks', label: 'Work Portfolio', icon: 'fa-list-check', group: 'ภาพรวมผลงาน' },
+    { id: 'people', label: 'People Overview', icon: 'fa-users-viewfinder', group: 'ภาพรวมผลงาน' },
     { id: 'tracker', label: 'Job Tracker', icon: 'fa-diagram-project', group: 'เครื่องมือ' },
   ],
   Admin: [
@@ -1142,12 +1142,10 @@ function Sidebar({ user, view, setView, onLogout, notifCount = 0, adminSection =
           <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Signed In</div>
             <div className="mt-2 font-extrabold text-base truncate">{user?.name}</div>
-            <div className="mt-1 text-sm text-[var(--mx-muted)] truncate">{roleLabel(user?.role)} • {user?.team}</div>
+            <div className="mt-1 text-sm text-[var(--mx-muted)] truncate">{user?.team}</div>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <span className="mx-badge mx-status-process">{roleLabel(user?.role)}</span>
-          <span className="mx-badge mx-status-pending">Scope: {roleScope(user)}</span>
           <span className="mx-badge mx-status-cancelled">Emp ID: {user?.empId}</span>
         </div>
       </div>
@@ -1288,7 +1286,7 @@ function LoginScreenPro({ onLogin, loading, error, theme, onToggleTheme }) {
   const accessHighlights = [
     ['fa-chart-line', 'Weighted KPI', 'คำนวณคะแนนตามน้ำหนัก KPI ของแต่ละงาน'],
     ['fa-clock', 'SLA Monitoring', 'เห็นงานเสี่ยง งานค้าง และ deadline ที่ต้องติดตาม'],
-    ['fa-building-user', 'Role Based View', 'แสดงข้อมูลตามสิทธิ์'],
+    ['fa-building-user', 'Access Based View', 'แสดงข้อมูลตามสิทธิ์'],
   ];
 
   return (
@@ -1729,7 +1727,7 @@ function getExecutiveHealthClass(value) {
 function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigate }) {
   if (!data) {
     return (
-      <Panel title="Executive View" subtitle="Preparing executive summary...">
+      <Panel title="Performance View" subtitle="Preparing performance summary...">
         <div className="text-[var(--mx-muted)]">Loading...</div>
       </Panel>
     );
@@ -1786,7 +1784,7 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
     .slice(0, 8);
 
   const insights = [];
-  if (overdueTasks.length > 0) insights.push(`${overdueTasks.length} overdue task(s) need executive attention before status review.`);
+  if (overdueTasks.length > 0) insights.push(`${overdueTasks.length} overdue task(s) need attention before status review.`);
   if (atRiskTasks.length > 0) insights.push(`${atRiskTasks.length} task(s) are due within 3 business days and may affect SLA.`);
   if (teamRows[0]) insights.push(`${teamRows[0].team} is the highest risk team in the current scope.`);
   if (sla !== null) insights.push(`Current weighted SLA is ${sla}%, with completion at ${completion ?? '-'}%.`);
@@ -1806,7 +1804,7 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
 
       <Panel
         title="Management Summary"
-        subtitle={`Executive readout for ${periodLabel}`}
+        subtitle={`Performance readout for ${periodLabel}`}
         actions={<button className="mx-btn mx-btn-soft !py-2" onClick={() => window.print()}><i className="fa-solid fa-print mr-2"></i>Presentation</button>}
       >
         <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-4">
@@ -2128,7 +2126,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
     return (
       <div className="grid gap-5">
         <div className="mx-grid-auto">
-          <MetricCard label="Team Members" value={summary.length} sub="กำลังแสดงตามสิทธิ์ของ Lead" icon="fa-users" />
+          <MetricCard label="Team Members" value={summary.length} sub="กำลังแสดงตามสิทธิ์การเข้าถึง" icon="fa-users" />
           <MetricCard label="Team Weight" value={teamScores ? formatWeightPercent(teamScores.totalWeight) : '-'} sub="น้ำหนักงานรวมของทีม" icon="fa-scale-balanced" accent="var(--mx-blue)" />
           <MetricCard label="Weighted Completion" value={teamScores ? formatScorePercent(teamScores.completion) : '-'} sub={completionMetricSub(teamScores)} icon="fa-check-double" accent="var(--mx-green)" />
           <MetricCard label="Avg SLA" value={`${avgSla}%`} sub={teamScores ? slaMetricSub(teamScores, avgSla) : 'ค่าเฉลี่ย weighted SLA score'} icon="fa-chart-line" accent="var(--mx-teal)" />
@@ -2263,7 +2261,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
           <MetricCard label="People" value={summary.length} sub="จำนวนคนในมุมผู้จัดการ" icon="fa-users-viewfinder" accent="var(--mx-blue)" />
         </div>
         {orgScores && <WeightFormulaStrip scores={orgScores} />}
-        <Panel title="Executive Scoreboard" subtitle="ผู้บริหารเห็นคะแนน, ปริมาณงาน, และจุดที่ควร intervene ทันที">
+        <Panel title="Performance Scoreboard" subtitle="เห็นคะแนน, ปริมาณงาน, และจุดที่ควรติดตามทันที">
           <div className="grid md:grid-cols-2 gap-3">
             {topPeople.map((person) => (
               <div key={person.empId || person.name} className="mx-data-card">
@@ -3089,15 +3087,14 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
     setSaveResult('');
     try {
       let res;
+      const jobs = form.job.split('\n').map((j) => j.trim()).filter(Boolean);
       if (isPersonalTask) {
         res = await API.saveNewTask({
           name: user.name, team: user.team, empId: user.empId,
-          job: form.job, subkpi: form.subkpi, mainkpi: form.mainkpi,
+          jobs, subkpi: form.subkpi, mainkpi: form.mainkpi,
           deadline: form.deadline, note: form.note, status: 'On Process', extra_data: form.extra_data,
         });
       } else {
-        // Lead/Manager: support multiple jobs per line
-        const jobs = form.job.split('\n').map((j) => j.trim()).filter(Boolean);
         res = await API.saveNewTask({
           jobs,
           name: form.assignedToName,
@@ -3131,7 +3128,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
   return (
     <Panel
       title={isPersonalTask ? 'Create Personal Task' : 'Assign Task'}
-      subtitle={isPersonalTask ? 'สร้างงานของตัวเองจาก shell ใหม่' : 'มอบหมายงานได้ครั้งละหลาย Job (แต่ละบรรทัด = 1 งาน)'}
+      subtitle={isPersonalTask ? 'สร้างงานของตัวเองได้ครั้งละหลาย Job (แต่ละบรรทัด = 1 งาน)' : 'มอบหมายงานได้ครั้งละหลาย Job (แต่ละบรรทัด = 1 งาน)'}
     >
       {saveResult && (
         <div className="mb-4 rounded-[14px] p-3 mx-status-completed text-sm font-bold">
@@ -3152,13 +3149,13 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
         <div className="md:col-span-2">
           <label className="block mb-2 text-sm font-bold">
             Job / รายละเอียดงาน
-            {!isPersonalTask && <span className="ml-2 text-xs text-[var(--mx-muted)] font-normal">(แต่ละบรรทัด = 1 งาน)</span>}
+            <span className="ml-2 text-xs text-[var(--mx-muted)] font-normal">(แต่ละบรรทัด = 1 งาน)</span>
           </label>
           <textarea
             className="mx-textarea min-h-[110px]"
             value={form.job}
             onChange={(e) => setForm((p) => ({ ...p, job: e.target.value }))}
-            placeholder={isPersonalTask ? 'ระบุ job หรือรายละเอียดงาน' : 'Job 1\nJob 2\nJob 3 (แต่ละบรรทัดจะสร้างเป็น 1 งาน)'}
+            placeholder="Job 1\nJob 2\nJob 3 (แต่ละบรรทัดจะสร้างเป็น 1 งาน)"
           />
         </div>
 
@@ -3260,7 +3257,7 @@ function PeopleView({ user, people, onRefresh }) {
         {(people || []).map((person) => (
           <div key={`${person.empId}-${person.name}`} className="mx-data-card">
             <div className="font-bold">{person.name}</div>
-            <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.department || person.departmentId || '-'} • {person.team} • {roleLabel(person.role)}</div>
+            <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.department || person.departmentId || '-'} • {person.team}</div>
             <div className="mt-3 text-xs text-[var(--mx-muted)]">Emp ID: {person.empId}</div>
           </div>
         ))}
@@ -3658,9 +3655,9 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   };
 
   const saveUser = async () => {
-    if (!userForm.empid || !userForm.name || !userForm.role) return alert('กรุณากรอก Emp ID, ชื่อ และบทบาทให้ครบ');
-    if (selectedRoleNeedsTeam && !userForm.team) return alert('กรุณาเลือกทีมสำหรับ Staff หรือ Lead');
-    if (selectedRoleNeedsDepartment && !userForm.department) return alert('กรุณากรอก Department / Division สำหรับบทบาทผู้บริหาร');
+    if (!userForm.empid || !userForm.name || !userForm.role) return alert('กรุณากรอก Emp ID, ชื่อ และระดับสิทธิ์ให้ครบ');
+    if (selectedRoleNeedsTeam && !userForm.team) return alert('กรุณาเลือกทีมสำหรับระดับสิทธิ์นี้');
+    if (selectedRoleNeedsDepartment && !userForm.department) return alert('กรุณากรอก Department / Division สำหรับระดับสิทธิ์นี้');
     const accessScope = userForm.accessScope || roleScope(userForm.role);
     const legacyTeam = userForm.team || userForm.department || accessScope;
     const permissions = {
@@ -3997,7 +3994,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   ];
 
   const UserEditor = () => (
-    <Panel title="เพิ่ม / แก้ไขผู้ใช้" subtitle="จัดการตัวตน บทบาท ทีม และรูปโปรไฟล์ผ่านระบบเท่านั้น">
+    <Panel title="เพิ่ม / แก้ไขผู้ใช้" subtitle="จัดการตัวตน ระดับสิทธิ์ ทีม และรูปโปรไฟล์ผ่านระบบเท่านั้น">
       <div className="grid gap-3">
         <input className="mx-input" placeholder="Emp ID" value={userForm.empid} onChange={(e) => setUserForm((p) => ({ ...p, empid: e.target.value.toUpperCase() }))} />
         <input className="mx-input" placeholder="ชื่อผู้ใช้" value={userForm.name} onChange={(e) => setUserForm((p) => ({ ...p, name: e.target.value }))} />
@@ -4019,7 +4016,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
         </select>
         <select className="mx-select" value={userForm.accessScope} onChange={(e) => setUserForm((p) => ({ ...p, accessScope: e.target.value }))}>
           {SCOPE_OPTIONS.map((scope) => (
-            <option key={scope} value={scope}>Scope: {scope}</option>
+            <option key={scope} value={scope}>ขอบเขต {scope}</option>
           ))}
         </select>
         {selectedRoleUsesTeamVisibility && (
@@ -4066,7 +4063,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div>
                 <div className="font-bold">{s.name}</div>
-                <div className="mt-1 text-sm text-[var(--mx-muted)]">{s.empId || s.empid} / {department} / {team} / {roleLabel(s.role)} / Scope: {roleScope(s)}</div>
+                <div className="mt-1 text-sm text-[var(--mx-muted)]">{s.empId || s.empid} / {department} / {team}</div>
               </div>
               <div className="flex gap-2">
                 <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editUser(s)}>แก้ไข</button>
@@ -4299,7 +4296,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
             <span>Visible to all users</span>
           </label>
           <div className="mx-muted-card rounded-lg p-4">
-            <div className="text-sm font-extrabold mb-3">Allowed Roles</div>
+            <div className="text-sm font-extrabold mb-3">สิทธิ์ที่มองเห็น</div>
             <div className="grid sm:grid-cols-2 gap-2">
               {ROLE_OPTIONS.map((role) => (
                 <label key={role.value} className="flex items-center gap-2 text-sm font-bold">
@@ -4347,7 +4344,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
                     <div className="mt-3 flex flex-wrap gap-2">
                       <span className="mx-badge mx-status-process">{system.status}</span>
                       {system.visibleToAll && <span className="mx-badge mx-status-completed">All users</span>}
-                      {system.allowedRoles.length > 0 && <span className="mx-badge mx-status-cancelled">{system.allowedRoles.length} roles</span>}
+                      {system.allowedRoles.length > 0 && <span className="mx-badge mx-status-cancelled">{system.allowedRoles.length} ระดับสิทธิ์</span>}
                       {system.allowedTeams.length > 0 && <span className="mx-badge mx-status-cancelled">{system.allowedTeams.length} teams</span>}
                       {system.allowedEmpIds.length > 0 && <span className="mx-badge mx-status-cancelled">{system.allowedEmpIds.length} emp</span>}
                     </div>
@@ -4369,7 +4366,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
             <input className="mx-input" placeholder="EMP ID" value={previewEmpId} onChange={(e) => setPreviewEmpId(e.target.value.toUpperCase())} />
             {previewUser ? (
               <div className="grid gap-2">
-                <div className="text-sm font-extrabold">{previewUser.name} / {roleLabel(previewUser.role)} / {previewUser.team}</div>
+                <div className="text-sm font-extrabold">{previewUser.name} / {previewUser.team}</div>
                 <div className="flex flex-wrap gap-2">
                   {previewSystems.map((system) => <span key={system.id} className="mx-badge mx-status-process">{system.name}</span>)}
                   {previewSystems.length === 0 && <span className="text-sm text-[var(--mx-muted)]">ไม่พบระบบที่เห็นได้</span>}
@@ -4386,7 +4383,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
 
   const AdminOverview = () => {
     const setupItems = [
-      { id: 'users', label: 'ผู้ใช้และสิทธิ์', value: staff.length, icon: 'fa-users-gear', detail: 'จัดการบัญชี บทบาท ทีม และ scope' },
+      { id: 'users', label: 'ผู้ใช้และสิทธิ์', value: staff.length, icon: 'fa-users-gear', detail: 'จัดการบัญชี ระดับสิทธิ์ ทีม และขอบเขต' },
       { id: 'systems', label: 'Systems', value: normalizedSystemLinks.length, icon: 'fa-table-cells-large', detail: 'จัดการลิงก์ระบบงานและสิทธิ์การมองเห็น' },
       { id: 'teams', label: 'ทีมงาน', value: teams.length, icon: 'fa-people-group', detail: 'จัดการทีมที่ใช้ในงานและ KPI' },
       { id: 'kpi', label: 'กฎ KPI/SLA', value: kpis.length, icon: 'fa-scale-balanced', detail: 'กำหนด SLA days และน้ำหนัก KPI' },
@@ -4761,14 +4758,12 @@ function App() {
   const showFilterBar = ['executive', 'dashboard', 'tasks', 'my-dashboard', 'my-tasks'].includes(view);
   const peopleForAssign = state.people?.length ? state.people : state.admin?.staff || [];
   const personalWorkUser = user.role === 'Lead' ? { ...user, role: 'Staff' } : user;
-  const currentRoleLabel = roleLabel(user.role);
-  const currentScopeLabel = roleScope(user);
   const pageTitle =
-    view === 'executive' ? 'Executive View'
+    view === 'executive' ? 'Performance View'
       : view === 'my-dashboard' ? 'My Dashboard'
       : view === 'my-tasks' ? 'My Tasks'
       : view === 'dashboard'
-      ? (isStrategicViewRole(user.role) ? 'Strategic Performance Dashboard' : user.role === 'Manager' ? 'Executive Dashboard' : user.role === 'Lead' ? 'Team Command Center' : isAdminRole(user.role) ? 'System Control Center' : 'My Work Dashboard')
+      ? (isStrategicViewRole(user.role) ? 'Strategic Performance Dashboard' : user.role === 'Manager' ? 'Performance Dashboard' : user.role === 'Lead' ? 'Team Command Center' : isAdminRole(user.role) ? 'System Control Center' : 'My Work Dashboard')
       : view === 'tasks' ? 'Task Center'
       : view === 'create' ? 'Create Task'
       : view === 'assign' ? 'Assignment Center'
@@ -4788,7 +4783,7 @@ function App() {
       : view === 'tracker' ? 'ค้นหาและติดตามประวัติงานจากรหัสงาน'
       : view === 'systems' ? 'ระบบงานที่บัญชีนี้มีสิทธิ์ใช้งาน กดเปิดระบบที่เกี่ยวข้องได้จากที่เดียว'
       : view === 'admin' ? 'จัดการผู้ใช้ ทีม KPI/SLA วันหยุด งานดูแลระบบ และ audit log ผ่านระบบเดียว'
-      : 'จัดการงานและข้อมูลที่เกี่ยวข้องกับบทบาทของคุณ';
+      : 'จัดการงานและข้อมูลที่เกี่ยวข้องกับสิทธิ์ของคุณ';
   const activePeriodLabel = showFilterBar
     ? `${filterMonth === 0 ? 'ทุกเดือน' : MONTH_NAMES[filterMonth - 1]} ${filterYear}`
     : user.team;
@@ -4813,8 +4808,6 @@ function App() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <BrandPill className="px-3 py-2 text-[11px] tracking-[0.16em]" />
-                    <span className="mx-badge mx-status-process"><i className="fa-solid fa-user"></i>{currentRoleLabel}</span>
-                    <span className="mx-badge mx-status-pending"><i className="fa-solid fa-layer-group"></i>{currentScopeLabel}</span>
                     <span className="mx-badge mx-status-completed"><i className="fa-solid fa-building-user"></i>{user.team}</span>
                   </div>
                   <h1 className="mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal">
@@ -4827,9 +4820,9 @@ function App() {
 
                 <div className="flex flex-wrap items-center xl:justify-end gap-2">
                   {canOpenExecutiveView(user.role) && (
-                    <button className="mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2" onClick={openExecutiveView} title="Open Executive View">
+                    <button className="mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2" onClick={openExecutiveView} title="Open Performance View">
                       <i className="fa-solid fa-display"></i>
-                      <span>Executive View</span>
+                      <span>Performance View</span>
                     </button>
                   )}
                   <ThemeToggle theme={theme} onToggle={toggleTheme} />
