@@ -482,9 +482,14 @@ function getTimestamp() {
   return `[${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}]`;
 }
 
+function getSsrNumber(extraData) {
+  const ed = normalizeExtraData(extraData);
+  return ed.ssrNumber || ed.ssr_number || ed.ssrNo || ed.ssr || ed.SSR || '';
+}
+
 function renderExtraData(extraData) {
   const ed = normalizeExtraData(extraData);
-  const ssrNumber = ed.ssrNumber || ed.ssr_number || ed.ssrNo || ed.ssr || ed.SSR;
+  const ssrNumber = getSsrNumber(ed);
   const entries = [
     ['Building', ed.building],
     ['Client', ed.client],
@@ -504,6 +509,18 @@ function renderExtraData(extraData) {
       ))}
     </div>
   );
+}
+
+function SsrBadge({ extraData }) {
+  const ssrNumber = getSsrNumber(extraData);
+  if (!ssrNumber) return null;
+  return <span className="mx-badge mx-status-process">SSR: {ssrNumber}</span>;
+}
+
+function keepSsrExtraData(extraData) {
+  const ed = normalizeExtraData(extraData);
+  const ssrNumber = getSsrNumber(ed);
+  return ssrNumber ? { ssrNumber } : {};
 }
 
 function getTaskWeight(task) {
@@ -2042,6 +2059,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold break-all">{task.job}</span>
+                        <SsrBadge extraData={task.extra_data} />
                         <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status}</span>
                         <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(getTaskWeight(task))}</span>
                         {task.note && (
@@ -2447,7 +2465,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
       ...p,
       subkpi,
       mainkpi: selectedKpi?.main || p.mainkpi,
-      extra_data: {},
+      extra_data: keepSsrExtraData(p.extra_data),
     }));
     if (!subkpi || !editingTask) return;
     try {
@@ -2595,7 +2613,17 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                 subkpi={editForm.subkpi}
                 extraData={editForm.extra_data}
                 onChange={(ed) => setEditForm((p) => ({ ...p, extra_data: ed }))}
+                hideSsr={true}
               />
+              <div>
+                <label className="block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]">SSR Number</label>
+                <input
+                  className="mx-input"
+                  placeholder="เช่น DS01_0123"
+                  value={getSsrNumber(editForm.extra_data)}
+                  onChange={(e) => setEditForm((p) => ({ ...p, extra_data: { ...(p.extra_data || {}), ssrNumber: e.target.value } }))}
+                />
+              </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button className="mx-btn mx-btn-soft flex-1" onClick={() => setEditingTask(null)}>ยกเลิก</button>
@@ -2694,6 +2722,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="font-bold text-base break-all">{task.job}</div>
+                    <SsrBadge extraData={task.extra_data} />
                     <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status}</span>
                     <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(getTaskWeight(task))}</span>
                     <button
@@ -3021,7 +3050,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
     if (!form.assignedToEmpId) { setAssigneeKpis([]); return; }
     const person = (people || []).find((p) => p.empId === form.assignedToEmpId);
     if (!person) return;
-    setForm((prev) => ({ ...prev, assignedToName: person.name, assignedToTeam: person.team, subkpi: '', mainkpi: '', deadline: '', extra_data: {} }));
+    setForm((prev) => ({ ...prev, assignedToName: person.name, assignedToTeam: person.team, subkpi: '', mainkpi: '', deadline: '', extra_data: keepSsrExtraData(prev.extra_data) }));
     API.getKPIsByTeam(person.team)
       .then((res) => setAssigneeKpis(res.kpis || []))
       .catch(() => setAssigneeKpis([]));
@@ -3031,11 +3060,11 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
 
   const handleSubKpiChange = async (subkpi) => {
     if (!subkpi) {
-      setForm((p) => ({ ...p, subkpi: '', mainkpi: '', deadline: '', extra_data: {} }));
+      setForm((p) => ({ ...p, subkpi: '', mainkpi: '', deadline: '', extra_data: keepSsrExtraData(p.extra_data) }));
       return;
     }
     const kpi = activeKpis.find((k) => k.sub === subkpi);
-    setForm((p) => ({ ...p, subkpi, mainkpi: kpi?.main || '', extra_data: {} }));
+    setForm((p) => ({ ...p, subkpi, mainkpi: kpi?.main || '', extra_data: keepSsrExtraData(p.extra_data) }));
 
     setLoadingDeadline(true);
     try {
@@ -3078,6 +3107,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
           deadline: form.deadline,
           status: 'Pending',
           note: form.note,
+          extra_data: form.extra_data,
         });
       }
       const msg = (res && res.message) ? res.message : 'บันทึกงานเรียบร้อย';
@@ -3109,17 +3139,15 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
         </div>
       )}
       <div className="grid md:grid-cols-2 gap-4">
-        {isPersonalTask && (
-          <div className="md:col-span-2">
-            <label className="block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]">SSR Number</label>
-            <input
-              className="mx-input"
-              placeholder="เช่น DS01_0123"
-              value={form.extra_data?.ssrNumber || ''}
-              onChange={(e) => setForm((p) => ({ ...p, extra_data: { ...(p.extra_data || {}), ssrNumber: e.target.value } }))}
-            />
-          </div>
-        )}
+        <div className="md:col-span-2">
+          <label className="block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]">SSR Number</label>
+          <input
+            className="mx-input"
+            placeholder="เช่น DS01_0123"
+            value={getSsrNumber(form.extra_data)}
+            onChange={(e) => setForm((p) => ({ ...p, extra_data: { ...(p.extra_data || {}), ssrNumber: e.target.value } }))}
+          />
+        </div>
 
         <div className="md:col-span-2">
           <label className="block mb-2 text-sm font-bold">
@@ -3185,7 +3213,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
           subkpi={form.subkpi}
           extraData={form.extra_data}
           onChange={(ed) => setForm((p) => ({ ...p, extra_data: ed }))}
-          hideSsr={isPersonalTask}
+          hideSsr={true}
         />
 
         <div>

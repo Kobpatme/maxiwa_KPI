@@ -441,9 +441,13 @@ var MaxiwaKpiApp = (() => {
     const now = /* @__PURE__ */ new Date();
     return `[${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}]`;
   }
+  function getSsrNumber(extraData) {
+    const ed = normalizeExtraData(extraData);
+    return ed.ssrNumber || ed.ssr_number || ed.ssrNo || ed.ssr || ed.SSR || "";
+  }
   function renderExtraData(extraData) {
     const ed = normalizeExtraData(extraData);
-    const ssrNumber = ed.ssrNumber || ed.ssr_number || ed.ssrNo || ed.ssr || ed.SSR;
+    const ssrNumber = getSsrNumber(ed);
     const entries = [
       ["Building", ed.building],
       ["Client", ed.client],
@@ -457,6 +461,16 @@ var MaxiwaKpiApp = (() => {
     ].filter(([, v]) => v !== void 0 && v !== null && v !== "");
     if (entries.length === 0) return null;
     return /* @__PURE__ */ React.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, entries.map(([label, value]) => /* @__PURE__ */ React.createElement("span", { key: label, className: "mx-badge mx-status-process" }, label, ": ", value)));
+  }
+  function SsrBadge({ extraData }) {
+    const ssrNumber = getSsrNumber(extraData);
+    if (!ssrNumber) return null;
+    return /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-process" }, "SSR: ", ssrNumber);
+  }
+  function keepSsrExtraData(extraData) {
+    const ed = normalizeExtraData(extraData);
+    const ssrNumber = getSsrNumber(ed);
+    return ssrNumber ? { ssrNumber } : {};
   }
   function getTaskWeight(task) {
     var _a, _b, _c, _d;
@@ -1344,7 +1358,7 @@ var MaxiwaKpiApp = (() => {
           const daysLeft = getDaysUntilDeadline(task, holidaySet);
           const isOverdue = daysLeft !== null && daysLeft < 0;
           const holdSummary = getHoldSummary(task, holidaySet);
-          return /* @__PURE__ */ React.createElement("div", { key: task.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold break-all" }, task.job), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", formatWeightPercent(getTaskWeight(task))), task.note && /* @__PURE__ */ React.createElement("button", { onClick: () => setDashNotePopup({ show: true, note: task.note }), className: "mx-note-btn text-xs px-3 py-1.5 rounded-lg font-bold" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-sticky-note mr-1" }), "\u0E14\u0E39\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, task.mainkpi || "-", " \u2022 ", task.subkpi || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, "Deadline ", formatDate(task.deadline), holdSummary.activeStart && holdSummary.activeDays > 0 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-info)] font-bold" }, "Effective ", formatDate(holdSummary.effectiveDeadline)), isOverdue && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-red-400 font-bold" }, "\u0E40\u0E01\u0E34\u0E19 ", Math.abs(daysLeft), " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23"), !isOverdue && daysLeft !== null && daysLeft <= 3 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-warning)] font-bold" }, "\u0E2D\u0E35\u0E01 ", daysLeft, " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23")), holdSummary.activeStart && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-warning)] font-bold" }, "SLA paused since ", formatDate(holdSummary.activeStart), " - ", holdSummary.activeDays, " business day(s) will be added on resume")), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 flex-shrink-0 items-start" }, task.status === "Pending" && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "accept"), label: "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19" }), task.status === "On Process" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-check", color: "emerald", onClick: () => handleDashAction(task, "complete"), label: "\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-pause", color: "amber", onClick: () => handleDashAction(task, "hold"), label: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), task.status === "On Hold" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "resume"), label: "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), !["Completed", "Cancelled"].includes(task.status) && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-trash", color: "rose", onClick: () => handleDashAction(task, "cancel"), label: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01" }))));
+          return /* @__PURE__ */ React.createElement("div", { key: task.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold break-all" }, task.job), /* @__PURE__ */ React.createElement(SsrBadge, { extraData: task.extra_data }), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", formatWeightPercent(getTaskWeight(task))), task.note && /* @__PURE__ */ React.createElement("button", { onClick: () => setDashNotePopup({ show: true, note: task.note }), className: "mx-note-btn text-xs px-3 py-1.5 rounded-lg font-bold" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-sticky-note mr-1" }), "\u0E14\u0E39\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01")), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, task.mainkpi || "-", " \u2022 ", task.subkpi || "-"), /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-muted)]" }, "Deadline ", formatDate(task.deadline), holdSummary.activeStart && holdSummary.activeDays > 0 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-info)] font-bold" }, "Effective ", formatDate(holdSummary.effectiveDeadline)), isOverdue && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-red-400 font-bold" }, "\u0E40\u0E01\u0E34\u0E19 ", Math.abs(daysLeft), " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23"), !isOverdue && daysLeft !== null && daysLeft <= 3 && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-[var(--mx-warning)] font-bold" }, "\u0E2D\u0E35\u0E01 ", daysLeft, " \u0E27\u0E31\u0E19\u0E17\u0E33\u0E01\u0E32\u0E23")), holdSummary.activeStart && /* @__PURE__ */ React.createElement("div", { className: "mt-1 text-sm text-[var(--mx-warning)] font-bold" }, "SLA paused since ", formatDate(holdSummary.activeStart), " - ", holdSummary.activeDays, " business day(s) will be added on resume")), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2 flex-shrink-0 items-start" }, task.status === "Pending" && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "accept"), label: "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19" }), task.status === "On Process" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-check", color: "emerald", onClick: () => handleDashAction(task, "complete"), label: "\u0E40\u0E2A\u0E23\u0E47\u0E08\u0E2A\u0E34\u0E49\u0E19" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-pause", color: "amber", onClick: () => handleDashAction(task, "hold"), label: "\u0E1E\u0E31\u0E01\u0E07\u0E32\u0E19" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), task.status === "On Hold" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-play", color: "blue", onClick: () => handleDashAction(task, "resume"), label: "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E15\u0E48\u0E2D" }), /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-comment-dots", color: "blue", onClick: () => handleDashAction(task, "note"), label: "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01" })), !["Completed", "Cancelled"].includes(task.status) && /* @__PURE__ */ React.createElement(ActionBtn, { icon: "fa-trash", color: "rose", onClick: () => handleDashAction(task, "cancel"), label: "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01" }))));
         }))
       ));
     }
@@ -1542,7 +1556,7 @@ var MaxiwaKpiApp = (() => {
         ...p,
         subkpi,
         mainkpi: (selectedKpi == null ? void 0 : selectedKpi.main) || p.mainkpi,
-        extra_data: {}
+        extra_data: keepSsrExtraData(p.extra_data)
       }));
       if (!subkpi || !editingTask) return;
       try {
@@ -1658,9 +1672,18 @@ var MaxiwaKpiApp = (() => {
       {
         subkpi: editForm.subkpi,
         extraData: editForm.extra_data,
-        onChange: (ed) => setEditForm((p) => ({ ...p, extra_data: ed }))
+        onChange: (ed) => setEditForm((p) => ({ ...p, extra_data: ed })),
+        hideSsr: true
       }
-    )), /* @__PURE__ */ React.createElement("div", { className: "flex gap-3 mt-6" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft flex-1", onClick: () => setEditingTask(null) }, "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary flex-1", disabled: savingEdit, onClick: handleEditSave }, savingEdit ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01")))), prModal.show && /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-4", style: { background: "rgba(0,0,0,0.75)" } }, /* @__PURE__ */ React.createElement("div", { className: "mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl" }, /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-extrabold mb-2" }, "Complete Open PR"), /* @__PURE__ */ React.createElement("p", { className: "text-sm text-[var(--mx-muted)] mb-5" }, "\u0E01\u0E23\u0E2D\u0E01\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E01\u0E48\u0E2D\u0E19\u0E1B\u0E34\u0E14\u0E07\u0E32\u0E19 PR"), /* @__PURE__ */ React.createElement("div", { className: "grid gap-4" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Fund Number"), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]" }, "SSR Number"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "mx-input",
+        placeholder: "\u0E40\u0E0A\u0E48\u0E19 DS01_0123",
+        value: getSsrNumber(editForm.extra_data),
+        onChange: (e) => setEditForm((p) => ({ ...p, extra_data: { ...p.extra_data || {}, ssrNumber: e.target.value } }))
+      }
+    ))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-3 mt-6" }, /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-soft flex-1", onClick: () => setEditingTask(null) }, "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01"), /* @__PURE__ */ React.createElement("button", { className: "mx-btn mx-btn-primary flex-1", disabled: savingEdit, onClick: handleEditSave }, savingEdit ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01")))), prModal.show && /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-4", style: { background: "rgba(0,0,0,0.75)" } }, /* @__PURE__ */ React.createElement("div", { className: "mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl" }, /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-extrabold mb-2" }, "Complete Open PR"), /* @__PURE__ */ React.createElement("p", { className: "text-sm text-[var(--mx-muted)] mb-5" }, "\u0E01\u0E23\u0E2D\u0E01\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E01\u0E48\u0E2D\u0E19\u0E1B\u0E34\u0E14\u0E07\u0E32\u0E19 PR"), /* @__PURE__ */ React.createElement("div", { className: "grid gap-4" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Fund Number"), /* @__PURE__ */ React.createElement(
       "input",
       {
         className: "mx-input",
@@ -1705,7 +1728,7 @@ var MaxiwaKpiApp = (() => {
       ), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: statusFilter, onChange: (e) => setStatusFilter(e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "\u0E17\u0E38\u0E01\u0E2A\u0E16\u0E32\u0E19\u0E30"), /* @__PURE__ */ React.createElement("option", { value: "Pending" }, "Pending"), /* @__PURE__ */ React.createElement("option", { value: "On Process" }, "On Process"), /* @__PURE__ */ React.createElement("option", { value: "On Hold" }, "On Hold"), /* @__PURE__ */ React.createElement("option", { value: "Completed" }, "Completed"), /* @__PURE__ */ React.createElement("option", { value: "Cancelled" }, "Cancelled"))),
       /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, filtered.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E07\u0E32\u0E19"), filtered.map((task) => {
         const holdSummary = getHoldSummary(task, holidaySet);
-        return /* @__PURE__ */ React.createElement("div", { key: task.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-base break-all" }, task.job), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", formatWeightPercent(getTaskWeight(task))), /* @__PURE__ */ React.createElement(
+        return /* @__PURE__ */ React.createElement("div", { key: task.id, className: "mx-data-card" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-base break-all" }, task.job), /* @__PURE__ */ React.createElement(SsrBadge, { extraData: task.extra_data }), /* @__PURE__ */ React.createElement("span", { className: cn("mx-badge", getStatusClass(task.status)) }, task.status), /* @__PURE__ */ React.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", formatWeightPercent(getTaskWeight(task))), /* @__PURE__ */ React.createElement(
           "button",
           {
             className: "mx-btn mx-btn-soft !py-2 !px-3",
@@ -1809,7 +1832,6 @@ var MaxiwaKpiApp = (() => {
     return /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2 rounded-[18px] p-4 bg-[rgba(251,191,36,0.06)] border border-[rgba(251,191,36,0.25)]" }, /* @__PURE__ */ React.createElement("p", { className: "text-xs font-extrabold text-[var(--mx-warning)] uppercase tracking-widest mb-3 flex items-center gap-2" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-clipboard-list" }), "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E40\u0E15\u0E34\u0E21"), /* @__PURE__ */ React.createElement("div", { className: "grid gap-3" }, isCoord && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E2D\u0E32\u0E04\u0E32\u0E23", value: ed.building || "", onChange: (e) => upd("building", e.target.value) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E25\u0E39\u0E01\u0E04\u0E49\u0E32", value: ed.client || "", onChange: (e) => upd("client", e.target.value) }), /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E40\u0E2B\u0E21\u0E32", value: ed.contractor || "", onChange: (e) => upd("contractor", e.target.value) })), isNotify && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "\u0E0A\u0E37\u0E48\u0E2D\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E40\u0E2B\u0E21\u0E32", value: ed.contractorName || "", onChange: (e) => upd("contractorName", e.target.value) }), /* @__PURE__ */ React.createElement("select", { className: "mx-select", value: ed.contractorType || "", onChange: (e) => upd("contractorType", e.target.value) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01 TYPE"), ["B1", "C1", "C2", "E1"].map((t) => /* @__PURE__ */ React.createElement("option", { key: t, value: t }, t)))), isSAP && !hideSsr && /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "SSR Number", value: ed.ssrNumber || "", onChange: (e) => upd("ssrNumber", e.target.value) }), isOWF && /* @__PURE__ */ React.createElement("input", { className: "mx-input", placeholder: "OSP Number", value: ed.ospNumber || "", onChange: (e) => upd("ospNumber", e.target.value) })));
   }
   function QuickCreateView({ user, people, onSaved, mode = "auto" }) {
-    var _a;
     const isPersonalTask = user.role === "Staff" || mode === "personal";
     const teamKpis = useMemo(() => {
       const kpis = (user == null ? void 0 : user.kpis) || [];
@@ -1847,17 +1869,17 @@ var MaxiwaKpiApp = (() => {
       }
       const person = (people || []).find((p) => p.empId === form.assignedToEmpId);
       if (!person) return;
-      setForm((prev) => ({ ...prev, assignedToName: person.name, assignedToTeam: person.team, subkpi: "", mainkpi: "", deadline: "", extra_data: {} }));
+      setForm((prev) => ({ ...prev, assignedToName: person.name, assignedToTeam: person.team, subkpi: "", mainkpi: "", deadline: "", extra_data: keepSsrExtraData(prev.extra_data) }));
       API.getKPIsByTeam(person.team).then((res) => setAssigneeKpis(res.kpis || [])).catch(() => setAssigneeKpis([]));
     }, [form.assignedToEmpId, isPersonalTask, people]);
     const activeKpis = isPersonalTask ? loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis : assigneeKpis;
     const handleSubKpiChange = async (subkpi) => {
       if (!subkpi) {
-        setForm((p) => ({ ...p, subkpi: "", mainkpi: "", deadline: "", extra_data: {} }));
+        setForm((p) => ({ ...p, subkpi: "", mainkpi: "", deadline: "", extra_data: keepSsrExtraData(p.extra_data) }));
         return;
       }
       const kpi = activeKpis.find((k) => k.sub === subkpi);
-      setForm((p) => ({ ...p, subkpi, mainkpi: (kpi == null ? void 0 : kpi.main) || "", extra_data: {} }));
+      setForm((p) => ({ ...p, subkpi, mainkpi: (kpi == null ? void 0 : kpi.main) || "", extra_data: keepSsrExtraData(p.extra_data) }));
       setLoadingDeadline(true);
       try {
         const targetTeam = isPersonalTask ? user.team : form.assignedToTeam;
@@ -1904,7 +1926,8 @@ var MaxiwaKpiApp = (() => {
             subkpi: form.subkpi,
             deadline: form.deadline,
             status: "Pending",
-            note: form.note
+            note: form.note,
+            extra_data: form.extra_data
           });
         }
         const msg = res && res.message ? res.message : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E07\u0E32\u0E19\u0E40\u0E23\u0E35\u0E22\u0E1A\u0E23\u0E49\u0E2D\u0E22";
@@ -1935,12 +1958,12 @@ var MaxiwaKpiApp = (() => {
         subtitle: isPersonalTask ? "\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07\u0E08\u0E32\u0E01 shell \u0E43\u0E2B\u0E21\u0E48" : "\u0E21\u0E2D\u0E1A\u0E2B\u0E21\u0E32\u0E22\u0E07\u0E32\u0E19\u0E44\u0E14\u0E49\u0E04\u0E23\u0E31\u0E49\u0E07\u0E25\u0E30\u0E2B\u0E25\u0E32\u0E22 Job (\u0E41\u0E15\u0E48\u0E25\u0E30\u0E1A\u0E23\u0E23\u0E17\u0E31\u0E14 = 1 \u0E07\u0E32\u0E19)"
       },
       saveResult && /* @__PURE__ */ React.createElement("div", { className: "mb-4 rounded-[14px] p-3 mx-status-completed text-sm font-bold" }, /* @__PURE__ */ React.createElement("i", { className: "fas fa-check-circle mr-2" }), saveResult),
-      /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 gap-4" }, isPersonalTask && /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]" }, "SSR Number"), /* @__PURE__ */ React.createElement(
+      /* @__PURE__ */ React.createElement("div", { className: "grid md:grid-cols-2 gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]" }, "SSR Number"), /* @__PURE__ */ React.createElement(
         "input",
         {
           className: "mx-input",
           placeholder: "\u0E40\u0E0A\u0E48\u0E19 DS01_0123",
-          value: ((_a = form.extra_data) == null ? void 0 : _a.ssrNumber) || "",
+          value: getSsrNumber(form.extra_data),
           onChange: (e) => setForm((p) => ({ ...p, extra_data: { ...p.extra_data || {}, ssrNumber: e.target.value } }))
         }
       )), /* @__PURE__ */ React.createElement("div", { className: "md:col-span-2" }, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Job / \u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E07\u0E32\u0E19", !isPersonalTask && /* @__PURE__ */ React.createElement("span", { className: "ml-2 text-xs text-[var(--mx-muted)] font-normal" }, "(\u0E41\u0E15\u0E48\u0E25\u0E30\u0E1A\u0E23\u0E23\u0E17\u0E31\u0E14 = 1 \u0E07\u0E32\u0E19)")), /* @__PURE__ */ React.createElement(
@@ -1982,7 +2005,7 @@ var MaxiwaKpiApp = (() => {
           subkpi: form.subkpi,
           extraData: form.extra_data,
           onChange: (ed) => setForm((p) => ({ ...p, extra_data: ed })),
-          hideSsr: isPersonalTask
+          hideSsr: true
         }
       ), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Deadline (\u0E04\u0E33\u0E19\u0E27\u0E13\u0E08\u0E32\u0E01 SLA)"), /* @__PURE__ */ React.createElement(
         "input",
