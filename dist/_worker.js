@@ -29,6 +29,8 @@ function supabaseSettings(env) {
   const url = env.SUPABASE_URL || env.MAXIWA_SUPABASE_URL;
   const writeKey = env.SUPABASE_SERVICE_ROLE_KEY
     || env.MAXIWA_SUPABASE_SERVICE_ROLE_KEY
+    || env.SUPABASE_KEY
+    || env.MAXIWA_SUPABASE_KEY
     || env.SUPABASE_ANON_KEY
     || env.MAXIWA_SUPABASE_ANON_KEY;
   const publicKey = env.SUPABASE_ANON_KEY || env.MAXIWA_SUPABASE_ANON_KEY || "";

@@ -1261,20 +1261,46 @@ function EmployeeDetailModal({ person, holidays = [], onClose }) {
   const kpiBreakdown = Object.entries(groupBy(person.items, mainKpi))
     .map(([name, items]) => ({ name, total: items.length, scores: calcWeightedScores(items), completed: items.filter(isCompleted).length, fail: items.filter(isCompletedLate).length }))
     .sort((a, b) => b.total - a.total);
+  const statusBreakdown = Object.entries(groupBy(person.items, (task) => task.status || 'Unknown'))
+    .map(([status, items]) => ({ status, total: items.length, pct: person.total ? Math.round((items.length / person.total) * 1000) / 10 : 0 }))
+    .sort((a, b) => b.total - a.total);
+  const completedTasks = person.items
+    .filter(isCompleted)
+    .sort((a, b) => new Date(b.completiondate || b.deadline || 0) - new Date(a.completiondate || a.deadline || 0));
+  const recentCompleted = completedTasks.slice(0, 6);
+  const slaFailTasks = person.items
+    .filter(isCompletedLate)
+    .map((task) => ({ task, days: businessDaysBetween(task.deadline, task.completiondate, holidays), weight: taskWeight(task) }))
+    .sort((a, b) => Math.abs(b.days || 0) - Math.abs(a.days || 0) || b.weight - a.weight)
+    .slice(0, 6);
+  const completionDays = completedTasks
+    .map((task) => businessDaysBetween(task.startdate || task.created_at || task.deadline, task.completiondate || task.deadline, holidays))
+    .filter((value) => value !== null && Number.isFinite(value) && value >= 0);
+  const avgCompletionDays = completionDays.length
+    ? Math.round((completionDays.reduce((sum, value) => sum + value, 0) / completionDays.length) * 10) / 10
+    : null;
+  const maxCompletionDays = completionDays.length ? Math.max(...completionDays) : null;
+  const activeCount = person.items.filter(isActive).length;
+  const pendingCount = person.items.filter((task) => normalizeStatus(task) === 'pending').length;
+  const onHoldCount = person.items.filter((task) => normalizeStatus(task) === 'on hold' || normalizeStatus(task) === 'on_hold').length;
   const urgent = person.items
     .filter(isActive)
     .map((task) => ({ task, days: daysUntil(task, holidays), weight: taskWeight(task) }))
     .filter((item) => item.days !== null)
     .sort((a, b) => a.days - b.days || b.weight - a.weight)
     .slice(0, 8);
+  const topKpiRows = kpiBreakdown.slice(0, 6);
+  const topStatusRows = statusBreakdown.slice(0, 4);
+  const topUrgent = urgent.slice(0, 4);
+  const topRecentCompleted = recentCompleted.slice(0, 4);
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+      <div className="modal-card employee-modal-card" onClick={(event) => event.stopPropagation()}>
         <button className="modal-close no-print" onClick={onClose} aria-label="Close"><i className="fa-solid fa-xmark"></i></button>
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
-          <div className="flex items-start gap-4">
+        <div className="employee-modal-header">
+          <div className="employee-profile-strip">
             <Avatar item={person.profile || person} name={person.person} className="modal-avatar" />
-            <div>
+            <div className="min-w-0">
               <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Employee Drilldown</div>
               <h2 className="section-title mt-2 mb-1">{person.person}</h2>
               <div className="flex flex-wrap gap-2">
@@ -1283,48 +1309,154 @@ function EmployeeDetailModal({ person, holidays = [], onClose }) {
               </div>
             </div>
           </div>
-          <div className="mini-metric-grid modal-metrics">
-            <div><span>Total</span><strong>{fmtNum(person.total)}</strong></div>
-            <div><span>Completed</span><strong>{fmtNum(person.completed)}</strong></div>
-            <div><span>W.SLA</span><strong>{fmtPct(person.sla)}</strong></div>
-            <div><span>SLA Fail</span><strong>{fmtNum(person.slaFail)}</strong></div>
+          <div className="employee-score-panel">
+            <span>Weighted Score</span>
+            <strong>{fmtPct(person.weightedScore)}</strong>
           </div>
         </div>
-        <div className="mt-6 grid xl:grid-cols-[1fr_1fr] gap-5">
-          <section className="mx-soft p-5">
-            <h3 className="m-0 text-lg font-black">KPI Ownership Mix</h3>
+        <div className="employee-summary-grid">
+          <div><span>Total Work</span><strong>{fmtNum(person.total)}</strong></div>
+          <div><span>Completed</span><strong>{fmtNum(person.completed)}</strong></div>
+          <div><span>Active</span><strong>{fmtNum(activeCount)}</strong></div>
+          <div><span>W.SLA</span><strong>{fmtPct(person.sla)}</strong></div>
+          <div><span>SLA Fail</span><strong>{fmtNum(person.slaFail)}</strong></div>
+          <div><span>Avg Close</span><strong>{avgCompletionDays === null ? '-' : `${avgCompletionDays}d`}</strong></div>
+        </div>
+        <div className="employee-detail-layout">
+          <section className="mx-soft p-5 employee-status-panel">
+            <div className="panel-heading-row">
+              <div>
+                <h3 className="m-0 text-lg font-black">Status Breakdown</h3>
+                <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">งานของคนนี้กระจายตามสถานะอะไรบ้าง</p>
+              </div>
+              <span className="mx-badge status-neutral">{fmtNum(pendingCount)} pending / {fmtNum(onHoldCount)} hold</span>
+            </div>
             <div className="mt-4 grid gap-3">
-              {kpiBreakdown.map((row) => (
-                <div key={row.name}>
+              {topStatusRows.map((row) => (
+                <div key={row.status}>
                   <div className="flex justify-between gap-3 mb-2 text-sm">
-                    <strong className="truncate">{row.name}</strong>
-                    <span>{fmtNum(row.total)} / SLA {fmtPct(row.scores.sla)}</span>
+                    <strong className="truncate">{row.status}</strong>
+                    <span>{fmtNum(row.total)} / {fmtPct(row.pct)}</span>
                   </div>
-                  <HorizontalBar value={person.total ? Math.round((row.total / person.total) * 1000) / 10 : 0} color={row.fail ? 'var(--mx-warning)' : 'var(--mx-info)'} />
+                  <HorizontalBar value={row.pct} color={statusClass(row.status).includes('good') ? 'var(--mx-success)' : statusClass(row.status).includes('warn') ? 'var(--mx-warning)' : statusClass(row.status).includes('bad') ? 'var(--mx-danger)' : 'var(--mx-info)'} />
                 </div>
               ))}
             </div>
           </section>
-          <section className="mx-soft p-5">
-            <h3 className="m-0 text-lg font-black">Urgent Work Queue</h3>
-            <div className="mt-4 grid gap-3 max-h-[420px] overflow-auto pr-1">
-              {urgent.map(({ task, days, weight }) => {
+          <section className="mx-soft p-5 employee-speed-panel">
+            <h3 className="m-0 text-lg font-black">Completion Health</h3>
+            <p className="mt-1 mb-4 text-sm text-[var(--mx-muted)]">วัดจากวันเริ่มงานถึงวันปิดงาน เฉพาะงานที่เสร็จแล้ว</p>
+            <div className="employee-compact-metrics">
+              <div><span>Avg Days</span><strong>{avgCompletionDays === null ? '-' : avgCompletionDays}</strong></div>
+              <div><span>Slowest</span><strong>{maxCompletionDays === null ? '-' : maxCompletionDays}</strong></div>
+              <div><span>On-Time</span><strong>{fmtNum(person.slaPass)}</strong></div>
+              <div><span>Late</span><strong>{fmtNum(person.slaFail)}</strong></div>
+            </div>
+          </section>
+          <section className="mx-soft p-5 employee-main-panel">
+            <div className="panel-heading-row">
+              <div>
+                <h3 className="m-0 text-lg font-black">KPI Ownership Mix</h3>
+                <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">สัดส่วนงานหลักที่คนนี้รับผิดชอบและ SLA ของแต่ละกลุ่ม</p>
+              </div>
+              <span className="mx-badge status-neutral">{fmtNum(kpiBreakdown.length)} groups</span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {topKpiRows.map((row) => (
+                <div key={row.name} className="employee-kpi-row">
+                  <div className="min-w-0">
+                    <div className="flex justify-between gap-3 mb-2 text-sm">
+                      <strong className="truncate">{row.name}</strong>
+                      <span>{fmtNum(row.total)} jobs</span>
+                    </div>
+                    <HorizontalBar value={person.total ? Math.round((row.total / person.total) * 1000) / 10 : 0} color={row.fail ? 'var(--mx-warning)' : 'var(--mx-info)'} />
+                  </div>
+                  <div className={`employee-kpi-score ${row.fail ? 'warn' : ''}`}>
+                    <span>SLA</span>
+                    <strong>{fmtPct(row.scores.sla)}</strong>
+                  </div>
+                </div>
+              ))}
+              {!topKpiRows.length && <div className="text-sm text-[var(--mx-muted)]">No KPI ownership records for this person.</div>}
+            </div>
+          </section>
+          <section className="mx-soft p-5 employee-attention-panel">
+            <div className="panel-heading-row">
+              <div>
+                <h3 className="m-0 text-lg font-black">Attention Queue</h3>
+                <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">งานที่ยัง active และใกล้ถึงกำหนดที่สุด</p>
+              </div>
+              <span className={`mx-badge ${activeCount ? 'status-warn' : 'status-good'}`}>{fmtNum(activeCount)} active</span>
+            </div>
+            <div className="employee-work-list mt-4">
+              {topUrgent.map(({ task, days, weight }) => {
                 const [label, klass] = riskBadge(days);
                 return (
-                  <div key={task.id || `${task.job}-${task.deadline}`} className="insight-card p-3">
-                    <div className="flex justify-between gap-3">
-                      <strong className="truncate">{extractJobCode(task.job)}</strong>
-                      <span className={`mx-badge ${klass}`}>{label}</span>
-                    </div>
-                    <div className="mt-2 text-xs text-[var(--mx-muted)] line-clamp-2">{task.job || '-'}</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="mx-badge status-neutral">{fmtDate(task.deadline)}</span>
-                      <span className="mx-badge status-info">weight {weight}</span>
+                  <div key={task.id || `${task.job}-${task.deadline}`} className="employee-work-row">
+                    <div className="min-w-0">
+                      <div className="flex items-start justify-between gap-3">
+                        <strong className="truncate">{extractJobCode(task.job)}</strong>
+                        <span className={`mx-badge ${klass}`}>{label}</span>
+                      </div>
+                      <div className="mt-2 text-xs text-[var(--mx-muted)] line-clamp-2">{task.job || '-'}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <span className="mx-badge status-neutral">{fmtDate(task.deadline)}</span>
+                        <span className="mx-badge status-info">weight {weight}</span>
+                      </div>
                     </div>
                   </div>
                 );
               })}
-              {!urgent.length && <div className="text-sm text-[var(--mx-muted)]">No urgent active work for this person.</div>}
+              {!topUrgent.length && <div className="employee-empty-state">No urgent active work for this person.</div>}
+            </div>
+          </section>
+          <section className="mx-soft p-5 employee-recent-panel">
+            <div className="panel-heading-row">
+              <h3 className="m-0 text-lg font-black">Recent Completed Work</h3>
+              <span className="mx-badge status-good">{fmtNum(person.completed)} done</span>
+            </div>
+            <div className="employee-work-list mt-4">
+              {topRecentCompleted.map((task) => (
+                <div key={task.id || `${task.job}-${task.completiondate}`} className="employee-work-row compact">
+                  <div className="min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <strong className="truncate">{extractJobCode(task.job)}</strong>
+                      <span className={`mx-badge ${isCompletedLate(task) ? 'status-bad' : 'status-good'}`}>{isCompletedLate(task) ? 'late' : 'on time'}</span>
+                    </div>
+                    <div className="mt-2 text-xs text-[var(--mx-muted)] line-clamp-2">{task.job || '-'}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="mx-badge status-neutral">done {fmtDate(task.completiondate)}</span>
+                      <span className="mx-badge status-info">{subKpi(task)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {!topRecentCompleted.length && <div className="employee-empty-state">No completed work in this period.</div>}
+            </div>
+          </section>
+          <section className="mx-soft p-5 employee-fail-panel">
+            <div className="panel-heading-row">
+              <h3 className="m-0 text-lg font-black">SLA Fail Detail</h3>
+              <span className={`mx-badge ${slaFailTasks.length ? 'status-bad' : 'status-good'}`}>{fmtNum(slaFailTasks.length)} records</span>
+            </div>
+            <div className="employee-work-list mt-4">
+              {slaFailTasks.map(({ task, days, weight }) => (
+                <div key={task.id || `${task.job}-${task.completiondate}-fail`} className="employee-work-row compact">
+                  <div className="min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <strong className="truncate">{extractJobCode(task.job)}</strong>
+                      <span className="mx-badge status-bad">{Math.abs(days || 0)} bd late</span>
+                    </div>
+                    <div className="mt-2 text-xs text-[var(--mx-muted)] line-clamp-2">{task.job || '-'}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="mx-badge status-neutral">deadline {fmtDate(task.deadline)}</span>
+                      <span className="mx-badge status-neutral">done {fmtDate(task.completiondate)}</span>
+                      <span className="mx-badge status-info">weight {weight}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {!slaFailTasks.length && <div className="employee-empty-state success">No SLA fail records for this person.</div>}
             </div>
           </section>
         </div>
