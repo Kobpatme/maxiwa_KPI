@@ -791,10 +791,8 @@ async function recalculateTasks(env, { updateKpiValues = false } = {}) {
     if (!updateKpiValues) {
       if ((nextDeadline && nextDeadline !== task.deadline)) patch.deadline = nextDeadline;
     } else {
-      if (currentWeight !== effectiveWeight) {
-        patch.mainkpiweight = effectiveWeight;
-        patch.weight = effectiveWeight;
-      }
+      patch.mainkpiweight = effectiveWeight;
+      patch.weight = effectiveWeight;
       if (mainKpiChanged) patch.mainkpi = nextMainKpi;
       if (subKpiChanged) patch.subkpi = nextSubKpi;
       if (extraChanged) patch.extra_data = nextExtra;
