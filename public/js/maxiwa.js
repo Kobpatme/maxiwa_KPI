@@ -113,6 +113,55 @@ function userEmpId(user) {
   return String(user?.empId || user?.empid || '').trim();
 }
 
+function kpiMainValueOf(item = {}) {
+  return item.main || item.mainkpi || item.mainKpi || '';
+}
+
+function kpiSubValueOf(item = {}) {
+  return item.sub || item.subkpi || item.subKpi || '';
+}
+
+function normalizeKpiKeyPart(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function kpiCompositeKeyOf(item = {}) {
+  return `${normalizeKpiKeyPart(item.team)}::${normalizeKpiKeyPart(kpiMainValueOf(item))}::${normalizeKpiKeyPart(kpiSubValueOf(item))}`;
+}
+
+function kpiRuleKeyOf(item = {}) {
+  return String(item.id || kpiCompositeKeyOf(item));
+}
+
+function kpiOverrideKeysOf(item = {}) {
+  return [item.id ? String(item.id) : '', kpiCompositeKeyOf(item)].filter(Boolean);
+}
+
+function readPositiveWeight(value, fallback = '') {
+  const raw = typeof value === 'object' && value !== null
+    ? (value.weight ?? value.main_weight ?? value.mainWeight)
+    : value;
+  const number = typeof raw === 'string' ? Number.parseFloat(raw.replace('%', '').trim()) : Number(raw);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function getKpiBaseWeight(kpi) {
+  return readPositiveWeight(kpi?.main_weight ?? kpi?.mainWeight ?? kpi?.weight, 1);
+}
+
+function getPersonalKpiOverride(user, kpi) {
+  const overrides = userPermissions(user).kpiOverrides || user?.kpiOverrides || {};
+  for (const key of kpiOverrideKeysOf(kpi)) {
+    const weight = readPositiveWeight(overrides[key], '');
+    if (weight) return weight;
+  }
+  return '';
+}
+
+function getEffectiveKpiWeight(user, kpi) {
+  return getPersonalKpiOverride(user, kpi) || getKpiBaseWeight(kpi);
+}
+
 function normalizeAppUser(user, fallbackEmpId = '') {
   if (!user) return null;
   const normalizedEmpId = String(user.empId || user.empid || fallbackEmpId).trim();
@@ -3078,6 +3127,13 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
   }, [form.assignedToEmpId, isPersonalTask, people]);
 
   const activeKpis = isPersonalTask ? (loadedStaffKpis.length > 0 ? loadedStaffKpis : teamKpis) : assigneeKpis;
+  const selectedAssignee = isPersonalTask
+    ? user
+    : (people || []).find((person) => String(person.empId || person.empid || '') === String(form.assignedToEmpId || ''));
+  const selectedKpi = activeKpis.find((kpi) => kpi.sub === form.subkpi);
+  const baseKpiWeight = selectedKpi ? getKpiBaseWeight(selectedKpi) : '';
+  const personalKpiOverride = selectedKpi ? getPersonalKpiOverride(selectedAssignee, selectedKpi) : '';
+  const effectiveKpiWeight = selectedKpi ? getEffectiveKpiWeight(selectedAssignee, selectedKpi) : '';
 
   const handleSubKpiChange = async (subkpi) => {
     if (!subkpi) {
@@ -3090,13 +3146,25 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
     setLoadingDeadline(true);
     try {
       const targetTeam = isPersonalTask ? user.team : form.assignedToTeam;
+      const targetEmpId = isPersonalTask ? userEmpId(user) : form.assignedToEmpId;
       const res = await API.calculateDeadlinePreview({
         team: targetTeam,
         subkpi,
+        empId: targetEmpId,
         startDate: new Date().toISOString(),
       });
       if (res && !res.error) {
-        setForm((p) => ({ ...p, mainkpi: res.mainkpi || kpi?.main || '', deadline: res.deadline || '' }));
+        setForm((p) => ({
+          ...p,
+          mainkpi: res.mainkpi || kpi?.main || '',
+          deadline: res.deadline || '',
+          extra_data: {
+            ...keepSsrExtraData(p.extra_data),
+            kpi_base_weight: res.baseWeight || getKpiBaseWeight(kpi),
+            kpi_effective_weight: res.effectiveWeight || getEffectiveKpiWeight(selectedAssignee, kpi),
+            kpi_personal_override: Boolean(res.hasPersonalOverride || getPersonalKpiOverride(selectedAssignee, kpi)),
+          },
+        }));
       }
     } catch { /* deadline stays empty */ }
     setLoadingDeadline(false);
@@ -3122,6 +3190,9 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
           jobs,
           name: form.assignedToName,
           team: form.assignedToTeam || user.team,
+          assignedToEmpId: form.assignedToEmpId,
+          empId: form.assignedToEmpId,
+          empid: form.assignedToEmpId,
           mainkpi: form.mainkpi,
           subkpi: form.subkpi,
           deadline: form.deadline,
@@ -3216,6 +3287,15 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
               onChange={(e) => setForm((p) => ({ ...p, subkpi: e.target.value }))}
               placeholder={isPersonalTask ? 'Sub KPI' : 'เลือกผู้รับผิดชอบก่อน'}
             />
+          )}
+          {selectedKpi && (
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <span className="mx-badge mx-status-process">Weight กลาง {formatWeightPercent(baseKpiWeight)}</span>
+              <span className={`mx-badge ${personalKpiOverride ? 'mx-status-completed' : 'mx-status-cancelled'}`}>
+                {personalKpiOverride ? `Weight เฉพาะคน ${formatWeightPercent(personalKpiOverride)}` : 'ใช้ Weight กลาง'}
+              </span>
+              <span className="mx-badge mx-status-process">ใช้จริง {formatWeightPercent(effectiveKpiWeight)}</span>
+            </div>
           )}
         </div>
 
@@ -3362,6 +3442,8 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const [adminSearch, setAdminSearch] = useState('');
   const [kpiSearch, setKpiSearch] = useState('');
   const [kpiTeamFilter, setKpiTeamFilter] = useState('');
+  const [selectedOverrideEmpId, setSelectedOverrideEmpId] = useState('');
+  const [kpiOverrideDrafts, setKpiOverrideDrafts] = useState({});
   const [saving, setSaving] = useState('');
 
   const teams = adminData?.teams || [];
@@ -3399,6 +3481,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const selectedRoleUsesTeamVisibility = isDepartmentManagerRole(userForm.role) || isStrategicViewRole(userForm.role);
 
   const userDepartmentValue = (item) => {
+    if (!item) return '';
     const permissions = userPermissions(item);
     const explicitDepartment = item.department || item.departmentId || item.division || permissions.department || permissions.division;
     if (explicitDepartment) return explicitDepartment;
@@ -3406,6 +3489,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   };
 
   const userTeamValue = (item) => {
+    if (!item) return '';
     return roleRequiresTeam(item.role) ? (item.team || '') : '';
   };
 
@@ -3649,7 +3733,9 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const kpiMainValue = (item = {}) => item.main || item.mainkpi || '';
   const kpiSubValue = (item = {}) => item.sub || item.subkpi || '';
   const kpiWeightValue = (item = {}) => item.main_weight || item.mainWeight || 1;
-  const kpiRuleKey = (item = {}) => String(item.id || `${item.team || ''}::${kpiMainValue(item)}::${kpiSubValue(item)}`);
+  const kpiCompositeKey = (item = {}) => `${normalizedKpiText(item.team)}::${normalizedKpiText(kpiMainValue(item))}::${normalizedKpiText(kpiSubValue(item))}`;
+  const kpiRuleKey = (item = {}) => String(item.id || kpiCompositeKey(item));
+  const kpiOverrideKeys = (item = {}) => [item.id ? String(item.id) : '', kpiCompositeKey(item)].filter(Boolean);
   const findKpiByKey = (key) => kpis.find((item) => kpiRuleKey(item) === key);
   const kpiRuleLabel = (item = {}) => `${item.team || '-'} / ${kpiMainValue(item) || '-'} / ${kpiSubValue(item) || '-'}`;
   const taskMatchesKpiRule = (task, kpi) => (
@@ -3657,6 +3743,31 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     normalizedKpiText(task.mainkpi || task.mainKpi || task.main) === normalizedKpiText(kpiMainValue(kpi)) &&
     normalizedKpiText(task.subkpi || task.subKpi || task.sub) === normalizedKpiText(kpiSubValue(kpi))
   );
+  const selectedOverrideUser = staff.find((person) => String(person.empId || person.empid || '').trim().toUpperCase() === selectedOverrideEmpId);
+  const selectedOverridePermissions = userPermissions(selectedOverrideUser);
+  const selectedKpiOverrides = selectedOverridePermissions.kpiOverrides || {};
+  const selectedOverrideTeam = userTeamValue(selectedOverrideUser) || selectedOverrideUser?.team || '';
+  const overrideKpiRows = filteredKpis.filter((kpi) => !selectedOverrideTeam || normalizedKpiText(kpi.team) === normalizedKpiText(selectedOverrideTeam));
+  const getKpiOverrideValue = (person, kpi) => {
+    const overrides = userPermissions(person).kpiOverrides || {};
+    for (const key of kpiOverrideKeys(kpi)) {
+      const value = overrides[key];
+      const raw = typeof value === 'object' && value !== null ? (value.weight ?? value.main_weight ?? value.mainWeight) : value;
+      const number = typeof raw === 'string' ? Number.parseFloat(raw.replace('%', '').trim()) : Number(raw);
+      if (Number.isFinite(number) && number > 0) return number;
+    }
+    return '';
+  };
+  const overrideDraftKey = (empId, kpi) => `${empId || 'none'}::${kpiRuleKey(kpi)}`;
+  const overrideCountForUser = (person) => Object.keys(userPermissions(person).kpiOverrides || {}).length;
+  const overrideTotalCount = staff.reduce((sum, person) => sum + overrideCountForUser(person), 0);
+  const overrideCountForKpi = (kpi) => staff.filter((person) => getKpiOverrideValue(person, kpi)).length;
+  const activeOverrideCount = overrideCountForUser(selectedOverrideUser);
+  const overrideInputValue = (kpi) => {
+    const key = overrideDraftKey(selectedOverrideEmpId, kpi);
+    if (Object.prototype.hasOwnProperty.call(kpiOverrideDrafts, key)) return kpiOverrideDrafts[key];
+    return getKpiOverrideValue(selectedOverrideUser, kpi);
+  };
 
   const editKpi = (item) => {
     setEditingKpi(kpiFormFromItem(item));
@@ -3748,10 +3859,57 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     await runAdminAction('kpi', async () => {
       const result = await saveKpiDirect(payload, basePayload);
       await syncKpiChangesToTasks(originalKpi, payload);
+      await adminPost('admin/recalculateDeadlines', {}, user.empId);
       return result;
     }, 'บันทึก KPI และอัปเดตงานเดิมสำเร็จ');
     if (options.closeModal) setEditingKpi(null);
     else setKpiForm({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
+  };
+
+  const savePersonalKpiOverride = async (kpi, mode = 'save') => {
+    if (!selectedOverrideUser) return alert('กรุณาเลือกพนักงานก่อน');
+    const empid = String(selectedOverrideUser.empId || selectedOverrideUser.empid || '').trim().toUpperCase();
+    const key = overrideDraftKey(empid, kpi);
+    const draftValue = mode === 'reset' ? '' : String(kpiOverrideDrafts[key] ?? getKpiOverrideValue(selectedOverrideUser, kpi) ?? '').trim();
+    const personalWeight = draftValue === '' ? null : toPositiveNumber(draftValue, 0);
+    if (mode !== 'reset' && (!personalWeight || personalWeight <= 0)) return alert('น้ำหนักเฉพาะบุคคลต้องมากกว่า 0 หรือปล่อยว่างเพื่อใช้ค่ากลาง');
+
+    const permissions = {
+      ...userPermissions(selectedOverrideUser),
+      kpiOverrides: { ...selectedKpiOverrides },
+    };
+    for (const overrideKey of kpiOverrideKeys(kpi)) delete permissions.kpiOverrides[overrideKey];
+    if (personalWeight) {
+      permissions.kpiOverrides[kpiRuleKey(kpi)] = {
+        weight: personalWeight,
+        baseWeight: toPositiveNumber(kpiWeightValue(kpi), 1),
+        team: kpi.team || '',
+        main: kpiMainValue(kpi),
+        sub: kpiSubValue(kpi),
+        updatedAt: new Date().toISOString(),
+        updatedBy: userEmpId(user),
+      };
+    }
+
+    const payload = {
+      empid,
+      name: selectedOverrideUser.name || '',
+      role: selectedOverrideUser.role || 'Staff',
+      team: selectedOverrideUser.team || '',
+      pigurl: selectedOverrideUser.pigurl || selectedOverrideUser.pigUrl || selectedOverrideUser.avatar || selectedOverrideUser.photoUrl || '',
+      permissions,
+    };
+
+    await runAdminAction(`kpi-override-${kpiRuleKey(kpi)}`, async () => {
+      const result = await adminPost('admin/saveUser', payload, user.empId);
+      await adminPost('admin/recalculateDeadlines', {}, user.empId);
+      setKpiOverrideDrafts((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      return result;
+    }, personalWeight ? 'บันทึกน้ำหนักเฉพาะบุคคลสำเร็จ' : 'กลับไปใช้ค่าน้ำหนักกลางสำเร็จ');
   };
 
   const migrateOldTasksToKpi = async () => {
@@ -4210,6 +4368,102 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
           </div>
         </div>
 
+        <div className="mx-muted-card rounded-lg p-4">
+          <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+            <div>
+              <div className="text-sm font-extrabold">น้ำหนัก SubKPI รายบุคคล</div>
+              <div className="mt-1 text-xs text-[var(--mx-muted)]">ใช้เมื่อคนในทีมทำงานชนิดเดียวกันแต่ความรับผิดชอบไม่เท่ากัน ถ้าไม่กรอก ระบบจะใช้ Weight กลางของ KPI</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="mx-badge mx-status-process">{overrideTotalCount} overrides ทั้งระบบ</span>
+                {selectedOverrideUser && <span className="mx-badge mx-status-completed">{activeOverrideCount} overrides ของคนนี้</span>}
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-[minmax(240px,1fr)_auto] gap-3 xl:w-[560px]">
+              <label className="grid gap-2 text-xs font-bold text-[var(--mx-muted)]">
+                พนักงาน
+                <select className="mx-select" value={selectedOverrideEmpId} onChange={(e) => setSelectedOverrideEmpId(e.target.value)}>
+                  <option value="">เลือกพนักงานเพื่อปรับน้ำหนัก</option>
+                  {staff.map((person) => {
+                    const empId = String(person.empId || person.empid || '').trim().toUpperCase();
+                    return <option key={empId || person.name} value={empId}>{person.name || '-'} / {empId || '-'}</option>;
+                  })}
+                </select>
+              </label>
+              <button className="mx-btn mx-btn-soft self-end" onClick={recalc} disabled={saving === 'recalc'}>
+                <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังคำนวณ...' : 'คำนวณงานเดิมใหม่'}
+              </button>
+            </div>
+          </div>
+
+          {selectedOverrideUser ? (
+            <div className="mt-4 overflow-auto rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)]">
+              <table className="w-full min-w-[920px] text-sm">
+                <thead className="bg-[var(--mx-panel)] text-left text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)]">
+                  <tr>
+                    <th className="p-3">KPI</th>
+                    <th className="p-3">Team</th>
+                    <th className="p-3">Weight กลาง</th>
+                    <th className="p-3">Weight เฉพาะคน</th>
+                    <th className="p-3">Effective</th>
+                    <th className="p-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--mx-line)]">
+                  {overrideKpiRows.map((kpi) => {
+                    const empId = selectedOverrideEmpId;
+                    const draftKey = overrideDraftKey(empId, kpi);
+                    const overrideValue = overrideInputValue(kpi);
+                    const baseWeight = toPositiveNumber(kpiWeightValue(kpi), 1);
+                    const effectiveWeight = overrideValue ? toPositiveNumber(overrideValue, baseWeight) : baseWeight;
+                    const isSaving = saving === `kpi-override-${kpiRuleKey(kpi)}`;
+                    return (
+                      <tr key={`override-${kpiRuleKey(kpi)}`}>
+                        <td className="p-3 align-top">
+                          <div className="font-extrabold break-words">{kpiMainValue(kpi) || '-'}</div>
+                          <div className="mt-1 text-xs text-[var(--mx-muted)] break-words">{kpiSubValue(kpi) || '-'}</div>
+                        </td>
+                        <td className="p-3 align-top">{kpi.team || '-'}</td>
+                        <td className="p-3 align-top font-bold">{baseWeight}%</td>
+                        <td className="p-3 align-top">
+                          <input
+                            className="mx-input !w-32"
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            placeholder="ใช้ค่ากลาง"
+                            value={overrideValue}
+                            onChange={(e) => setKpiOverrideDrafts((prev) => ({ ...prev, [draftKey]: e.target.value }))}
+                          />
+                        </td>
+                        <td className="p-3 align-top">
+                          <span className={`mx-badge ${overrideValue ? 'mx-status-completed' : 'mx-status-process'}`}>{effectiveWeight}%</span>
+                        </td>
+                        <td className="p-3 align-top">
+                          <div className="flex justify-end gap-2">
+                            <button className="mx-btn mx-btn-primary !py-2 !px-3" onClick={() => savePersonalKpiOverride(kpi)} disabled={isSaving}>
+                              {isSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+                            </button>
+                            <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => savePersonalKpiOverride(kpi, 'reset')} disabled={isSaving || !getKpiOverrideValue(selectedOverrideUser, kpi)}>
+                              ใช้ค่ากลาง
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {overrideKpiRows.length === 0 && (
+                    <tr>
+                      <td className="p-8 text-center text-[var(--mx-muted)]" colSpan="6">ไม่พบ KPI ที่ตรงกับทีม/ตัวกรองของพนักงานนี้</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-lg border border-dashed border-[var(--mx-line)] p-4 text-sm text-[var(--mx-muted)]">เลือกพนักงานก่อน ระบบจะแสดง SubKPI ของทีมคนนั้นให้ปรับได้ทันที</div>
+          )}
+        </div>
+
         <div className="mx-muted-card rounded-lg p-0 overflow-hidden">
           <div className="max-h-[62vh] overflow-auto">
             <table className="w-full min-w-[980px] text-sm">
@@ -4224,26 +4478,34 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--mx-line)]">
-                {filteredKpis.map((kpi) => (
-                  <tr key={kpi.id || `${kpi.team}-${kpi.main}-${kpi.sub}`} className="bg-[var(--mx-surface)]">
-                    <td className="p-4 align-top font-extrabold break-words max-w-[260px]">{kpi.main}</td>
-                    <td className="p-4 align-top break-words max-w-[320px]">{kpi.sub}</td>
-                    <td className="p-4 align-top">{kpi.team}</td>
-                    <td className="p-4 align-top font-bold">{kpi.days}</td>
-                    <td className="p-4 align-top font-bold">{kpi.main_weight}</td>
-                    <td className="p-4 align-top">
-                      <div className="flex justify-end gap-2">
-                        <button className="mx-btn mx-btn-primary !py-2 !px-3" onClick={() => editKpi(kpi)}>
-                          <i className="fa-solid fa-pen-to-square mr-2"></i>แก้ไข
-                        </button>
-                        <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => openKpiMigration(kpi)}>
-                          <i className="fa-solid fa-right-left mr-2"></i>ย้ายงานเก่า
-                        </button>
-                        <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeKpi(kpi.id)} disabled={!kpi.id}>ลบ</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filteredKpis.map((kpi) => {
+                  const overrideCount = overrideCountForKpi(kpi);
+                  return (
+                    <tr key={kpi.id || `${kpi.team}-${kpi.main}-${kpi.sub}`} className="bg-[var(--mx-surface)]">
+                      <td className="p-4 align-top font-extrabold break-words max-w-[260px]">{kpi.main}</td>
+                      <td className="p-4 align-top break-words max-w-[320px]">
+                        <div>{kpi.sub}</div>
+                        {overrideCount > 0 && (
+                          <span className="mx-badge mx-status-completed mt-2">มี override {overrideCount} คน</span>
+                        )}
+                      </td>
+                      <td className="p-4 align-top">{kpi.team}</td>
+                      <td className="p-4 align-top font-bold">{kpi.days}</td>
+                      <td className="p-4 align-top font-bold">{kpi.main_weight}</td>
+                      <td className="p-4 align-top">
+                        <div className="flex justify-end gap-2">
+                          <button className="mx-btn mx-btn-primary !py-2 !px-3" onClick={() => editKpi(kpi)}>
+                            <i className="fa-solid fa-pen-to-square mr-2"></i>แก้ไข
+                          </button>
+                          <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => openKpiMigration(kpi)}>
+                            <i className="fa-solid fa-right-left mr-2"></i>ย้ายงานเก่า
+                          </button>
+                          <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeKpi(kpi.id)} disabled={!kpi.id}>ลบ</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {filteredKpis.length === 0 && (
                   <tr>
                     <td className="p-8 text-center text-[var(--mx-muted)]" colSpan="6">ไม่พบกฎ KPI/SLA ที่ตรงกับตัวกรอง</td>
@@ -4289,13 +4551,29 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const AuditPanel = () => (
     <Panel title="ประวัติการแก้ไข" subtitle="ตรวจสอบการเปลี่ยนแปลงของระบบโดยไม่ต้องเข้า backend">
       <div className="admin-audit-scroll grid gap-3">
-        {logs.slice(0, 80).map((log) => (
-          <div key={log.id || `${log.action}-${log.timestamp}`} className="mx-data-card">
-            <div className="font-bold text-sm">{log.action || 'Activity'}</div>
-            <div className="mt-2 text-sm text-[var(--mx-muted)]">{log.details || '-'}</div>
-            <div className="mt-2 text-xs text-[var(--mx-muted)]">{log.by_user || '-'} / {formatDate(log.timestamp, true)}</div>
-          </div>
-        ))}
+        {logs.slice(0, 80).map((log) => {
+          const details = typeof log.details === 'string' ? (parseJsonSafe(log.details, log.details) || {}) : (log.details || {});
+          const overrideChanges = Array.isArray(details.changes) ? details.changes : [];
+          return (
+            <div key={log.id || `${log.action}-${log.timestamp}`} className="mx-data-card">
+              <div className="font-bold text-sm">{log.action || 'Activity'}</div>
+              {log.action === 'save_kpi_override' && overrideChanges.length > 0 ? (
+                <div className="mt-2 grid gap-2 text-sm text-[var(--mx-muted)]">
+                  <div>Emp ID: {details.empid || '-'}</div>
+                  {overrideChanges.map((change) => (
+                    <div key={change.key} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2">
+                      <div className="font-bold text-[var(--mx-text)] break-words">{change.key}</div>
+                      <div className="mt-1">จาก {change.from ?? 'ค่ากลาง'} เป็น {change.to ?? 'ค่ากลาง'}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-2 text-sm text-[var(--mx-muted)]">{typeof details === 'object' ? JSON.stringify(details) : (details || '-')}</div>
+              )}
+              <div className="mt-2 text-xs text-[var(--mx-muted)]">{log.by_user || log.changed_by || log.changedby || '-'} / {formatDate(log.timestamp || log.created_at, true)}</div>
+            </div>
+          );
+        })}
         {logs.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ยังไม่มีประวัติการแก้ไข</div>}
       </div>
     </Panel>
@@ -4753,14 +5031,19 @@ function App() {
   const downloadCSV = () => {
     const src = state.tasks || [];
     if (src.length === 0) return alert('ไม่มีข้อมูลสำหรับ export');
-    const headers = ['ลำดับ', 'รายละเอียดงาน', 'Main KPI', 'Sub KPI', 'ผู้รับผิดชอบ', 'ทีม', 'สถานะ', 'วันเริ่มต้น', 'Deadline', 'วันที่เสร็จ', 'ผล'];
+    const headers = ['ลำดับ', 'รายละเอียดงาน', 'Main KPI', 'Sub KPI', 'Weight กลาง', 'Weight ที่ใช้จริง', 'ประเภท Weight', 'ผู้รับผิดชอบ', 'ทีม', 'สถานะ', 'วันเริ่มต้น', 'Deadline', 'วันที่เสร็จ', 'ผล'];
     const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
     const rows = src.map((t, i) => {
       const dl = t.deadline ? new Date(t.deadline) : null;
       const cp = t.completiondate ? new Date(t.completiondate) : null;
       const onTime = t.status === 'Completed' && dl && cp && cp <= dl;
+      const extra = normalizeExtraData(t.extra_data);
+      const baseWeight = extra.kpi_base_weight || t.kpi_base_weight || getTaskWeight(t);
+      const effectiveWeight = extra.kpi_effective_weight || t.kpi_effective_weight || getTaskWeight(t);
+      const weightType = extra.kpi_personal_override || String(baseWeight) !== String(effectiveWeight) ? 'Personal Override' : 'Base KPI';
       return [
         i + 1, esc(t.job), esc(t.mainkpi), esc(t.subkpi),
+        esc(formatWeightPercent(baseWeight)), esc(formatWeightPercent(effectiveWeight)), esc(weightType),
         esc(t.name), esc(t.team), esc(t.status),
         esc(formatDate(t.startdate)), esc(formatDate(t.deadline)),
         esc(formatDate(t.completiondate)),

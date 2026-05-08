@@ -353,6 +353,71 @@ function normalizeExtraData(extraData) {
   return typeof extraData === "object" ? extraData : {};
 }
 
+function userPermissions(user) {
+  const raw = user?.permissions;
+  if (!raw) return {};
+  if (typeof raw === "string") {
+    try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+  return typeof raw === "object" ? raw : {};
+}
+
+function normalizeKeyPart(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function kpiCompositeKey(row) {
+  return `${normalizeKeyPart(row?.team)}::${normalizeKeyPart(kpiMain(row))}::${normalizeKeyPart(kpiSub(row))}`;
+}
+
+function kpiOverrideKeys(row) {
+  return [
+    row?.id ? String(row.id) : "",
+    kpiCompositeKey(row),
+  ].filter(Boolean);
+}
+
+function numericWeight(value, fallback = null) {
+  const raw = typeof value === "object" && value !== null
+    ? (value.weight ?? value.main_weight ?? value.mainWeight)
+    : value;
+  const number = typeof raw === "string" ? Number.parseFloat(raw.replace("%", "").trim()) : Number(raw);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function personalKpiWeight(user, kpi) {
+  const permissions = userPermissions(user);
+  const overrides = permissions.kpiOverrides || user?.kpiOverrides || {};
+  for (const key of kpiOverrideKeys(kpi)) {
+    const override = numericWeight(overrides[key], null);
+    if (override !== null) return override;
+  }
+  return kpiWeight(kpi);
+}
+
+function kpiOverrideSnapshot(user) {
+  const overrides = userPermissions(user).kpiOverrides || user?.kpiOverrides || {};
+  const out = {};
+  for (const [key, value] of Object.entries(overrides || {})) {
+    const weight = numericWeight(value, null);
+    if (weight !== null) out[key] = weight;
+  }
+  return out;
+}
+
+function diffKpiOverrides(beforeUser, afterUser) {
+  const before = kpiOverrideSnapshot(beforeUser);
+  const after = kpiOverrideSnapshot(afterUser);
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  const changes = [];
+  for (const key of keys) {
+    const from = before[key] ?? null;
+    const to = after[key] ?? null;
+    if (from !== to) changes.push({ key, from, to });
+  }
+  return changes;
+}
+
 function activeHoldStart(task) {
   const extra = normalizeExtraData(task?.extra_data);
   return extra.hold_started_at || extra.holdStartAt || extra.holdStart || null;
@@ -530,10 +595,19 @@ async function buildTaskRows(env, body) {
   const jobs = Array.isArray(body.jobs) && body.jobs.length > 0 ? body.jobs : [body.job || ""];
   const holidays = await readAll(env, "holidays").catch(() => []);
   const kpi = await findKpi(env, body.team || body.assignedToTeam, body.subkpi);
+  const assignee = await findUserByEmpId(env, body.empId || body.empid || body.assignedToEmpId).catch(() => null);
+  const effectiveWeight = personalKpiWeight(assignee, kpi);
+  const baseWeight = kpiWeight(kpi);
   const startdate = body.startdate || body.startDate || todayIso();
   const deadline = body.deadline || addWorkingDays(startdate, kpi?.days || body.days || 1, holidays);
   return Promise.all(jobs.map(async (job) => {
     const jobText = typeof job === "string" ? job : (job.job || job.name || "");
+    const extra = {
+      ...(typeof job === "object" ? (job.extra_data || body.extra_data || {}) : (body.extra_data || {})),
+      kpi_base_weight: baseWeight,
+      kpi_effective_weight: effectiveWeight,
+      kpi_personal_override: effectiveWeight !== baseWeight,
+    };
     const raw = {
       id: body.id || randomId(),
       name: body.name || body.assignedToName || "",
@@ -548,9 +622,9 @@ async function buildTaskRows(env, body) {
       startdate,
       status: normalizeStatus(body.status, body.assignedToEmpId ? "Pending" : "On Process"),
       note: body.note || "",
-      extra_data: typeof job === "object" ? (job.extra_data || body.extra_data || {}) : (body.extra_data || {}),
-      mainkpiweight: body.mainkpiweight || body.main_weight || kpiWeight(kpi),
-      weight: body.weight || kpiWeight(kpi),
+      extra_data: extra,
+      mainkpiweight: body.mainkpiweight || body.main_weight || effectiveWeight,
+      weight: body.weight || effectiveWeight,
       created_at: new Date().toISOString(),
     };
     return shapeForTable(env, "tasks", raw);
@@ -605,26 +679,43 @@ async function recalculateDeadlines(env) {
     readAll(env, "kpis").catch(() => []),
     readAll(env, "holidays").catch(() => []),
   ]);
+  const users = await readAll(env, "users").catch(() => []);
+  const usersByEmpId = new Map(users.map((user) => [
+    String(user.empid || user.empId || "").trim().toUpperCase(),
+    user,
+  ]).filter(([empId]) => empId));
   let updated = 0;
   for (const task of tasks) {
-    if (isTerminalStatus(task.status)) continue;
     const kpi = kpis.find((item) =>
       String(item.team || "") === String(task.team || "") &&
       String(kpiSub(item)).trim().toLowerCase() === String(task.subkpi || "").trim().toLowerCase()
     );
     if (!kpi) continue;
+    const taskEmpId = String(task.empid || task.empId || task.assignedToEmpId || "").trim().toUpperCase();
+    const user = usersByEmpId.get(taskEmpId) || null;
+    const effectiveWeight = personalKpiWeight(user, kpi);
+    const baseWeight = kpiWeight(kpi);
     const extra = normalizeExtraData(task.extra_data);
-    const baseDeadline = addWorkingDays(task.startdate || task.created_at || todayIso(), kpi.days || 1, holidays);
+    const terminal = isTerminalStatus(task.status);
+    const baseDeadline = terminal ? task.deadline : addWorkingDays(task.startdate || task.created_at || todayIso(), kpi.days || 1, holidays);
     const holdDays = Number(extra.hold_days_total || extra.holdDaysTotal || 0);
-    const activeDays = String(task.status || "").toLowerCase() === "on hold" ? Math.max(0, businessDaysBetween(activeHoldStart(task), new Date(), holidays)) : 0;
-    const nextDeadline = holdDays + activeDays > 0 ? addWorkingDays(baseDeadline, holdDays + activeDays, holidays) : baseDeadline;
-    if (nextDeadline && nextDeadline !== task.deadline) {
+    const activeDays = !terminal && String(task.status || "").toLowerCase() === "on hold" ? Math.max(0, businessDaysBetween(activeHoldStart(task), new Date(), holidays)) : 0;
+    const nextDeadline = !terminal && holdDays + activeDays > 0 ? addWorkingDays(baseDeadline, holdDays + activeDays, holidays) : baseDeadline;
+    const nextExtra = {
+      ...extra,
+      kpi_base_weight: baseWeight,
+      kpi_effective_weight: effectiveWeight,
+      kpi_personal_override: effectiveWeight !== baseWeight,
+    };
+    const currentWeight = numericWeight(task.mainkpiweight ?? task.main_weight ?? task.weight, 1);
+    if ((nextDeadline && nextDeadline !== task.deadline) || currentWeight !== effectiveWeight) {
       await patchTask(env, task.id, {
         deadline: nextDeadline,
         mainkpi: task.mainkpi || kpiMain(kpi),
         subkpi: task.subkpi || kpiSub(kpi),
-        mainkpiweight: kpiWeight(kpi),
-        weight: kpiWeight(kpi),
+        mainkpiweight: effectiveWeight,
+        weight: effectiveWeight,
+        extra_data: nextExtra,
       }).catch(() => null);
       updated += 1;
     }
@@ -697,8 +788,17 @@ async function handleApi(request, env, apiPath) {
       findKpi(env, body.team, body.subkpi || body.sub).catch(() => null),
       readAll(env, "holidays").catch(() => []),
     ]);
+    const assignee = await findUserByEmpId(env, body.empId || body.empid || body.assignedToEmpId).catch(() => null);
+    const baseWeight = kpiWeight(kpi);
+    const effectiveWeight = personalKpiWeight(assignee, kpi);
     const deadline = addWorkingDays(body.startDate || body.startdate || todayIso(), kpi?.days || body.days || 1, holidays);
-    return jsonResponse(request, { deadline, kpi }, 200, { "X-Maxiwa-Backend": "supabase" });
+    return jsonResponse(request, {
+      deadline,
+      kpi,
+      baseWeight,
+      effectiveWeight,
+      hasPersonalOverride: effectiveWeight !== baseWeight,
+    }, 200, { "X-Maxiwa-Backend": "supabase" });
   }
 
   if ((apiPath === "saveNewTask" || apiPath === "assignNewTask") && request.method === "POST") {
@@ -813,8 +913,16 @@ async function handleApi(request, env, apiPath) {
         await patchTask(env, task.id, { name: row.name, team: row.team }).catch(() => null);
       }
     }
-    await writeAudit(env, { action: "save_user", changedBy: request.headers.get("x-admin-empid"), details: { empid } });
     const user = saved[0] || row;
+    const overrideChanges = diffKpiOverrides(existing, user);
+    if (overrideChanges.length > 0) {
+      await writeAudit(env, {
+        action: "save_kpi_override",
+        changedBy: request.headers.get("x-admin-empid"),
+        details: { empid, changes: overrideChanges },
+      });
+    }
+    await writeAudit(env, { action: "save_user", changedBy: request.headers.get("x-admin-empid"), details: { empid } });
     return jsonResponse(request, { ok: true, user: { ...user, empId: user.empid || empid } }, 200, { "X-Maxiwa-Backend": "supabase" });
   }
 
