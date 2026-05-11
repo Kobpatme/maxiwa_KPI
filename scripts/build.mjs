@@ -41,22 +41,14 @@ const jsxBuilds = [
   ["executive-dashboard.js", "MaxiwaExecutiveDashboard"],
 ];
 
-await esbuild.build({
-  entryPoints: [path.join(root, "src", "vendor-react.js")],
-  outfile: path.join(distDir, "js", "vendor-react.js"),
-  bundle: true,
-  format: "iife",
-  target: ["es2019"],
-  logLevel: "silent",
-});
-
 for (const [fileName, globalName] of jsxBuilds) {
   await esbuild.build({
     entryPoints: [path.join(publicDir, "js", fileName)],
     outfile: path.join(distDir, "js", fileName),
-    bundle: false,
+    bundle: true,
     format: "iife",
     globalName,
+    inject: [path.join(root, "src", "react-shim.js")],
     jsxFactory: "React.createElement",
     jsxFragment: "React.Fragment",
     loader: { ".js": "jsx" },
@@ -71,10 +63,11 @@ for (const htmlFile of ["index.html", "maxiwa.html", "dashboard.html"]) {
   await writeFile(
     htmlPath,
     html
-      .replace(
-        '<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>\n  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>\n  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>',
-        htmlFile === "dashboard.html" ? '<script src="/js/vendor-react.js"></script>' : '<script src="./js/vendor-react.js"></script>'
-      )
+      .replace(/^\s*<script src="https:\/\/unpkg\.com\/react@18\/umd\/react\.production\.min\.js"><\/script>\r?\n/m, "")
+      .replace(/^\s*<script src="https:\/\/unpkg\.com\/react-dom@18\/umd\/react-dom\.production\.min\.js"><\/script>\r?\n/m, "")
+      .replace(/^\s*<script src="https:\/\/unpkg\.com\/@babel\/standalone\/babel\.min\.js"><\/script>\r?\n/m, "")
+      .replace(/^\s*<script src="(?:\.\/|\/)js\/vendor-react\.js"><\/script>\r?\n/m, "")
+      .replace(/^\s*<script>\r?\n\s*if \(!window\.React \|\| !window\.ReactDOM\) \{\r?\n\s*document\.write\('<script src="https:\/\/unpkg\.com\/react@18\/umd\/react\.production\.min\.js"><\\\/script>'\);\r?\n\s*document\.write\('<script src="https:\/\/unpkg\.com\/react-dom@18\/umd\/react-dom\.production\.min\.js"><\\\/script>'\);\r?\n\s*\}\r?\n\s*<\/script>\r?\n/m, "")
       .replace(
         '<script type="text/babel" src="./js/maxiwa.js"></script>',
         '<script src="./js/maxiwa.js"></script>'
