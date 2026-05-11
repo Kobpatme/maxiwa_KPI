@@ -2027,18 +2027,18 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
 
     const scores = calcTaskWeightedScores(tasks);
 
-    // Sub KPI distribution bar
-    const kpiDist = {};
-    let totalKpiWeight = 0;
+    // Main KPI distribution bar
+    const mainKpiDist = {};
+    let totalMainKpiWeight = 0;
     tasks.forEach((t) => {
       if (statusEquals(t.status, 'Cancelled')) return;
-      const k = String(t.subkpi || t.subKpi || t.sub || t.mainkpi || t.mainKpi || t.main || 'Other').trim() || 'Other';
+      const k = String(t.mainkpi || t.mainKpi || t.main || t.subkpi || t.subKpi || t.sub || 'Other').trim() || 'Other';
       const weight = getTaskWeight(t);
-      kpiDist[k] = (kpiDist[k] || 0) + weight;
-      totalKpiWeight += weight;
+      mainKpiDist[k] = (mainKpiDist[k] || 0) + weight;
+      totalMainKpiWeight += weight;
     });
-    const kpiEntries = Object.entries(kpiDist).sort((a, b) => b[1] - a[1]);
-    const totalWeight = totalKpiWeight > 0 ? totalKpiWeight : 1;
+    const mainKpiEntries = Object.entries(mainKpiDist).sort((a, b) => b[1] - a[1]);
+    const totalWeight = totalMainKpiWeight > 0 ? totalMainKpiWeight : 1;
 
     // All active tasks (not completed/cancelled)
     const activeTasks = tasks.filter((t) => !statusIn(t.status, ['Completed', 'Cancelled']));
@@ -2116,10 +2116,10 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
         <WeightFormulaStrip scores={scores} />
 
         {/* KPI Distribution */}
-        {kpiEntries.length > 0 && (
-          <Panel title="Sub KPI Weight Distribution" subtitle="สัดส่วนน้ำหนักงานแยกตาม Sub KPI">
+        {mainKpiEntries.length > 0 && (
+          <Panel title="Main KPI Weight Distribution" subtitle="สัดส่วนน้ำหนักงานแยกตาม Main KPI">
             <div className="grid gap-3">
-              {kpiEntries.map(([kpi, count]) => (
+              {mainKpiEntries.map(([kpi, count]) => (
                 <div key={kpi} className="flex items-center gap-3">
                   <div className="text-sm font-bold w-44 truncate flex-shrink-0">{kpi}</div>
                   <div className="flex-1 h-3 rounded-full mx-progress-track overflow-hidden">
@@ -4247,7 +4247,12 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   };
 
   const recalcTaskKpiValues = async () => {
-    await runAdminAction('recalc-tasks', async () => adminPost('admin/recalculateTaskKpiValues', {}, user.empId), 'คำนวณงานเดิมใหม่และปรับ mainKPI สำเร็จ');
+    if (!selectedOverrideEmpId) return alert('กรุณาเลือกพนักงานก่อน');
+    await runAdminAction(
+      'recalc-tasks',
+      async () => adminPost('admin/recalculateTaskKpiValues', { empId: selectedOverrideEmpId }, user.empId),
+      'คำนวณงานเดิมใหม่และปรับ mainKPI สำเร็จ'
+    );
   };
 
   const recalcPersonalKpiTasks = async () => {

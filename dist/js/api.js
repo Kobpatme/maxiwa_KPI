@@ -241,7 +241,7 @@ function taskWeight(task) {
 }
 
 function kpiGroupKey(task) {
-  return String(task?.mainkpi ?? task?.mainKpi ?? task?.main ?? task?.subkpi ?? task?.sub ?? "Other").trim() || "Other";
+  return String(task?.subkpi ?? task?.subKpi ?? task?.sub ?? task?.mainkpi ?? task?.mainKpi ?? task?.main ?? "Other").trim() || "Other";
 }
 
 function isTaskCompletedOnTime(task) {

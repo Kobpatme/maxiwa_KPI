@@ -737,7 +737,7 @@ async function readSystemLinks(env) {
     .sort((a, b) => (a.sortOrder || 100) - (b.sortOrder || 100) || String(a.name || "").localeCompare(String(b.name || "")));
 }
 
-async function recalculateTasks(env, { updateKpiValues = false } = {}) {
+async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = "" } = {}) {
   const [tasks, kpis, holidays] = await Promise.all([
     readAll(env, "tasks").catch(() => []),
     readAll(env, "kpis").catch(() => []),
@@ -748,9 +748,25 @@ async function recalculateTasks(env, { updateKpiValues = false } = {}) {
     String(user.empid || user.empId || "").trim().toUpperCase(),
     user,
   ]).filter(([empId]) => empId));
+  const usersByNameTeam = new Map(users.map((user) => [
+    `${normalizeKeyPart(user.name)}::${normalizeKeyPart(user.team)}`,
+    user,
+  ]).filter(([key]) => key !== "::"));
+  const normalizedTargetEmpId = String(targetEmpId || "").trim().toUpperCase();
+  const targetUser = normalizedTargetEmpId ? (usersByEmpId.get(normalizedTargetEmpId) || null) : null;
   let updated = 0;
 
   for (const task of tasks) {
+    const taskEmpId = String(task.empid || task.empId || task.assignedToEmpId || "").trim().toUpperCase();
+    const taskNameTeamKey = `${normalizeKeyPart(task.name)}::${normalizeKeyPart(task.team)}`;
+    const taskMatchesTargetWithoutEmpId = Boolean(
+      normalizedTargetEmpId &&
+      !taskEmpId &&
+      targetUser &&
+      taskNameTeamKey === `${normalizeKeyPart(targetUser.name)}::${normalizeKeyPart(targetUser.team)}`
+    );
+    if (normalizedTargetEmpId && taskEmpId !== normalizedTargetEmpId && !taskMatchesTargetWithoutEmpId) continue;
+
     const taskTeam = normalizeKeyPart(task.team);
     const taskSub = normalizeKeyPart(task.subkpi || task.subKpi || task.sub);
     const kpi = kpis.find((item) =>
@@ -759,8 +775,9 @@ async function recalculateTasks(env, { updateKpiValues = false } = {}) {
     );
     if (!kpi) continue;
 
-    const taskEmpId = String(task.empid || task.empId || task.assignedToEmpId || "").trim().toUpperCase();
-    const user = usersByEmpId.get(taskEmpId) || null;
+    const user = usersByEmpId.get(taskEmpId)
+      || usersByNameTeam.get(taskNameTeamKey)
+      || (taskMatchesTargetWithoutEmpId ? targetUser : null);
     const effectiveWeight = personalKpiWeight(user, kpi);
     const baseWeight = kpiWeight(kpi);
     const extra = normalizeExtraData(task.extra_data);
@@ -776,13 +793,14 @@ async function recalculateTasks(env, { updateKpiValues = false } = {}) {
       kpi_personal_override: effectiveWeight !== baseWeight,
     };
 
-    const currentWeight = numericWeight(task.mainkpiweight ?? task.main_weight ?? task.weight ?? task.kpiweight, 1);
     const currentMainKpi = task.mainkpi || task.mainKpi || task.main || "";
     const currentSubKpi = task.subkpi || task.subKpi || task.sub || "";
     const nextMainKpi = kpiMain(kpi);
     const nextSubKpi = kpiSub(kpi);
     const mainKpiChanged = normalizeKeyPart(currentMainKpi) !== normalizeKeyPart(nextMainKpi);
     const subKpiChanged = normalizeKeyPart(currentSubKpi) !== normalizeKeyPart(nextSubKpi);
+    const weightChanged = numericWeight(task.mainkpiweight ?? task.main_weight ?? task.weight ?? task.kpiweight, 1) !== effectiveWeight
+      || numericWeight(task.weight ?? task.main_weight ?? task.mainkpiweight ?? task.kpiweight, 1) !== effectiveWeight;
     const extraChanged = numericWeight(extra.kpi_base_weight, null) !== baseWeight
       || numericWeight(extra.kpi_effective_weight, null) !== effectiveWeight
       || Boolean(extra.kpi_personal_override) !== (effectiveWeight !== baseWeight);
@@ -791,8 +809,18 @@ async function recalculateTasks(env, { updateKpiValues = false } = {}) {
     if (!updateKpiValues) {
       if ((nextDeadline && nextDeadline !== task.deadline)) patch.deadline = nextDeadline;
     } else {
-      patch.mainkpiweight = effectiveWeight;
-      patch.weight = effectiveWeight;
+      if (weightChanged) {
+        patch.mainkpiweight = effectiveWeight;
+        patch.weight = effectiveWeight;
+      }
+      if (!taskEmpId && user) {
+        const normalizedUserEmpId = String(user.empid || user.empId || "").trim();
+        if (normalizedUserEmpId) {
+          patch.empId = normalizedUserEmpId;
+          patch.empid = normalizedUserEmpId;
+          patch.assignedToEmpId = normalizedUserEmpId;
+        }
+      }
       if (mainKpiChanged) patch.mainkpi = nextMainKpi;
       if (subKpiChanged) patch.subkpi = nextSubKpi;
       if (extraChanged) patch.extra_data = nextExtra;
@@ -811,8 +839,8 @@ async function recalculateDeadlines(env) {
   return recalculateTasks(env, { updateKpiValues: false });
 }
 
-async function recalculateTaskKpiValues(env) {
-  return recalculateTasks(env, { updateKpiValues: true });
+async function recalculateTaskKpiValues(env, targetEmpId = "") {
+  return recalculateTasks(env, { updateKpiValues: true, targetEmpId });
 }
 
 async function syncKpiRuleToTasks(env, beforeKpi, afterKpi) {
@@ -1122,7 +1150,17 @@ async function handleApi(request, env, apiPath) {
   }
 
   if (apiPath === "admin/recalculateTaskKpiValues" && request.method === "POST") {
-    return jsonResponse(request, { ok: true, updated: await recalculateTaskKpiValues(env) }, 200, { "X-Maxiwa-Backend": "supabase" });
+    const body = await request.json().catch(() => ({}));
+    const targetEmpId = String(body.empId || body.empid || body.assignedToEmpId || "").trim().toUpperCase();
+    if (!targetEmpId) {
+      return jsonResponse(request, { error: "empId is required" }, 400, { "X-Maxiwa-Backend": "supabase" });
+    }
+    return jsonResponse(
+      request,
+      { ok: true, updated: await recalculateTaskKpiValues(env, targetEmpId), empId: targetEmpId },
+      200,
+      { "X-Maxiwa-Backend": "supabase" }
+    );
   }
 
   const deleteMatch = apiPath.match(/^admin\/delete(User|Team|Kpi|Holiday)$/);

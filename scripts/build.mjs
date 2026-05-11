@@ -41,6 +41,15 @@ const jsxBuilds = [
   ["executive-dashboard.js", "MaxiwaExecutiveDashboard"],
 ];
 
+await esbuild.build({
+  entryPoints: [path.join(root, "src", "vendor-react.js")],
+  outfile: path.join(distDir, "js", "vendor-react.js"),
+  bundle: true,
+  format: "iife",
+  target: ["es2019"],
+  logLevel: "silent",
+});
+
 for (const [fileName, globalName] of jsxBuilds) {
   await esbuild.build({
     entryPoints: [path.join(publicDir, "js", fileName)],
@@ -62,6 +71,10 @@ for (const htmlFile of ["index.html", "maxiwa.html", "dashboard.html"]) {
   await writeFile(
     htmlPath,
     html
+      .replace(
+        '<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>\n  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>\n  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>',
+        htmlFile === "dashboard.html" ? '<script src="/js/vendor-react.js"></script>' : '<script src="./js/vendor-react.js"></script>'
+      )
       .replace(
         '<script type="text/babel" src="./js/maxiwa.js"></script>',
         '<script src="./js/maxiwa.js"></script>'
