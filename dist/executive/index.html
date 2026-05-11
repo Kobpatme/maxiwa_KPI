@@ -1450,6 +1450,12 @@
 <body>
   <div id="root"></div>
   <script src="/js/vendor-react.js"></script>
+  <script>
+    if (!window.React || !window.ReactDOM) {
+      document.write('<script src="https://unpkg.com/react@18/umd/react.production.min.js"><\/script>');
+      document.write('<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"><\/script>');
+    }
+  </script>
   <script src="/config.js"></script>
   <script src="/js/api.js"></script>
   <script src="/js/executive-dashboard.js"></script>
