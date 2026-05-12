@@ -11,7 +11,7 @@ const RUNTIME_SESSION_ID = (typeof crypto !== 'undefined' && crypto.randomUUID)
   : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const APP_NAME = 'METRIX Verity';
 const APP_TAGLINE = 'Performance System';
-const APP_LOGO_URL = 'https://img2.pic.in.th/Logo40f6c473c9a46acd.png';
+const APP_LOGO_URL = 'https://img2.pic.in.th/NewLogo.png';
 const MONTH_NAMES = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',

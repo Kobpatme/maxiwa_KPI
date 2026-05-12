@@ -21481,7 +21481,7 @@ var MaxiwaKpiApp = (() => {
   var RUNTIME_SESSION_ID = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   var APP_NAME = "METRIX Verity";
   var APP_TAGLINE = "Performance System";
-  var APP_LOGO_URL = "https://img2.pic.in.th/Logo40f6c473c9a46acd.png";
+  var APP_LOGO_URL = "https://img2.pic.in.th/NewLogo.png";
   var MONTH_NAMES = [
     "\u0E21\u0E01\u0E23\u0E32\u0E04\u0E21",
     "\u0E01\u0E38\u0E21\u0E20\u0E32\u0E1E\u0E31\u0E19\u0E18\u0E4C",
