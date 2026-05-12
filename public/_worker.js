@@ -1087,12 +1087,15 @@ async function handleApi(request, env, apiPath) {
 
   if (apiPath === "admin/saveTeam" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
-    const row = await shapeForTable(env, "teams", { ...body, id: body.id || body.name });
-    const teams = await supabaseWrite(env, "teams", {
-      query: "on_conflict=id",
-      body: row,
-      prefer: "resolution=merge-duplicates,return=representation",
-    });
+    const payload = body.id ? { ...body, id: body.id } : { ...body };
+    const row = await shapeForTable(env, "teams", payload);
+    const teams = row.id
+      ? await supabaseWrite(env, "teams", {
+          method: "PATCH",
+          query: `id=eq.${encodeEq(row.id)}`,
+          body: row,
+        })
+      : await supabaseWrite(env, "teams", { body: row });
     return jsonResponse(request, { ok: true, team: teams[0] || row }, 200, { "X-Maxiwa-Backend": "supabase" });
   }
 
