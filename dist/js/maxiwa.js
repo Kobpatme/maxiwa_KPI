@@ -21825,14 +21825,28 @@ var MaxiwaKpiApp = (() => {
     return typeof window !== "undefined" && window.API_BASE ? window.API_BASE : "/api";
   }
   function adminHeaders(empId) {
-    return { "Content-Type": "application/json", "x-admin-empid": String(empId || "").trim() };
+    return {
+      "Content-Type": "application/json",
+      "x-admin-empid": String(empId || "").trim(),
+      ...sessionHeaders()
+    };
+  }
+  function sessionHeaders() {
+    const session = typeof window !== "undefined" && window.MAXIWA_ACTIVE_SESSION ? window.MAXIWA_ACTIVE_SESSION : null;
+    const empId = String((session == null ? void 0 : session.empId) || "").trim();
+    const sessionId = String((session == null ? void 0 : session.sessionId) || "").trim();
+    return empId && sessionId ? { "x-session-empid": empId, "x-session-id": sessionId } : {};
   }
   async function adminGet(path, empId) {
     const res = await fetch(`${apiBase()}/${path}`, { headers: adminHeaders(empId) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
+      if (["SESSION_SUPERSEDED", "SESSION_EXPIRED"].includes(data.code) && typeof window.MAXIWA_HANDLE_SESSION_ERROR === "function") {
+        window.MAXIWA_HANDLE_SESSION_ERROR(data);
+      }
       const error = new Error(data.error || `Request failed (${res.status})`);
       error.status = res.status;
+      error.code = data.code || "";
       error.data = data;
       throw error;
     }
@@ -21846,8 +21860,12 @@ var MaxiwaKpiApp = (() => {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
+      if (["SESSION_SUPERSEDED", "SESSION_EXPIRED"].includes(data.code) && typeof window.MAXIWA_HANDLE_SESSION_ERROR === "function") {
+        window.MAXIWA_HANDLE_SESSION_ERROR(data);
+      }
       const error = new Error(data.error || `Request failed (${res.status})`);
       error.status = res.status;
+      error.code = data.code || "";
       error.data = data;
       throw error;
     }
@@ -21858,7 +21876,11 @@ var MaxiwaKpiApp = (() => {
       method: "DELETE",
       headers: adminHeaders(empId)
     });
-    return res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok && ["SESSION_SUPERSEDED", "SESSION_EXPIRED"].includes(data.code) && typeof window.MAXIWA_HANDLE_SESSION_ERROR === "function") {
+      window.MAXIWA_HANDLE_SESSION_ERROR(data);
+    }
+    return data;
   }
   function formatDate(value, withTime = false) {
     if (!value) return "-";
@@ -21926,23 +21948,34 @@ var MaxiwaKpiApp = (() => {
   }
   function writeActiveSessionLock(user) {
     if (!(user == null ? void 0 : user.empId) && !(user == null ? void 0 : user.empid)) return;
+    const sessionId = user.serverSessionId || user.sessionId || getBrowserSessionId();
+    if (typeof window !== "undefined") {
+      window.MAXIWA_ACTIVE_SESSION = {
+        empId: String(user.empId || user.empid).trim(),
+        sessionId
+      };
+    }
     safeLocalSet(SESSION_LOCK_KEY, JSON.stringify({
       empId: String(user.empId || user.empid).trim(),
       name: user.name || "",
-      sessionId: getBrowserSessionId(),
+      sessionId,
       updatedAt: Date.now(),
       expiresAt: Date.now() + SESSION_LOCK_TTL
     }));
   }
   function clearActiveSessionLock() {
+    var _a;
     const lock = getActiveSessionLock();
-    if (!lock || lock.sessionId === getBrowserSessionId()) safeLocalRemove(SESSION_LOCK_KEY);
+    const currentSessionId = ((_a = window.MAXIWA_ACTIVE_SESSION) == null ? void 0 : _a.sessionId) || getBrowserSessionId();
+    if (!lock || lock.sessionId === currentSessionId) safeLocalRemove(SESSION_LOCK_KEY);
+    if (typeof window !== "undefined") window.MAXIWA_ACTIVE_SESSION = null;
   }
   function isSessionSuperseded(userOrEmpId) {
     const lock = getActiveSessionLock();
     if (!lock) return false;
     const empId = typeof userOrEmpId === "string" ? userOrEmpId : (userOrEmpId == null ? void 0 : userOrEmpId.empId) || (userOrEmpId == null ? void 0 : userOrEmpId.empid);
-    return String(lock.empId).toLowerCase() === String(empId || "").trim().toLowerCase() && lock.sessionId !== getBrowserSessionId();
+    const sessionId = typeof userOrEmpId === "object" && userOrEmpId ? userOrEmpId.serverSessionId || userOrEmpId.sessionId || getBrowserSessionId() : getBrowserSessionId();
+    return String(lock.empId).toLowerCase() === String(empId || "").trim().toLowerCase() && lock.sessionId !== sessionId;
   }
   function getStatusClass(status) {
     const key = statusKey(status);
@@ -21961,6 +21994,35 @@ var MaxiwaKpiApp = (() => {
   function statusIn(status, expectedStatuses = []) {
     const key = statusKey(status);
     return expectedStatuses.some((expected) => key === statusKey(expected));
+  }
+  function taskDateInPeriod(value, month, year, allTime) {
+    if (allTime || !month || !year) return true;
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return true;
+    return date.getFullYear() === Number(year) && date.getMonth() + 1 === Number(month);
+  }
+  function taskMatchesCurrentPeriod(task, month, year) {
+    const allTime = Number(month || 0) === 0;
+    if (allTime || !month || !year) return true;
+    const dates = [task == null ? void 0 : task.startdate, task == null ? void 0 : task.created_at, task == null ? void 0 : task.deadline, task == null ? void 0 : task.completiondate].filter(Boolean);
+    if (dates.some((value) => taskDateInPeriod(value, month, year, false))) return true;
+    if (statusIn(task == null ? void 0 : task.status, ["Completed", "Cancelled"])) return dates.length === 0;
+    const startedAt = new Date((task == null ? void 0 : task.startdate) || (task == null ? void 0 : task.created_at) || (task == null ? void 0 : task.deadline) || "");
+    if (Number.isNaN(startedAt.getTime())) return true;
+    const periodEnd = new Date(Number(year), Number(month), 0, 23, 59, 59, 999);
+    return startedAt <= periodEnd;
+  }
+  function taskPersonId(task) {
+    return String((task == null ? void 0 : task.empId) || (task == null ? void 0 : task.empid) || (task == null ? void 0 : task.assignedToEmpId) || "").trim();
+  }
+  function mergeTasksById(currentTasks = [], incomingTasks = []) {
+    const incoming = (incomingTasks || []).filter(Boolean);
+    if (incoming.length === 0) return currentTasks || [];
+    const incomingIds = new Set(incoming.map((task) => String(task.id || "")).filter(Boolean));
+    return [
+      ...incoming,
+      ...(currentTasks || []).filter((task) => !incomingIds.has(String(task.id || "")))
+    ];
   }
   function extractJobCode(jobStr) {
     if (!jobStr) return "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E23\u0E2B\u0E31\u0E2A";
@@ -22488,9 +22550,9 @@ var MaxiwaKpiApp = (() => {
       } catch {
       }
     }, [user]);
-    const loadDashboard = useCallback(async () => {
+    const loadDashboard = useCallback(async (options = {}) => {
       if (!user) return;
-      safeSet({ loading: true, error: "" });
+      if (!options.silent) safeSet({ loading: true, error: "" });
       const monthParam = filterMonth === 0 ? null : filterMonth;
       try {
         if (shouldUsePersonalWork(user, view)) {
@@ -22537,9 +22599,9 @@ var MaxiwaKpiApp = (() => {
         safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14 dashboard \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
       }
     }, [user, view, filterMonth, filterYear]);
-    const loadTasks = useCallback(async () => {
+    const loadTasks = useCallback(async (options = {}) => {
       if (!user) return;
-      safeSet({ loading: true, error: "" });
+      if (!options.silent) safeSet({ loading: true, error: "" });
       const monthParam = filterMonth === 0 ? null : filterMonth;
       try {
         if (shouldUsePersonalWork(user, view)) {
@@ -22553,6 +22615,29 @@ var MaxiwaKpiApp = (() => {
       } catch (e) {
         safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14 tasks \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
       }
+    }, [user, view, filterMonth, filterYear]);
+    const applySavedTasks = useCallback((savedTasks = []) => {
+      if (!user) return;
+      const incoming = (Array.isArray(savedTasks) ? savedTasks : [savedTasks]).filter(Boolean);
+      if (incoming.length === 0) return;
+      const teamScope = taskScopeForUser(user);
+      const visibleIncoming = incoming.filter((task) => {
+        if (!taskMatchesCurrentPeriod(task, filterMonth, filterYear)) return false;
+        if (shouldUsePersonalWork(user, view)) {
+          const taskEmp = taskPersonId(task).toUpperCase();
+          const empId = userEmpId(user).toUpperCase();
+          return !taskEmp || !empId || taskEmp === empId || String(task.name || "").trim() === String(user.name || "").trim();
+        }
+        if (teamScope && teamScope !== "all" && task.team !== teamScope) return false;
+        return filterByAllowedTeams(user, [task]).length > 0;
+      });
+      if (visibleIncoming.length === 0) return;
+      setState((prev) => {
+        const nextTasks = mergeTasksById(prev.tasks || [], visibleIncoming);
+        const dashboard = prev.dashboard && Array.isArray(prev.dashboard.tasks) ? { ...prev.dashboard, tasks: mergeTasksById(prev.dashboard.tasks, visibleIncoming) } : prev.dashboard;
+        const nextDashboard = dashboard && Array.isArray(dashboard.tasks) && (isTeamManagerRole(user.role) || isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) ? { ...dashboard, summary: buildPeopleSummaryFromTasks(dashboard.tasks) } : dashboard;
+        return { ...prev, tasks: nextTasks, dashboard: nextDashboard, loading: false, error: "" };
+      });
     }, [user, view, filterMonth, filterYear]);
     const loadPeople = useCallback(async () => {
       if (!user) return;
@@ -22614,7 +22699,16 @@ var MaxiwaKpiApp = (() => {
       return () => {
         if (window.unsubscribeFromRealtime) window.unsubscribeFromRealtime("tasks");
       };
-    }, [user, view]);
+    }, [user, view, loadDashboard, loadTasks]);
+    useEffect(() => {
+      if (!user) return void 0;
+      const timer = setInterval(() => {
+        if (view === "executive") loadDashboard({ silent: true });
+        if (["dashboard", "my-dashboard"].includes(view)) loadDashboard({ silent: true });
+        if (["tasks", "my-tasks"].includes(view)) loadTasks({ silent: true });
+      }, window.subscribeToRealtime ? 6e4 : 3e4);
+      return () => clearInterval(timer);
+    }, [user, view, loadDashboard, loadTasks]);
     return {
       state,
       filterMonth,
@@ -22624,7 +22718,8 @@ var MaxiwaKpiApp = (() => {
       reloadDashboard: loadDashboard,
       reloadTasks: loadTasks,
       reloadPeople: loadPeople,
-      reloadAdmin: loadAdmin
+      reloadAdmin: loadAdmin,
+      applySavedTasks
     };
   }
   function getExecutiveTasks(data) {
@@ -23532,7 +23627,7 @@ var MaxiwaKpiApp = (() => {
           extra_data: {}
         });
         setAssigneeKpis([]);
-        onSaved == null ? void 0 : onSaved();
+        onSaved == null ? void 0 : onSaved((res == null ? void 0 : res.tasks) || ((res == null ? void 0 : res.task) ? [res.task] : []));
       } catch (e) {
         alert(e.message || "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
       } finally {
@@ -24428,6 +24523,13 @@ var MaxiwaKpiApp = (() => {
     const [showDashboardCreate, setShowDashboardCreate] = useState(false);
     const [adminSection, setAdminSection] = useState("overview");
     const [systemLinks, setSystemLinks] = useState(loadSystemLinks);
+    const forceLogoutForSupersededSession = useCallback(() => {
+      safeSessionRemove(SESSION_KEY);
+      clearActiveSessionLock();
+      setUser(null);
+      setView("dashboard");
+      setLoginError("\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E32\u0E01\u0E2B\u0E19\u0E49\u0E32\u0E15\u0E48\u0E32\u0E07\u0E2B\u0E23\u0E37\u0E2D\u0E2D\u0E38\u0E1B\u0E01\u0E23\u0E13\u0E4C\u0E2D\u0E37\u0E48\u0E19 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E36\u0E07\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A\u0E43\u0E2B\u0E49\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34");
+    }, []);
     const {
       state,
       filterMonth,
@@ -24437,8 +24539,19 @@ var MaxiwaKpiApp = (() => {
       reloadDashboard,
       reloadTasks,
       reloadPeople,
-      reloadAdmin
+      reloadAdmin,
+      applySavedTasks
     } = useAppData(user, view);
+    useEffect(() => {
+      if (typeof window !== "undefined") {
+        window.MAXIWA_HANDLE_SESSION_ERROR = forceLogoutForSupersededSession;
+      }
+      return () => {
+        if (typeof window !== "undefined" && window.MAXIWA_HANDLE_SESSION_ERROR === forceLogoutForSupersededSession) {
+          window.MAXIWA_HANDLE_SESSION_ERROR = null;
+        }
+      };
+    }, [forceLogoutForSupersededSession]);
     useEffect(() => {
       document.documentElement.dataset.theme = theme;
       safeLocalSet(THEME_KEY, theme);
@@ -24507,32 +24620,32 @@ var MaxiwaKpiApp = (() => {
     useEffect(() => {
       if (!user) {
         safeSessionRemove(SESSION_KEY);
+        if (typeof window !== "undefined") window.MAXIWA_ACTIVE_SESSION = null;
         return;
       }
       if (isSessionSuperseded(user)) {
-        safeSessionRemove(SESSION_KEY);
-        setUser(null);
-        setView("dashboard");
-        setLoginError("\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E32\u0E01\u0E2B\u0E19\u0E49\u0E32\u0E15\u0E48\u0E32\u0E07\u0E2B\u0E23\u0E37\u0E2D\u0E2D\u0E38\u0E1B\u0E01\u0E23\u0E13\u0E4C\u0E2D\u0E37\u0E48\u0E19 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E36\u0E07\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A\u0E43\u0E2B\u0E49\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34");
+        forceLogoutForSupersededSession();
         return;
       }
       safeSessionSet(SESSION_KEY, JSON.stringify(user));
       writeActiveSessionLock(user);
-    }, [user]);
+    }, [user, forceLogoutForSupersededSession]);
     useEffect(() => {
       if (!user) return void 0;
       const forceLogoutIfSuperseded = () => {
         if (!isSessionSuperseded(user)) return false;
-        safeSessionRemove(SESSION_KEY);
-        setUser(null);
-        setView("dashboard");
-        setLoginError("\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E40\u0E02\u0E49\u0E32\u0E2A\u0E39\u0E48\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E32\u0E01\u0E2B\u0E19\u0E49\u0E32\u0E15\u0E48\u0E32\u0E07\u0E2B\u0E23\u0E37\u0E2D\u0E2D\u0E38\u0E1B\u0E01\u0E23\u0E13\u0E4C\u0E2D\u0E37\u0E48\u0E19 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E36\u0E07\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A\u0E43\u0E2B\u0E49\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34");
+        forceLogoutForSupersededSession();
         return true;
       };
       if (forceLogoutIfSuperseded()) return void 0;
       writeActiveSessionLock(user);
       const timer = setInterval(() => {
-        if (!forceLogoutIfSuperseded()) writeActiveSessionLock(user);
+        var _a2;
+        if (!forceLogoutIfSuperseded()) {
+          writeActiveSessionLock(user);
+          (_a2 = API.validateSession) == null ? void 0 : _a2.call(API).catch(() => {
+          });
+        }
       }, 15e3);
       const handleStorage = (event) => {
         if (event.key === SESSION_LOCK_KEY) forceLogoutIfSuperseded();
@@ -24545,7 +24658,7 @@ var MaxiwaKpiApp = (() => {
         window.removeEventListener("storage", handleStorage);
         window.removeEventListener("beforeunload", handleBeforeUnload);
       };
-    }, [user]);
+    }, [user, forceLogoutForSupersededSession]);
     const handleLogin = async (empId) => {
       const cleanEmpId = empId == null ? void 0 : empId.trim();
       if (!cleanEmpId) {
@@ -24696,6 +24809,12 @@ var MaxiwaKpiApp = (() => {
       executiveUrl.searchParams.set("year", String(filterYear));
       window.open(executiveUrl.toString(), "_blank", "noopener,noreferrer");
     };
+    const handleTasksSaved = (savedTasks = [], options = {}) => {
+      applySavedTasks(savedTasks);
+      reloadTasks({ silent: true });
+      reloadDashboard({ silent: true });
+      if (options.reloadPeople) reloadPeople();
+    };
     if (!user) {
       return /* @__PURE__ */ import_react.default.createElement(LoginScreenPro, { onLogin: handleLogin, loading: loginLoading, error: loginError, theme, onToggleTheme: toggleTheme });
     }
@@ -24748,9 +24867,8 @@ var MaxiwaKpiApp = (() => {
         user,
         people: peopleForAssign,
         mode: "personal",
-        onSaved: () => {
-          reloadTasks();
-          reloadDashboard();
+        onSaved: (savedTasks) => {
+          handleTasksSaved(savedTasks);
           setShowDashboardCreate(false);
         }
       }
@@ -24813,14 +24931,7 @@ var MaxiwaKpiApp = (() => {
         onRefresh: reloadTasks,
         actionState
       }
-    ), view === "create" && /* @__PURE__ */ import_react.default.createElement(QuickCreateView, { user, people: peopleForAssign, mode: "personal", onSaved: () => {
-      reloadTasks();
-      reloadDashboard();
-    } }), view === "assign" && /* @__PURE__ */ import_react.default.createElement(QuickCreateView, { user, people: peopleForAssign, mode: "assign", onSaved: () => {
-      reloadTasks();
-      reloadDashboard();
-      reloadPeople();
-    } }), view === "people" && /* @__PURE__ */ import_react.default.createElement(PeopleView, { user, people: state.people, onRefresh: reloadPeople }), view === "tracker" && /* @__PURE__ */ import_react.default.createElement(TrackerViewNew, null), view === "systems" && /* @__PURE__ */ import_react.default.createElement(SystemsView, { user, systemLinks }), view === "admin" && /* @__PURE__ */ import_react.default.createElement(
+    ), view === "create" && /* @__PURE__ */ import_react.default.createElement(QuickCreateView, { user, people: peopleForAssign, mode: "personal", onSaved: handleTasksSaved }), view === "assign" && /* @__PURE__ */ import_react.default.createElement(QuickCreateView, { user, people: peopleForAssign, mode: "assign", onSaved: (savedTasks) => handleTasksSaved(savedTasks, { reloadPeople: true }) }), view === "people" && /* @__PURE__ */ import_react.default.createElement(PeopleView, { user, people: state.people, onRefresh: reloadPeople }), view === "tracker" && /* @__PURE__ */ import_react.default.createElement(TrackerViewNew, null), view === "systems" && /* @__PURE__ */ import_react.default.createElement(SystemsView, { user, systemLinks }), view === "admin" && /* @__PURE__ */ import_react.default.createElement(
       AdminStudio,
       {
         user,

@@ -414,15 +414,32 @@ function apiBase() {
 }
 
 function adminHeaders(empId) {
-  return { 'Content-Type': 'application/json', 'x-admin-empid': String(empId || '').trim() };
+  return {
+    'Content-Type': 'application/json',
+    'x-admin-empid': String(empId || '').trim(),
+    ...sessionHeaders(),
+  };
+}
+
+function sessionHeaders() {
+  const session = (typeof window !== 'undefined' && window.MAXIWA_ACTIVE_SESSION) ? window.MAXIWA_ACTIVE_SESSION : null;
+  const empId = String(session?.empId || '').trim();
+  const sessionId = String(session?.sessionId || '').trim();
+  return empId && sessionId
+    ? { 'x-session-empid': empId, 'x-session-id': sessionId }
+    : {};
 }
 
 async function adminGet(path, empId) {
   const res = await fetch(`${apiBase()}/${path}`, { headers: adminHeaders(empId) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (['SESSION_SUPERSEDED', 'SESSION_EXPIRED'].includes(data.code) && typeof window.MAXIWA_HANDLE_SESSION_ERROR === 'function') {
+      window.MAXIWA_HANDLE_SESSION_ERROR(data);
+    }
     const error = new Error(data.error || `Request failed (${res.status})`);
     error.status = res.status;
+    error.code = data.code || '';
     error.data = data;
     throw error;
   }
@@ -437,8 +454,12 @@ async function adminPost(path, payload, empId) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (['SESSION_SUPERSEDED', 'SESSION_EXPIRED'].includes(data.code) && typeof window.MAXIWA_HANDLE_SESSION_ERROR === 'function') {
+      window.MAXIWA_HANDLE_SESSION_ERROR(data);
+    }
     const error = new Error(data.error || `Request failed (${res.status})`);
     error.status = res.status;
+    error.code = data.code || '';
     error.data = data;
     throw error;
   }
@@ -450,7 +471,11 @@ async function adminDelete(path, empId) {
     method: 'DELETE',
     headers: adminHeaders(empId),
   });
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+    if (!res.ok && ['SESSION_SUPERSEDED', 'SESSION_EXPIRED'].includes(data.code) && typeof window.MAXIWA_HANDLE_SESSION_ERROR === 'function') {
+      window.MAXIWA_HANDLE_SESSION_ERROR(data);
+    }
+  return data;
 }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
@@ -508,10 +533,17 @@ function getActiveSessionLock() {
 
 function writeActiveSessionLock(user) {
   if (!user?.empId && !user?.empid) return;
+  const sessionId = user.serverSessionId || user.sessionId || getBrowserSessionId();
+  if (typeof window !== 'undefined') {
+    window.MAXIWA_ACTIVE_SESSION = {
+      empId: String(user.empId || user.empid).trim(),
+      sessionId,
+    };
+  }
   safeLocalSet(SESSION_LOCK_KEY, JSON.stringify({
     empId: String(user.empId || user.empid).trim(),
     name: user.name || '',
-    sessionId: getBrowserSessionId(),
+    sessionId,
     updatedAt: Date.now(),
     expiresAt: Date.now() + SESSION_LOCK_TTL,
   }));
@@ -519,15 +551,20 @@ function writeActiveSessionLock(user) {
 
 function clearActiveSessionLock() {
   const lock = getActiveSessionLock();
-  if (!lock || lock.sessionId === getBrowserSessionId()) safeLocalRemove(SESSION_LOCK_KEY);
+  const currentSessionId = window.MAXIWA_ACTIVE_SESSION?.sessionId || getBrowserSessionId();
+  if (!lock || lock.sessionId === currentSessionId) safeLocalRemove(SESSION_LOCK_KEY);
+  if (typeof window !== 'undefined') window.MAXIWA_ACTIVE_SESSION = null;
 }
 
 function isSessionSuperseded(userOrEmpId) {
   const lock = getActiveSessionLock();
   if (!lock) return false;
   const empId = typeof userOrEmpId === 'string' ? userOrEmpId : (userOrEmpId?.empId || userOrEmpId?.empid);
+  const sessionId = typeof userOrEmpId === 'object' && userOrEmpId
+    ? (userOrEmpId.serverSessionId || userOrEmpId.sessionId || getBrowserSessionId())
+    : getBrowserSessionId();
   return String(lock.empId).toLowerCase() === String(empId || '').trim().toLowerCase()
-    && lock.sessionId !== getBrowserSessionId();
+    && lock.sessionId !== sessionId;
 }
 
 function getStatusClass(status) {
@@ -550,6 +587,39 @@ function statusEquals(status, expected) {
 function statusIn(status, expectedStatuses = []) {
   const key = statusKey(status);
   return expectedStatuses.some((expected) => key === statusKey(expected));
+}
+
+function taskDateInPeriod(value, month, year, allTime) {
+  if (allTime || !month || !year) return true;
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return true;
+  return date.getFullYear() === Number(year) && date.getMonth() + 1 === Number(month);
+}
+
+function taskMatchesCurrentPeriod(task, month, year) {
+  const allTime = Number(month || 0) === 0;
+  if (allTime || !month || !year) return true;
+  const dates = [task?.startdate, task?.created_at, task?.deadline, task?.completiondate].filter(Boolean);
+  if (dates.some((value) => taskDateInPeriod(value, month, year, false))) return true;
+  if (statusIn(task?.status, ['Completed', 'Cancelled'])) return dates.length === 0;
+  const startedAt = new Date(task?.startdate || task?.created_at || task?.deadline || '');
+  if (Number.isNaN(startedAt.getTime())) return true;
+  const periodEnd = new Date(Number(year), Number(month), 0, 23, 59, 59, 999);
+  return startedAt <= periodEnd;
+}
+
+function taskPersonId(task) {
+  return String(task?.empId || task?.empid || task?.assignedToEmpId || '').trim();
+}
+
+function mergeTasksById(currentTasks = [], incomingTasks = []) {
+  const incoming = (incomingTasks || []).filter(Boolean);
+  if (incoming.length === 0) return currentTasks || [];
+  const incomingIds = new Set(incoming.map((task) => String(task.id || '')).filter(Boolean));
+  return [
+    ...incoming,
+    ...(currentTasks || []).filter((task) => !incomingIds.has(String(task.id || ''))),
+  ];
 }
 
 function extractJobCode(jobStr) {
@@ -1522,9 +1592,9 @@ function useAppData(user, view) {
     }
   }, [user]);
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (options = {}) => {
     if (!user) return;
-    safeSet({ loading: true, error: '' });
+    if (!options.silent) safeSet({ loading: true, error: '' });
     const monthParam = filterMonth === 0 ? null : filterMonth;
     try {
       if (shouldUsePersonalWork(user, view)) {
@@ -1572,9 +1642,9 @@ function useAppData(user, view) {
     }
   }, [user, view, filterMonth, filterYear]);
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (options = {}) => {
     if (!user) return;
-    safeSet({ loading: true, error: '' });
+    if (!options.silent) safeSet({ loading: true, error: '' });
     const monthParam = filterMonth === 0 ? null : filterMonth;
     try {
       if (shouldUsePersonalWork(user, view)) {
@@ -1588,6 +1658,34 @@ function useAppData(user, view) {
     } catch (e) {
       safeSet({ loading: false, error: e.message || 'โหลด tasks ไม่สำเร็จ' });
     }
+  }, [user, view, filterMonth, filterYear]);
+
+  const applySavedTasks = useCallback((savedTasks = []) => {
+    if (!user) return;
+    const incoming = (Array.isArray(savedTasks) ? savedTasks : [savedTasks]).filter(Boolean);
+    if (incoming.length === 0) return;
+    const teamScope = taskScopeForUser(user);
+    const visibleIncoming = incoming.filter((task) => {
+      if (!taskMatchesCurrentPeriod(task, filterMonth, filterYear)) return false;
+      if (shouldUsePersonalWork(user, view)) {
+        const taskEmp = taskPersonId(task).toUpperCase();
+        const empId = userEmpId(user).toUpperCase();
+        return !taskEmp || !empId || taskEmp === empId || String(task.name || '').trim() === String(user.name || '').trim();
+      }
+      if (teamScope && teamScope !== 'all' && task.team !== teamScope) return false;
+      return filterByAllowedTeams(user, [task]).length > 0;
+    });
+    if (visibleIncoming.length === 0) return;
+    setState((prev) => {
+      const nextTasks = mergeTasksById(prev.tasks || [], visibleIncoming);
+      const dashboard = prev.dashboard && Array.isArray(prev.dashboard.tasks)
+        ? { ...prev.dashboard, tasks: mergeTasksById(prev.dashboard.tasks, visibleIncoming) }
+        : prev.dashboard;
+      const nextDashboard = dashboard && Array.isArray(dashboard.tasks) && (isTeamManagerRole(user.role) || isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role))
+        ? { ...dashboard, summary: buildPeopleSummaryFromTasks(dashboard.tasks) }
+        : dashboard;
+      return { ...prev, tasks: nextTasks, dashboard: nextDashboard, loading: false, error: '' };
+    });
   }, [user, view, filterMonth, filterYear]);
 
   const loadPeople = useCallback(async () => {
@@ -1652,12 +1750,22 @@ function useAppData(user, view) {
       if (['tasks', 'my-tasks'].includes(view)) loadTasks();
     });
     return () => { if (window.unsubscribeFromRealtime) window.unsubscribeFromRealtime('tasks'); };
-  }, [user, view]);
+  }, [user, view, loadDashboard, loadTasks]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    const timer = setInterval(() => {
+      if (view === 'executive') loadDashboard({ silent: true });
+      if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard({ silent: true });
+      if (['tasks', 'my-tasks'].includes(view)) loadTasks({ silent: true });
+    }, window.subscribeToRealtime ? 60000 : 30000);
+    return () => clearInterval(timer);
+  }, [user, view, loadDashboard, loadTasks]);
 
   return {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,
     reloadDashboard: loadDashboard, reloadTasks: loadTasks,
-    reloadPeople: loadPeople, reloadAdmin: loadAdmin,
+    reloadPeople: loadPeople, reloadAdmin: loadAdmin, applySavedTasks,
   };
 }
 
@@ -3266,7 +3374,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
         extra_data: {},
       });
       setAssigneeKpis([]);
-      onSaved?.();
+      onSaved?.(res?.tasks || (res?.task ? [res.task] : []));
     } catch (e) {
       alert(e.message || 'บันทึกไม่สำเร็จ');
     } finally {
@@ -5008,10 +5116,29 @@ function App() {
   const [adminSection, setAdminSection] = useState('overview');
   const [systemLinks, setSystemLinks] = useState(loadSystemLinks);
 
+  const forceLogoutForSupersededSession = useCallback(() => {
+    safeSessionRemove(SESSION_KEY);
+    clearActiveSessionLock();
+    setUser(null);
+    setView('dashboard');
+    setLoginError('บัญชีนี้ถูกเข้าสู่ระบบจากหน้าต่างหรืออุปกรณ์อื่น ระบบจึงออกจากระบบให้อัตโนมัติ');
+  }, []);
+
   const {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,
-    reloadDashboard, reloadTasks, reloadPeople, reloadAdmin,
+    reloadDashboard, reloadTasks, reloadPeople, reloadAdmin, applySavedTasks,
   } = useAppData(user, view);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.MAXIWA_HANDLE_SESSION_ERROR = forceLogoutForSupersededSession;
+    }
+    return () => {
+      if (typeof window !== 'undefined' && window.MAXIWA_HANDLE_SESSION_ERROR === forceLogoutForSupersededSession) {
+        window.MAXIWA_HANDLE_SESSION_ERROR = null;
+      }
+    };
+  }, [forceLogoutForSupersededSession]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -5087,33 +5214,31 @@ function App() {
   useEffect(() => {
     if (!user) {
       safeSessionRemove(SESSION_KEY);
+      if (typeof window !== 'undefined') window.MAXIWA_ACTIVE_SESSION = null;
       return;
     }
     if (isSessionSuperseded(user)) {
-      safeSessionRemove(SESSION_KEY);
-      setUser(null);
-      setView('dashboard');
-      setLoginError('บัญชีนี้ถูกเข้าสู่ระบบจากหน้าต่างหรืออุปกรณ์อื่น ระบบจึงออกจากระบบให้อัตโนมัติ');
+      forceLogoutForSupersededSession();
       return;
     }
     safeSessionSet(SESSION_KEY, JSON.stringify(user));
     writeActiveSessionLock(user);
-  }, [user]);
+  }, [user, forceLogoutForSupersededSession]);
 
   useEffect(() => {
     if (!user) return undefined;
     const forceLogoutIfSuperseded = () => {
       if (!isSessionSuperseded(user)) return false;
-      safeSessionRemove(SESSION_KEY);
-      setUser(null);
-      setView('dashboard');
-      setLoginError('บัญชีนี้ถูกเข้าสู่ระบบจากหน้าต่างหรืออุปกรณ์อื่น ระบบจึงออกจากระบบให้อัตโนมัติ');
+      forceLogoutForSupersededSession();
       return true;
     };
     if (forceLogoutIfSuperseded()) return undefined;
     writeActiveSessionLock(user);
     const timer = setInterval(() => {
-      if (!forceLogoutIfSuperseded()) writeActiveSessionLock(user);
+      if (!forceLogoutIfSuperseded()) {
+        writeActiveSessionLock(user);
+        API.validateSession?.().catch(() => {});
+      }
     }, 15000);
     const handleStorage = (event) => {
       if (event.key === SESSION_LOCK_KEY) forceLogoutIfSuperseded();
@@ -5126,7 +5251,7 @@ function App() {
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [user]);
+  }, [user, forceLogoutForSupersededSession]);
 
   const handleLogin = async (empId) => {
     const cleanEmpId = empId?.trim();
@@ -5285,6 +5410,13 @@ function App() {
     executiveUrl.searchParams.set('month', String(filterMonth));
     executiveUrl.searchParams.set('year', String(filterYear));
     window.open(executiveUrl.toString(), '_blank', 'noopener,noreferrer');
+  };
+
+  const handleTasksSaved = (savedTasks = [], options = {}) => {
+    applySavedTasks(savedTasks);
+    reloadTasks({ silent: true });
+    reloadDashboard({ silent: true });
+    if (options.reloadPeople) reloadPeople();
   };
 
   if (!user) {
@@ -5464,9 +5596,8 @@ function App() {
                   user={user}
                   people={peopleForAssign}
                   mode="personal"
-                  onSaved={() => {
-                    reloadTasks();
-                    reloadDashboard();
+                  onSaved={(savedTasks) => {
+                    handleTasksSaved(savedTasks);
                     setShowDashboardCreate(false);
                   }}
                 />
@@ -5534,10 +5665,10 @@ function App() {
             />
           )}
           {view === 'create' && (
-            <QuickCreateView user={user} people={peopleForAssign} mode="personal" onSaved={() => { reloadTasks(); reloadDashboard(); }} />
+            <QuickCreateView user={user} people={peopleForAssign} mode="personal" onSaved={handleTasksSaved} />
           )}
           {view === 'assign' && (
-            <QuickCreateView user={user} people={peopleForAssign} mode="assign" onSaved={() => { reloadTasks(); reloadDashboard(); reloadPeople(); }} />
+            <QuickCreateView user={user} people={peopleForAssign} mode="assign" onSaved={(savedTasks) => handleTasksSaved(savedTasks, { reloadPeople: true })} />
           )}
           {view === 'people' && <PeopleView user={user} people={state.people} onRefresh={reloadPeople} />}
           {view === 'tracker' && <TrackerViewNew />}

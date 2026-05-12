@@ -4,6 +4,27 @@ const API = (() => {
   const getCache = new Map();
   const inflightGets = new Map();
 
+  function sessionHeaders() {
+    const session = (typeof window !== "undefined" && window.MAXIWA_ACTIVE_SESSION) ? window.MAXIWA_ACTIVE_SESSION : null;
+    const empId = String(session?.empId || "").trim();
+    const sessionId = String(session?.sessionId || "").trim();
+    return empId && sessionId
+      ? { "x-session-empid": empId, "x-session-id": sessionId }
+      : {};
+  }
+
+  async function readError(res) {
+    const data = await res.json().catch(() => ({}));
+    const error = new Error(data.error ? `HTTP ${res.status}: ${data.error}` : `HTTP ${res.status}`);
+    error.status = res.status;
+    error.code = data.code || "";
+    error.data = data;
+    if ((error.code === "SESSION_SUPERSEDED" || error.code === "SESSION_EXPIRED") && typeof window !== "undefined" && typeof window.MAXIWA_HANDLE_SESSION_ERROR === "function") {
+      window.MAXIWA_HANDLE_SESSION_ERROR(data);
+    }
+    return error;
+  }
+
   function cacheKey(endpoint, params = {}, headers = {}) {
     const sortedParams = Object.entries(params || {}).sort(([a], [b]) => a.localeCompare(b));
     const sortedHeaders = Object.entries(headers || {}).sort(([a], [b]) => a.localeCompare(b));
@@ -16,42 +37,34 @@ const API = (() => {
   }
 
   async function post(endpoint, body, headers = {}) {
+    const mergedHeaders = { "Content-Type": "application/json", ...sessionHeaders(), ...headers };
     const res = await fetch(`${BASE}/${endpoint}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
+      headers: mergedHeaders,
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      let msg = `HTTP ${res.status}`;
-      try {
-        const d = await res.json();
-        if (d.error) msg += `: ${d.error}`;
-      } catch {}
-      throw new Error(msg);
+      throw await readError(res);
     }
     clearGetCache();
     return res.json();
   }
 
   async function get(endpoint, params = {}, headers = {}) {
+    const mergedHeaders = { ...sessionHeaders(), ...headers };
     const cleanParams = {};
     for (const [k, v] of Object.entries(params)) {
       if (v !== null && v !== undefined && v !== "") cleanParams[k] = v;
     }
-    const key = cacheKey(endpoint, cleanParams, headers);
+    const key = cacheKey(endpoint, cleanParams, mergedHeaders);
     const cached = getCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
     if (inflightGets.has(key)) return inflightGets.get(key);
     const qs = new URLSearchParams(cleanParams).toString();
     const request = (async () => {
-      const res = await fetch(`${BASE}/${endpoint}${qs ? `?${qs}` : ""}`, { headers });
+      const res = await fetch(`${BASE}/${endpoint}${qs ? `?${qs}` : ""}`, { headers: mergedHeaders });
       if (!res.ok) {
-        let msg = `HTTP ${res.status}`;
-        try {
-          const d = await res.json();
-          if (d.error) msg += `: ${d.error}`;
-        } catch {}
-        throw new Error(msg);
+        throw await readError(res);
       }
       const data = await res.json();
       getCache.set(key, { data, expiresAt: Date.now() + GET_CACHE_TTL });
@@ -66,20 +79,21 @@ const API = (() => {
   }
 
   async function del(endpoint, searchParams, headers = {}) {
+    const mergedHeaders = { ...sessionHeaders(), ...headers };
     const res = await fetch(`${BASE}/${endpoint}?${new URLSearchParams(searchParams).toString()}`, {
       method: "DELETE",
-      headers,
+      headers: mergedHeaders,
     });
-    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.error ? `HTTP ${res.status}: ${data.error}` : `HTTP ${res.status}`);
+      throw await readError(res);
     }
     clearGetCache();
-    return data;
+    return res.json().catch(() => ({}));
   }
 
   return {
     getInitialData: (empId) => post("getInitialData", { empId }),
+    validateSession: () => post("session/heartbeat", {}),
     getEmployeeTasks: (userData, month, year, allTime, requesterEmpId) =>
       get("getEmployeeTasks", { name: userData.name, month, year, allTime, requesterEmpId }),
     calculateDeadlinePreview: (payload) => post("calculateDeadlinePreview", payload),

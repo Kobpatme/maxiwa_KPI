@@ -2,13 +2,14 @@ const DEFAULT_BACKEND_API_BASE = "";
 const DEFAULT_THAI_HOLIDAY_API_URL = "https://api.iapp.co.th/v3/store/data/thai-holiday";
 const PAGE_SIZE = 1000;
 const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log", "app_system_links"];
+const SERVER_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "*";
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, x-admin-empid",
+    "Access-Control-Allow-Headers": "Content-Type, x-admin-empid, x-session-empid, x-session-id",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
@@ -123,6 +124,75 @@ function shapeWithColumns(row, columns) {
 async function shapeForTable(env, table, row) {
   const columns = await tableColumns(env, table);
   return shapeWithColumns(row, columns);
+}
+
+function userEmpId(user) {
+  return String(user?.empid || user?.empId || "").trim();
+}
+
+function serverSessionColumns(columns) {
+  if (!columns?.has("active_session_id")) return null;
+  return {
+    id: "active_session_id",
+    expiresAt: columns.has("active_session_expires_at") ? "active_session_expires_at" : null,
+    updatedAt: columns.has("active_session_updated_at") ? "active_session_updated_at" : null,
+  };
+}
+
+async function writeServerSession(env, user, requestedSessionId = "") {
+  const columns = await tableColumns(env, "users");
+  const sessionColumns = serverSessionColumns(columns);
+  const sessionId = String(requestedSessionId || randomId()).trim();
+  if (!sessionColumns) return { sessionId, enforced: false };
+  const empid = userEmpId(user);
+  if (!empid) return { sessionId, enforced: false };
+  const empColumn = columns?.has("empid") ? "empid" : (columns?.has("empId") ? "empId" : "empid");
+  const expiresAt = new Date(Date.now() + SERVER_SESSION_TTL_MS).toISOString();
+  const updates = {
+    [sessionColumns.id]: sessionId,
+    ...(sessionColumns.expiresAt ? { [sessionColumns.expiresAt]: expiresAt } : {}),
+    ...(sessionColumns.updatedAt ? { [sessionColumns.updatedAt]: new Date().toISOString() } : {}),
+  };
+  await supabaseWrite(env, "users", {
+    method: "PATCH",
+    query: `${empColumn}=eq.${encodeEq(empid)}`,
+    body: updates,
+    prefer: "return=minimal",
+  });
+  return { sessionId, enforced: true, expiresAt };
+}
+
+async function validateServerSession(request, env) {
+  const sessionId = String(request.headers.get("x-session-id") || "").trim();
+  const empId = String(request.headers.get("x-session-empid") || "").trim();
+  if (!sessionId || !empId) return { ok: true, enforced: false };
+  const columns = await tableColumns(env, "users");
+  const sessionColumns = serverSessionColumns(columns);
+  if (!sessionColumns) return { ok: true, enforced: false };
+  const user = await findUserByEmpId(env, empId).catch(() => null);
+  if (!user) return { ok: false, status: 401, error: "Session user was not found" };
+  const activeSessionId = String(user[sessionColumns.id] || "").trim();
+  const expiresAt = sessionColumns.expiresAt ? new Date(user[sessionColumns.expiresAt] || "") : null;
+  if (activeSessionId && activeSessionId !== sessionId) {
+    return { ok: false, status: 409, code: "SESSION_SUPERSEDED", error: "This account is active in another session" };
+  }
+  if (expiresAt && !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
+    return { ok: false, status: 401, code: "SESSION_EXPIRED", error: "Session expired" };
+  }
+  const empColumn = columns?.has("empid") ? "empid" : (columns?.has("empId") ? "empId" : "empid");
+  const updates = {
+    ...(sessionColumns.expiresAt ? { [sessionColumns.expiresAt]: new Date(Date.now() + SERVER_SESSION_TTL_MS).toISOString() } : {}),
+    ...(sessionColumns.updatedAt ? { [sessionColumns.updatedAt]: new Date().toISOString() } : {}),
+  };
+  if (Object.keys(updates).length > 0) {
+    await supabaseWrite(env, "users", {
+      method: "PATCH",
+      query: `${empColumn}=eq.${encodeEq(empId)}`,
+      body: updates,
+      prefer: "return=minimal",
+    }).catch(() => null);
+  }
+  return { ok: true, enforced: true };
 }
 
 function encodeEq(value) {
@@ -899,8 +969,31 @@ async function handleApi(request, env, apiPath) {
     const body = await request.json().catch(() => ({}));
     const user = await findUserByEmpId(env, body.empId || body.empid);
     if (!user) return jsonResponse(request, { error: "User profile was not found" }, 404, { "X-Maxiwa-Backend": "supabase" });
+    const serverSession = await writeServerSession(env, user, body.sessionId).catch(() => ({ sessionId: body.sessionId || randomId(), enforced: false }));
     const kpis = await kpisForTeam(env, user.team || "");
-    return jsonResponse(request, { user: { ...user, empId: user.empId || user.empid }, kpis }, 200, { "X-Maxiwa-Backend": "supabase" });
+    return jsonResponse(request, {
+      user: {
+        ...user,
+        empId: user.empId || user.empid,
+        serverSessionId: serverSession.sessionId,
+        sessionEnforced: serverSession.enforced,
+        sessionExpiresAt: serverSession.expiresAt || null,
+      },
+      kpis,
+      session: serverSession,
+    }, 200, { "X-Maxiwa-Backend": "supabase" });
+  }
+
+  const session = await validateServerSession(request, env);
+  if (!session.ok) {
+    return jsonResponse(request, {
+      error: session.error,
+      code: session.code || "SESSION_INVALID",
+    }, session.status || 401, { "X-Maxiwa-Backend": "supabase" });
+  }
+
+  if (apiPath === "session/heartbeat") {
+    return jsonResponse(request, { ok: true, session }, 200, { "X-Maxiwa-Backend": "supabase" });
   }
 
   if (apiPath === "getKPIsByTeam") {
