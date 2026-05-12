@@ -2289,7 +2289,6 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                         <span className="font-bold break-all">{task.job}</span>
                         <SsrBadge extraData={task.extra_data} />
                         <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status}</span>
-                        <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(getTaskWeight(task))}</span>
                         {task.note && (
                           <button onClick={() => setDashNotePopup({ show: true, note: task.note })} className="mx-note-btn text-xs px-3 py-1.5 rounded-lg font-bold">
                             <i className="fas fa-sticky-note mr-1"></i>ดูบันทึก
@@ -2912,12 +2911,10 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
 
       <div className="mx-grid-auto">
         <MetricCard label="Total Tasks" value={taskSummary.total} sub="ทั้งหมดในมุมมองนี้" icon="fa-list-check" />
-        <MetricCard label="Total Weight" value={formatWeightPercent(taskScores.totalWeight)} sub="น้ำหนักงานที่ใช้คำนวณ" icon="fa-scale-balanced" accent="var(--mx-blue)" />
-        <MetricCard label="Completion" value={formatScorePercent(taskScores.completion)} sub={completionMetricSub(taskScores)} icon="fa-check-double" accent="var(--mx-green)" />
-        <MetricCard label="Weighted SLA" value={formatScorePercent(taskScores.sla)} sub={slaMetricSub(taskScores)} icon="fa-chart-line" accent="var(--mx-teal)" />
+        <MetricCard label="Completion" value={formatScorePercent(taskScores.completion)} sub={`Completed ${taskSummary.completed}/${taskSummary.total}`} icon="fa-check-double" accent="var(--mx-green)" />
+        <MetricCard label="SLA" value={formatScorePercent(taskScores.sla)} sub="On-time performance" icon="fa-chart-line" accent="var(--mx-teal)" />
         <MetricCard label="Need Attention" value={taskSummary.risk} sub="Pending / On Hold" icon="fa-triangle-exclamation" accent="var(--mx-amber)" />
       </div>
-      <WeightFormulaStrip scores={taskScores} />
 
       <Panel
         title="Task Center"
@@ -2959,7 +2956,6 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                     <div className="font-bold text-base break-all">{task.job}</div>
                     <SsrBadge extraData={task.extra_data} />
                     <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status}</span>
-                    <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(getTaskWeight(task))}</span>
                     <button
                       className="mx-btn mx-btn-soft !py-2 !px-3"
                       onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
@@ -2991,7 +2987,6 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                   {expandedTaskId === task.id && (
                     <div className="mt-4 rounded-[18px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
                       <div className="text-xs text-[var(--mx-muted)]">Task ID: {task.id}</div>
-                      <div className="mt-2 text-xs text-[var(--mx-muted)]">Weight: {formatWeightPercent(getTaskWeight(task))}</div>
                       {holdSummary.totalDays > 0 && (
                         <div className="mt-2 text-xs text-[var(--mx-muted)]">Total hold: {holdSummary.totalDays} business day(s)</div>
                       )}
