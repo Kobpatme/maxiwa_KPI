@@ -25,6 +25,22 @@ function jsonResponse(request, data, status = 200, extraHeaders = {}) {
   });
 }
 
+function missingBackendConfigResponse(request, apiPath) {
+  return jsonResponse(
+    request,
+    {
+      error: "Backend API is not configured",
+      endpoint: `/api/${apiPath}`,
+      expected: [
+        "SUPABASE_URL with SUPABASE_SERVICE_ROLE_KEY (or MAXIWA_* equivalents)",
+        "MAXIWA_BACKEND_API_BASE for the legacy backend proxy",
+      ],
+    },
+    503,
+    { "X-Maxiwa-Proxy": "disabled" }
+  );
+}
+
 function supabaseSettings(env) {
   const url = env.SUPABASE_URL || env.MAXIWA_SUPABASE_URL;
   const writeKey = env.SUPABASE_SERVICE_ROLE_KEY
@@ -1200,7 +1216,7 @@ async function proxyApiRequest(request, env) {
   const apiPath = url.pathname.replace(/^\/api\/?/, "");
   const backendBase = (env.MAXIWA_BACKEND_API_BASE || DEFAULT_BACKEND_API_BASE).replace(/\/+$/, "");
   if (!backendBase) {
-    return jsonResponse(request, { error: "Backend API is not configured", endpoint: `/api/${apiPath}` }, 503, { "X-Maxiwa-Proxy": "disabled" });
+    return missingBackendConfigResponse(request, apiPath);
   }
   const targetUrl = `${backendBase}/${apiPath}${url.search}`;
   const headers = new Headers(request.headers);

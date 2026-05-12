@@ -3,8 +3,11 @@
 ## What this project expects
 
 - The frontend is deployed from this repository only.
-- `MAXIWA KPI` talks to the existing backend directly through `window.API_BASE`.
-- No database schema or backend route changes are required for the frontend release.
+- The default frontend API target is `/api`.
+- `/api` is served by the Pages worker in `public/_worker.js`.
+- The worker can run in one of two modes:
+  - Supabase-backed app API using `SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` or the `MAXIWA_` equivalents.
+  - Legacy backend proxy using `MAXIWA_BACKEND_API_BASE`.
 
 ## Local build
 
@@ -13,7 +16,7 @@ npm install
 npm run build
 ```
 
-Optional API target override:
+Optional frontend API target override:
 
 ```bash
 MAXIWA_API_BASE=https://your-existing-backend.example.com/api npm run build
@@ -33,11 +36,24 @@ npm run deploy
 
 This deploys the generated `dist/` folder using the Cloudflare Pages project name `maxiwa-kpi`.
 
+## Required runtime secrets for Cloudflare Pages
+
+Set one of these configurations in the Cloudflare Pages project before deploying:
+
+### Option 1: Run the built-in Supabase API
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_ANON_KEY`
+
+The worker also accepts the same keys with a `MAXIWA_` prefix.
+
+### Option 2: Proxy to the legacy backend
+
+- `MAXIWA_BACKEND_API_BASE`
+
+Use the full backend API base URL, for example `https://your-existing-backend.example.com/api`.
+
 ## Important runtime setting
 
-The frontend expects the existing backend API to stay reachable at the URL configured in:
-
-- `public/config.js` for source defaults
-- `dist/config.js` after build output
-
-If the backend URL changes, rebuild with `MAXIWA_API_BASE` set to the correct `/api` base.
+`public/config.js` and `dist/config.js` control the browser-side API base. By default that is `/api`, so the deployed Pages project must also have one of the worker runtime configurations above.
