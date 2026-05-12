@@ -1,5 +1,19 @@
 const API = (() => {
   const BASE = (typeof window !== "undefined" && window.API_BASE) ? window.API_BASE : "/api";
+  const GET_CACHE_TTL = 15000;
+  const getCache = new Map();
+  const inflightGets = new Map();
+
+  function cacheKey(endpoint, params = {}, headers = {}) {
+    const sortedParams = Object.entries(params || {}).sort(([a], [b]) => a.localeCompare(b));
+    const sortedHeaders = Object.entries(headers || {}).sort(([a], [b]) => a.localeCompare(b));
+    return JSON.stringify([endpoint, sortedParams, sortedHeaders]);
+  }
+
+  function clearGetCache() {
+    getCache.clear();
+    inflightGets.clear();
+  }
 
   async function post(endpoint, body, headers = {}) {
     const res = await fetch(`${BASE}/${endpoint}`, {
@@ -15,6 +29,7 @@ const API = (() => {
       } catch {}
       throw new Error(msg);
     }
+    clearGetCache();
     return res.json();
   }
 
@@ -23,17 +38,44 @@ const API = (() => {
     for (const [k, v] of Object.entries(params)) {
       if (v !== null && v !== undefined && v !== "") cleanParams[k] = v;
     }
+    const key = cacheKey(endpoint, cleanParams, headers);
+    const cached = getCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+    if (inflightGets.has(key)) return inflightGets.get(key);
     const qs = new URLSearchParams(cleanParams).toString();
-    const res = await fetch(`${BASE}/${endpoint}${qs ? `?${qs}` : ""}`, { headers });
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`;
-      try {
-        const d = await res.json();
-        if (d.error) msg += `: ${d.error}`;
-      } catch {}
-      throw new Error(msg);
+    const request = (async () => {
+      const res = await fetch(`${BASE}/${endpoint}${qs ? `?${qs}` : ""}`, { headers });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try {
+          const d = await res.json();
+          if (d.error) msg += `: ${d.error}`;
+        } catch {}
+        throw new Error(msg);
+      }
+      const data = await res.json();
+      getCache.set(key, { data, expiresAt: Date.now() + GET_CACHE_TTL });
+      return data;
+    })();
+    inflightGets.set(key, request);
+    try {
+      return await request;
+    } finally {
+      inflightGets.delete(key);
     }
-    return res.json();
+  }
+
+  async function del(endpoint, searchParams, headers = {}) {
+    const res = await fetch(`${BASE}/${endpoint}?${new URLSearchParams(searchParams).toString()}`, {
+      method: "DELETE",
+      headers,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error ? `HTTP ${res.status}: ${data.error}` : `HTTP ${res.status}`);
+    }
+    clearGetCache();
+    return data;
   }
 
   return {
@@ -58,16 +100,16 @@ const API = (() => {
     getKPIsByTeam: (team) => get("getKPIsByTeam", { team }),
     getDashboardData: () => get("getDashboardData"),
     saveUser: (userData, headers = {}) => post("admin/saveUser", userData, headers),
-    deleteUser: (empId, headers = {}) => fetch(`${BASE}/admin/deleteUser?empId=${encodeURIComponent(empId)}`, { method: "DELETE", headers }).then((r) => r.json()),
+    deleteUser: (empId, headers = {}) => del("admin/deleteUser", { empId }, headers),
     saveKpi: (kpiData, headers = {}) => post("admin/saveKpi", kpiData, headers),
-    deleteKpi: (id, headers = {}) => fetch(`${BASE}/admin/deleteKpi?id=${encodeURIComponent(id)}`, { method: "DELETE", headers }).then((r) => r.json()),
+    deleteKpi: (id, headers = {}) => del("admin/deleteKpi", { id }, headers),
     getAuditLogs: (headers = {}) => get("admin/getAuditLogs", {}, headers),
     getTeams: (headers = {}) => get("admin/getTeams", {}, headers),
     saveTeam: (teamData, headers = {}) => post("admin/saveTeam", teamData, headers),
-    deleteTeam: (id, headers = {}) => fetch(`${BASE}/admin/deleteTeam?id=${encodeURIComponent(id)}`, { method: "DELETE", headers }).then((r) => r.json()),
+    deleteTeam: (id, headers = {}) => del("admin/deleteTeam", { id }, headers),
     getHolidays: (headers = {}) => get("admin/getHolidays", {}, headers),
     saveHoliday: (holidayData, headers = {}) => post("admin/saveHoliday", holidayData, headers),
-    deleteHoliday: (id, headers = {}) => fetch(`${BASE}/admin/deleteHoliday?id=${encodeURIComponent(id)}`, { method: "DELETE", headers }).then((r) => r.json()),
+    deleteHoliday: (id, headers = {}) => del("admin/deleteHoliday", { id }, headers),
     recalculateDeadlines: (headers = {}) => post("admin/recalculateDeadlines", {}, headers),
     deleteTask: (id, team, changedBy) => post("deleteTask", { id, team, changedBy }),
     getTasksByJob: (q) => get("getTasksByJob", { q }),

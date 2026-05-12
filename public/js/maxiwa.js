@@ -760,11 +760,35 @@ function taskMatchesPerson(task, person) {
   return personKey(task.name) === personKey(person.name) && (!person.team || task.team === person.team);
 }
 
-function enrichSummaryWithTaskWeights(summary, tasks) {
+function personNameTeamKey(person = {}) {
+  return `${personKey(person.name)}::${personKey(person.team)}`;
+}
+
+function buildPersonTaskIndex(tasks = []) {
+  const buckets = new Map();
+  filterPerformanceTasks(tasks || []).forEach((task) => {
+    const keys = new Set();
+    const empKey = personKey(task.empId || task.empid || task.assignedToEmpId);
+    if (empKey) keys.add(`emp:${empKey}`);
+    keys.add(`name:${personNameTeamKey({ name: task.name, team: task.team })}`);
+    keys.forEach((key) => {
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(task);
+    });
+  });
+  return buckets;
+}
+
+function tasksForPerson(index, person = {}) {
+  const empKey = personKey(person.empId || person.empid);
+  if (empKey && index.has(`emp:${empKey}`)) return index.get(`emp:${empKey}`) || [];
+  return index.get(`name:${personNameTeamKey(person)}`) || [];
+}
+
+function enrichSummaryWithTaskWeights(summary, tasks, taskIndex = buildPersonTaskIndex(tasks)) {
   const sourceSummary = (summary || []).filter((person) => !isResignedPerson(person));
-  const sourceTasks = filterPerformanceTasks(tasks || []);
   return sourceSummary.map((person) => {
-    const personTasks = sourceTasks.filter((task) => taskMatchesPerson(task, person));
+    const personTasks = tasksForPerson(taskIndex, person);
     if (personTasks.length === 0) return null;
     const weighted = calcTaskWeightedScores(personTasks);
     return {
@@ -797,8 +821,10 @@ function buildPeopleSummaryFromTasks(tasks = []) {
   return Array.from(people.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'th'));
 }
 
-function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
-  const personTasks = filterPerformanceTasks(tasks || []).filter((task) => taskMatchesPerson(task, person));
+function summarizeLeadPersonTasks(person, tasksOrIndex = [], holidays = []) {
+  const personTasks = Array.isArray(tasksOrIndex)
+    ? filterPerformanceTasks(tasksOrIndex || []).filter((task) => taskMatchesPerson(task, person))
+    : tasksForPerson(tasksOrIndex, person);
   const activeTasks = personTasks.filter(isActiveTask);
   const completedTasks = personTasks.filter((task) => statusEquals(task.status, 'Completed'));
   const statusCounts = personTasks.reduce((acc, task) => {
@@ -1521,16 +1547,13 @@ function useAppData(user, view) {
         return;
       }
       if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
-        const [summaryRes, tasksRes] = await Promise.all([
-          API.getSummaryReport(monthParam, filterYear, user.empId),
-          API.getAllTasks(monthParam, filterYear, 'all', user.empId),
-        ]);
+        const tasksRes = await API.getAllTasks(monthParam, filterYear, 'all', user.empId);
+        const visibleTasks = filterByAllowedTeams(user, tasksRes.tasks || []);
         safeSet({
           dashboard: {
-            summary: filterByAllowedTeams(user, summaryRes.summary || []),
-            tasks: filterByAllowedTeams(user, tasksRes.tasks || []),
-            period: summaryRes.period,
-            holidays: tasksRes.holidays || summaryRes.holidays || [],
+            summary: buildPeopleSummaryFromTasks(visibleTasks),
+            tasks: visibleTasks,
+            holidays: tasksRes.holidays || [],
           },
           loading: false,
         });
@@ -2217,12 +2240,13 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
   if (user.role === 'Lead') {
     const tasks = filterPerformanceTasks(data.tasks || []);
     const holidaySet = buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]);
-    const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks);
+    const taskIndex = buildPersonTaskIndex(tasks);
+    const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks, taskIndex);
     const teamScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
     const avgSla = teamScores && teamScores.sla !== null
       ? teamScores.sla
       : (summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0);
-    const leadRows = summary.map((person) => ({ person, detail: summarizeLeadPersonTasks(person, tasks, holidaySet) }));
+    const leadRows = summary.map((person) => ({ person, detail: summarizeLeadPersonTasks(person, taskIndex, holidaySet) }));
     return (
       <div className="grid gap-5">
         <div className="mx-grid-auto">
@@ -2343,7 +2367,8 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
 
   if (user.role === 'Manager') {
     const tasks = filterPerformanceTasks(data.tasks || []);
-    const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks);
+    const taskIndex = buildPersonTaskIndex(tasks);
+    const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks, taskIndex);
     const risky = tasks.filter((t) => statusIn(t.status, ['Pending', 'On Hold'])).length;
     const orgScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
     const avgSla = orgScores && orgScores.sla !== null

@@ -22116,11 +22116,32 @@ var MaxiwaKpiApp = (() => {
     if (taskEmp && personEmp && taskEmp === personEmp) return true;
     return personKey(task.name) === personKey(person.name) && (!person.team || task.team === person.team);
   }
-  function enrichSummaryWithTaskWeights(summary, tasks) {
+  function personNameTeamKey(person = {}) {
+    return `${personKey(person.name)}::${personKey(person.team)}`;
+  }
+  function buildPersonTaskIndex(tasks = []) {
+    const buckets = /* @__PURE__ */ new Map();
+    filterPerformanceTasks(tasks || []).forEach((task) => {
+      const keys = /* @__PURE__ */ new Set();
+      const empKey = personKey(task.empId || task.empid || task.assignedToEmpId);
+      if (empKey) keys.add(`emp:${empKey}`);
+      keys.add(`name:${personNameTeamKey({ name: task.name, team: task.team })}`);
+      keys.forEach((key) => {
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(task);
+      });
+    });
+    return buckets;
+  }
+  function tasksForPerson(index, person = {}) {
+    const empKey = personKey(person.empId || person.empid);
+    if (empKey && index.has(`emp:${empKey}`)) return index.get(`emp:${empKey}`) || [];
+    return index.get(`name:${personNameTeamKey(person)}`) || [];
+  }
+  function enrichSummaryWithTaskWeights(summary, tasks, taskIndex = buildPersonTaskIndex(tasks)) {
     const sourceSummary = (summary || []).filter((person) => !isResignedPerson(person));
-    const sourceTasks = filterPerformanceTasks(tasks || []);
     return sourceSummary.map((person) => {
-      const personTasks = sourceTasks.filter((task) => taskMatchesPerson(task, person));
+      const personTasks = tasksForPerson(taskIndex, person);
       if (personTasks.length === 0) return null;
       const weighted = calcTaskWeightedScores(personTasks);
       return {
@@ -22151,8 +22172,8 @@ var MaxiwaKpiApp = (() => {
     });
     return Array.from(people.values()).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "th"));
   }
-  function summarizeLeadPersonTasks(person, tasks = [], holidays = []) {
-    const personTasks = filterPerformanceTasks(tasks || []).filter((task) => taskMatchesPerson(task, person));
+  function summarizeLeadPersonTasks(person, tasksOrIndex = [], holidays = []) {
+    const personTasks = Array.isArray(tasksOrIndex) ? filterPerformanceTasks(tasksOrIndex || []).filter((task) => taskMatchesPerson(task, person)) : tasksForPerson(tasksOrIndex, person);
     const activeTasks = personTasks.filter(isActiveTask);
     const completedTasks = personTasks.filter((task) => statusEquals(task.status, "Completed"));
     const statusCounts = personTasks.reduce((acc, task) => {
@@ -22492,16 +22513,13 @@ var MaxiwaKpiApp = (() => {
           return;
         }
         if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
-          const [summaryRes, tasksRes] = await Promise.all([
-            API.getSummaryReport(monthParam, filterYear, user.empId),
-            API.getAllTasks(monthParam, filterYear, "all", user.empId)
-          ]);
+          const tasksRes = await API.getAllTasks(monthParam, filterYear, "all", user.empId);
+          const visibleTasks = filterByAllowedTeams(user, tasksRes.tasks || []);
           safeSet({
             dashboard: {
-              summary: filterByAllowedTeams(user, summaryRes.summary || []),
-              tasks: filterByAllowedTeams(user, tasksRes.tasks || []),
-              period: summaryRes.period,
-              holidays: tasksRes.holidays || summaryRes.holidays || []
+              summary: buildPeopleSummaryFromTasks(visibleTasks),
+              tasks: visibleTasks,
+              holidays: tasksRes.holidays || []
             },
             loading: false
           });
@@ -22912,10 +22930,11 @@ var MaxiwaKpiApp = (() => {
     if (user.role === "Lead") {
       const tasks2 = filterPerformanceTasks(data.tasks || []);
       const holidaySet = buildHolidaySet([...holidays || [], ...data && data.holidays || []]);
-      const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks2);
+      const taskIndex = buildPersonTaskIndex(tasks2);
+      const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks2, taskIndex);
       const teamScores = tasks2.length > 0 ? calcTaskWeightedScores(tasks2) : null;
       const avgSla = teamScores && teamScores.sla !== null ? teamScores.sla : summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0;
-      const leadRows = summary.map((person) => ({ person, detail: summarizeLeadPersonTasks(person, tasks2, holidaySet) }));
+      const leadRows = summary.map((person) => ({ person, detail: summarizeLeadPersonTasks(person, taskIndex, holidaySet) }));
       return /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-grid-auto" }, /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "Team Members", value: summary.length, sub: "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E41\u0E2A\u0E14\u0E07\u0E15\u0E32\u0E21\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E01\u0E32\u0E23\u0E40\u0E02\u0E49\u0E32\u0E16\u0E36\u0E07", icon: "fa-users" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "Team Weight", value: teamScores ? formatWeightPercent(teamScores.totalWeight) : "-", sub: "\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E23\u0E27\u0E21\u0E02\u0E2D\u0E07\u0E17\u0E35\u0E21", icon: "fa-scale-balanced", accent: "var(--mx-blue)" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "Weighted Completion", value: teamScores ? formatScorePercent(teamScores.completion) : "-", sub: completionMetricSub(teamScores), icon: "fa-check-double", accent: "var(--mx-green)" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "Avg SLA", value: `${avgSla}%`, sub: teamScores ? slaMetricSub(teamScores, avgSla) : "\u0E04\u0E48\u0E32\u0E40\u0E09\u0E25\u0E35\u0E48\u0E22 weighted SLA score", icon: "fa-chart-line", accent: "var(--mx-teal)" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "Period", value: data.period || "-", sub: "\u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32\u0E17\u0E35\u0E48\u0E01\u0E33\u0E25\u0E31\u0E07\u0E14\u0E39", icon: "fa-calendar-days", accent: "var(--mx-amber)" })), teamScores && /* @__PURE__ */ import_react.default.createElement(WeightFormulaStrip, { scores: teamScores }), /* @__PURE__ */ import_react.default.createElement(Panel, { title: "Team Performance Pulse", subtitle: "\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E17\u0E35\u0E21\u0E43\u0E19\u0E2B\u0E19\u0E49\u0E32\u0E17\u0E35\u0E48\u0E2D\u0E48\u0E32\u0E19\u0E07\u0E48\u0E32\u0E22\u0E02\u0E36\u0E49\u0E19" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-4" }, leadRows.map(({ person, detail }, index) => {
         var _a, _b, _c;
         const slaScore = (_a = person.weightedSlaScore) != null ? _a : detail.scores.sla;
@@ -22939,7 +22958,8 @@ var MaxiwaKpiApp = (() => {
     }
     if (user.role === "Manager") {
       const tasks2 = filterPerformanceTasks(data.tasks || []);
-      const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks2);
+      const taskIndex = buildPersonTaskIndex(tasks2);
+      const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks2, taskIndex);
       const risky = tasks2.filter((t) => statusIn(t.status, ["Pending", "On Hold"])).length;
       const orgScores = tasks2.length > 0 ? calcTaskWeightedScores(tasks2) : null;
       const avgSla = orgScores && orgScores.sla !== null ? orgScores.sla : summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0;
