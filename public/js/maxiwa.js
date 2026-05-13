@@ -1221,23 +1221,10 @@ async function fetchWeatherSnapshot(selectedLocation) {
   }
 }
 
-function WeatherGlyph({ loading }) {
+function WeatherGlyph({ loading, icon }) {
   return (
-    <div className="relative w-14 h-12 flex-shrink-0" aria-hidden="true">
-      {loading ? (
-        <div className="absolute inset-0 grid place-items-center text-[var(--mx-accent)]">
-          <i className="fa-solid fa-rotate-right fa-spin text-3xl"></i>
-        </div>
-      ) : (
-        <>
-          <span className="absolute left-1 top-2 w-7 h-7 rounded-full bg-[#f6a623]"></span>
-          <span className="absolute left-5 top-2 w-9 h-6 rounded-t-full bg-[#d9e2ef] shadow-[inset_-9px_-7px_0_rgba(75,85,99,0.58)]"></span>
-          <span className="absolute left-2 top-5 w-11 h-6 rounded-full bg-[#9ca3af]"></span>
-          <span className="absolute left-0 bottom-1 w-3 h-5 rounded-full bg-[#2f80ed] rotate-[24deg]"></span>
-          <span className="absolute left-4 bottom-0 w-3 h-5 rounded-full bg-[#0f6fe8] rotate-[24deg]"></span>
-          <i className="fa-solid fa-bolt absolute left-8 bottom-0 text-[#f59e0b] text-2xl leading-none"></i>
-        </>
-      )}
+    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#334155] to-[#111827] border border-white/10 grid place-items-center flex-shrink-0 shadow-inner" aria-hidden="true">
+      <i className={`fa-solid ${loading ? 'fa-rotate-right fa-spin' : icon || 'fa-cloud-sun'} text-[32px] ${icon === 'fa-sun' ? 'text-[#f6c453]' : icon === 'fa-cloud-bolt' ? 'text-[#f59e0b]' : icon === 'fa-cloud-showers-heavy' ? 'text-[#60a5fa]' : 'text-[#dbeafe]'}`}></i>
     </div>
   );
 }
@@ -1246,6 +1233,9 @@ function WeatherWidget() {
   const [weather, setWeather] = useState({ loading: true, error: false });
   const [selectedLocation, setSelectedLocation] = useState(WEATHER_FALLBACK_LOCATION);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [locationQuery, setLocationQuery] = useState('');
+  const [locationResults, setLocationResults] = useState([]);
+  const [locationSearching, setLocationSearching] = useState(false);
 
   const loadWeather = useCallback(async (cancelledRef = { current: false }) => {
     setWeather((prev) => ({ ...prev, loading: true, error: false }));
@@ -1267,6 +1257,41 @@ function WeatherWidget() {
     };
   }, [loadWeather]);
 
+  useEffect(() => {
+    const query = locationQuery.trim();
+    if (!menuOpen || query.length < 2) {
+      setLocationResults([]);
+      setLocationSearching(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setLocationSearching(true);
+      try {
+        const params = new URLSearchParams({ name: query, count: '6', language: 'th', format: 'json' });
+        const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params.toString()}`);
+        if (!res.ok) throw new Error(`Geocoding HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) {
+          setLocationResults((data.results || []).map((item) => ({
+            id: `geo-${item.id}`,
+            latitude: item.latitude,
+            longitude: item.longitude,
+            label: [item.name, item.admin1, item.country].filter(Boolean).join(', '),
+          })));
+        }
+      } catch {
+        if (!cancelled) setLocationResults([]);
+      } finally {
+        if (!cancelled) setLocationSearching(false);
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [locationQuery, menuOpen]);
+
   if (weather.error) {
     return (
       <div className="min-w-[320px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 py-2 flex items-center gap-2 text-[var(--mx-muted)]">
@@ -1278,7 +1303,7 @@ function WeatherWidget() {
   }
 
   return (
-    <div className="relative w-full max-w-[390px] min-w-0 rounded-lg bg-[#20232a] text-white px-3.5 py-3 shadow-sm border border-[rgba(255,255,255,0.08)]">
+    <div className="relative w-full max-w-[390px] min-w-0 rounded-lg bg-[#20232a] text-white px-4 py-3 shadow-sm border border-[rgba(255,255,255,0.08)]">
       <div className="flex items-center justify-between gap-3 text-[12px] leading-none">
         <div className="min-w-0 flex items-center gap-2">
           <i className="fa-solid fa-location-dot text-slate-200"></i>
@@ -1290,8 +1315,31 @@ function WeatherWidget() {
         </button>
       </div>
       {menuOpen && (
-        <div className="absolute right-3 top-10 z-50 w-56 rounded-lg border border-white/10 bg-[#2a2e38] p-1 shadow-2xl">
+        <div className="absolute right-3 top-10 z-50 w-72 rounded-lg border border-white/10 bg-[#2a2e38] p-2 shadow-2xl">
+          <input
+            className="w-full rounded-md border border-white/10 bg-[#1f2430] px-3 py-2 text-sm text-white outline-none placeholder:text-slate-400"
+            value={locationQuery}
+            onChange={(e) => setLocationQuery(e.target.value)}
+            placeholder="ค้นหาพื้นที่..."
+            autoFocus
+          />
+          <div className="mt-2 grid gap-1">
+            <button
+              className="w-full rounded-md px-3 py-2 text-left text-sm font-bold hover:bg-white/10"
+              type="button"
+              onClick={() => {
+                setSelectedLocation(WEATHER_LOCATIONS.find((item) => item.id === 'current') || WEATHER_FALLBACK_LOCATION);
+                setMenuOpen(false);
+                setLocationQuery('');
+              }}
+            >
+              <i className="fa-solid fa-location-crosshairs mr-2 text-[#78b7ff]"></i>ตำแหน่งปัจจุบัน
+            </button>
+          </div>
+          <div className="mt-2 border-t border-white/10 pt-2">
+            <div className="px-3 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">พื้นที่แนะนำ</div>
           {WEATHER_LOCATIONS.map((location) => (
+            location.id === 'current' ? null : (
             <button
               key={location.id}
               className={cn('w-full rounded-md px-3 py-2 text-left text-sm font-bold hover:bg-white/10', selectedLocation.id === location.id && 'bg-white/10 text-[#78b7ff]')}
@@ -1299,15 +1347,41 @@ function WeatherWidget() {
               onClick={() => {
                 setSelectedLocation(location);
                 setMenuOpen(false);
+                setLocationQuery('');
               }}
             >
               {location.label}
             </button>
+            )
           ))}
+          </div>
+          {(locationSearching || locationResults.length > 0 || locationQuery.trim().length >= 2) && (
+            <div className="mt-2 border-t border-white/10 pt-2">
+              <div className="px-3 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">ผลการค้นหา</div>
+              {locationSearching && <div className="px-3 py-2 text-sm text-slate-300">กำลังค้นหา...</div>}
+              {!locationSearching && locationResults.length === 0 && locationQuery.trim().length >= 2 && (
+                <div className="px-3 py-2 text-sm text-slate-300">ไม่พบพื้นที่</div>
+              )}
+              {!locationSearching && locationResults.map((location) => (
+                <button
+                  key={location.id}
+                  className="w-full rounded-md px-3 py-2 text-left text-sm font-bold hover:bg-white/10"
+                  type="button"
+                  onClick={() => {
+                    setSelectedLocation(location);
+                    setMenuOpen(false);
+                    setLocationQuery('');
+                  }}
+                >
+                  {location.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
-      <div className="mt-3 flex items-center gap-4">
-        <WeatherGlyph loading={weather.loading} />
+      <div className="mt-3 grid grid-cols-[56px_auto_1fr] items-center gap-4">
+        <WeatherGlyph loading={weather.loading} icon={weather.icon} />
         <div className="flex items-start gap-1">
           <div className="text-[44px] leading-none font-light tracking-normal">{weather.loading ? '--' : weather.temp ?? '-'}</div>
           <div className="mt-2 text-sm font-bold whitespace-nowrap">°C | °F</div>
