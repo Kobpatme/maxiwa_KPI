@@ -1146,7 +1146,7 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-const WEATHER_FALLBACK_LOCATION = { latitude: 13.7563, longitude: 100.5018, label: 'Bangkok' };
+const WEATHER_FALLBACK_LOCATION = { latitude: 13.826, longitude: 100.571, label: 'แขวงลาดยาว เขตจตุจักร' };
 
 function weatherMeta(code) {
   if (code === 0) return { icon: 'fa-sun', label: 'Clear' };
@@ -1169,7 +1169,7 @@ function getWeatherLocation() {
       (position) => resolve({
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
-        label: 'Local',
+        label: 'ตำแหน่งปัจจุบัน',
       }),
       () => resolve(WEATHER_FALLBACK_LOCATION),
       { enableHighAccuracy: false, timeout: 3500, maximumAge: 15 * 60 * 1000 }
@@ -1183,6 +1183,8 @@ async function fetchWeatherSnapshot() {
     latitude: String(location.latitude),
     longitude: String(location.longitude),
     current: 'temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m',
+    hourly: 'precipitation_probability',
+    forecast_days: '1',
     timezone: 'auto',
   });
   const controller = new AbortController();
@@ -1192,10 +1194,12 @@ async function fetchWeatherSnapshot() {
     if (!res.ok) throw new Error(`Weather HTTP ${res.status}`);
     const data = await res.json();
     const current = data.current || {};
+    const precip = Array.isArray(data.hourly?.precipitation_probability) ? data.hourly.precipitation_probability[0] : null;
     const meta = weatherMeta(Number(current.weather_code));
     return {
       location: location.label,
       temp: Number.isFinite(Number(current.temperature_2m)) ? Math.round(Number(current.temperature_2m)) : null,
+      precip: Number.isFinite(Number(precip)) ? Math.round(Number(precip)) : null,
       humidity: Number.isFinite(Number(current.relative_humidity_2m)) ? Math.round(Number(current.relative_humidity_2m)) : null,
       wind: Number.isFinite(Number(current.wind_speed_10m)) ? Math.round(Number(current.wind_speed_10m)) : null,
       ...meta,
@@ -1205,30 +1209,53 @@ async function fetchWeatherSnapshot() {
   }
 }
 
+function WeatherGlyph({ loading }) {
+  return (
+    <div className="relative w-16 h-14 flex-shrink-0" aria-hidden="true">
+      {loading ? (
+        <div className="absolute inset-0 grid place-items-center text-[var(--mx-accent)]">
+          <i className="fa-solid fa-rotate-right fa-spin text-3xl"></i>
+        </div>
+      ) : (
+        <>
+          <span className="absolute left-1 top-2 w-8 h-8 rounded-full bg-[#f6a623]"></span>
+          <span className="absolute left-5 top-2 w-10 h-7 rounded-t-full bg-[#d9e2ef] shadow-[inset_-10px_-8px_0_rgba(75,85,99,0.65)]"></span>
+          <span className="absolute left-2 top-5 w-12 h-7 rounded-full bg-[#9ca3af]"></span>
+          <span className="absolute left-0 bottom-1 w-3 h-5 rounded-full bg-[#2f80ed] rotate-[24deg]"></span>
+          <span className="absolute left-4 bottom-0 w-3 h-6 rounded-full bg-[#0f6fe8] rotate-[24deg]"></span>
+          <i className="fa-solid fa-bolt absolute left-8 bottom-0 text-[#f59e0b] text-3xl leading-none"></i>
+        </>
+      )}
+    </div>
+  );
+}
+
 function WeatherWidget() {
   const [weather, setWeather] = useState({ loading: true, error: false });
 
+  const loadWeather = useCallback(async (cancelledRef = { current: false }) => {
+    setWeather((prev) => ({ ...prev, loading: true, error: false }));
+    try {
+      const snapshot = await fetchWeatherSnapshot();
+      if (!cancelledRef.current) setWeather({ loading: false, error: false, ...snapshot });
+    } catch {
+      if (!cancelledRef.current) setWeather({ loading: false, error: true });
+    }
+  }, []);
+
   useEffect(() => {
-    let cancelled = false;
-    const loadWeather = async () => {
-      try {
-        const snapshot = await fetchWeatherSnapshot();
-        if (!cancelled) setWeather({ loading: false, error: false, ...snapshot });
-      } catch {
-        if (!cancelled) setWeather({ loading: false, error: true });
-      }
-    };
-    loadWeather();
-    const timer = setInterval(loadWeather, 10 * 60 * 1000);
+    const cancelledRef = { current: false };
+    loadWeather(cancelledRef);
+    const timer = setInterval(() => loadWeather(cancelledRef), 10 * 60 * 1000);
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [loadWeather]);
 
   if (weather.error) {
     return (
-      <div className="h-11 min-w-[172px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 flex items-center gap-2 text-[var(--mx-muted)]">
+      <div className="min-w-[280px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 py-2 flex items-center gap-2 text-[var(--mx-muted)]">
         <i className="fa-solid fa-cloud"></i>
         <span className="text-sm font-extrabold">Weather offline</span>
       </div>
@@ -1236,16 +1263,27 @@ function WeatherWidget() {
   }
 
   return (
-    <div className="h-11 min-w-[196px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 flex items-center gap-3">
-      <span className="w-8 h-8 rounded-lg grid place-items-center bg-[var(--mx-panel)] border border-[var(--mx-line)] text-[var(--mx-accent)]">
-        <i className={`fa-solid ${weather.loading ? 'fa-rotate-right fa-spin' : weather.icon || 'fa-cloud'}`}></i>
-      </span>
-      <div className="min-w-0 leading-tight">
-        <div className="text-sm font-extrabold whitespace-nowrap">
-          {weather.loading ? 'Loading weather' : `${weather.temp ?? '-'}°C ${weather.label || ''}`}
+    <div className="min-w-[300px] rounded-lg bg-[#20232a] text-white px-3 py-2 shadow-sm border border-[rgba(255,255,255,0.08)]">
+      <div className="flex items-center justify-between gap-3 text-[12px] leading-none">
+        <div className="min-w-0 flex items-center gap-2">
+          <i className="fa-solid fa-location-dot text-slate-200"></i>
+          <span className="font-extrabold truncate">{weather.location || WEATHER_FALLBACK_LOCATION.label}</span>
+          <button className="text-[#78b7ff] font-bold whitespace-nowrap" onClick={() => loadWeather()} type="button">เลือกพื้นที่</button>
         </div>
-        <div className="text-[11px] text-[var(--mx-muted)] whitespace-nowrap">
-          {weather.loading ? 'Realtime forecast' : `${weather.location || 'Local'} · RH ${weather.humidity ?? '-'}% · Wind ${weather.wind ?? '-'} km/h`}
+        <button className="w-7 h-7 grid place-items-center rounded-md text-slate-300 hover:bg-white/10" onClick={() => loadWeather()} title="Refresh weather" type="button">
+          <i className="fa-solid fa-ellipsis-vertical"></i>
+        </button>
+      </div>
+      <div className="mt-2 flex items-center gap-3">
+        <WeatherGlyph loading={weather.loading} />
+        <div className="flex items-start gap-1">
+          <div className="text-[46px] leading-none font-light tracking-normal">{weather.loading ? '--' : weather.temp ?? '-'}</div>
+          <div className="mt-2 text-sm font-bold">°C | °F</div>
+        </div>
+        <div className="ml-auto text-[12px] leading-[1.35] text-slate-300 whitespace-nowrap">
+          <div>โอกาสฝนตก: {weather.loading ? '-' : weather.precip ?? '-'}%</div>
+          <div>ความชื้น: {weather.loading ? '-' : weather.humidity ?? '-'}%</div>
+          <div>ลม: {weather.loading ? '-' : weather.wind ?? '-'} กม./ชม.</div>
         </div>
       </div>
     </div>

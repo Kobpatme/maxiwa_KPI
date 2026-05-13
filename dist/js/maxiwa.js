@@ -22349,7 +22349,7 @@ var MaxiwaKpiApp = (() => {
       /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, isDark ? "Light" : "Dark")
     );
   }
-  var WEATHER_FALLBACK_LOCATION = { latitude: 13.7563, longitude: 100.5018, label: "Bangkok" };
+  var WEATHER_FALLBACK_LOCATION = { latitude: 13.826, longitude: 100.571, label: "\u0E41\u0E02\u0E27\u0E07\u0E25\u0E32\u0E14\u0E22\u0E32\u0E27 \u0E40\u0E02\u0E15\u0E08\u0E15\u0E38\u0E08\u0E31\u0E01\u0E23" };
   function weatherMeta(code) {
     if (code === 0) return { icon: "fa-sun", label: "Clear" };
     if ([1, 2, 3].includes(code)) return { icon: "fa-cloud-sun", label: "Cloudy" };
@@ -22370,7 +22370,7 @@ var MaxiwaKpiApp = (() => {
         (position) => resolve({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-          label: "Local"
+          label: "\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19"
         }),
         () => resolve(WEATHER_FALLBACK_LOCATION),
         { enableHighAccuracy: false, timeout: 3500, maximumAge: 15 * 60 * 1e3 }
@@ -22378,11 +22378,14 @@ var MaxiwaKpiApp = (() => {
     });
   }
   async function fetchWeatherSnapshot() {
+    var _a;
     const location = await getWeatherLocation();
     const params = new URLSearchParams({
       latitude: String(location.latitude),
       longitude: String(location.longitude),
       current: "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m",
+      hourly: "precipitation_probability",
+      forecast_days: "1",
       timezone: "auto"
     });
     const controller = new AbortController();
@@ -22392,10 +22395,12 @@ var MaxiwaKpiApp = (() => {
       if (!res.ok) throw new Error(`Weather HTTP ${res.status}`);
       const data = await res.json();
       const current = data.current || {};
+      const precip = Array.isArray((_a = data.hourly) == null ? void 0 : _a.precipitation_probability) ? data.hourly.precipitation_probability[0] : null;
       const meta = weatherMeta(Number(current.weather_code));
       return {
         location: location.label,
         temp: Number.isFinite(Number(current.temperature_2m)) ? Math.round(Number(current.temperature_2m)) : null,
+        precip: Number.isFinite(Number(precip)) ? Math.round(Number(precip)) : null,
         humidity: Number.isFinite(Number(current.relative_humidity_2m)) ? Math.round(Number(current.relative_humidity_2m)) : null,
         wind: Number.isFinite(Number(current.wind_speed_10m)) ? Math.round(Number(current.wind_speed_10m)) : null,
         ...meta
@@ -22404,30 +22409,34 @@ var MaxiwaKpiApp = (() => {
       clearTimeout(timer);
     }
   }
+  function WeatherGlyph({ loading }) {
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative w-16 h-14 flex-shrink-0", "aria-hidden": "true" }, loading ? /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute inset-0 grid place-items-center text-[var(--mx-accent)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-rotate-right fa-spin text-3xl" })) : /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-1 top-2 w-8 h-8 rounded-full bg-[#f6a623]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-5 top-2 w-10 h-7 rounded-t-full bg-[#d9e2ef] shadow-[inset_-10px_-8px_0_rgba(75,85,99,0.65)]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-2 top-5 w-12 h-7 rounded-full bg-[#9ca3af]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-0 bottom-1 w-3 h-5 rounded-full bg-[#2f80ed] rotate-[24deg]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-4 bottom-0 w-3 h-6 rounded-full bg-[#0f6fe8] rotate-[24deg]" }), /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bolt absolute left-8 bottom-0 text-[#f59e0b] text-3xl leading-none" })));
+  }
   function WeatherWidget() {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     const [weather, setWeather] = useState({ loading: true, error: false });
+    const loadWeather = useCallback(async (cancelledRef = { current: false }) => {
+      setWeather((prev) => ({ ...prev, loading: true, error: false }));
+      try {
+        const snapshot = await fetchWeatherSnapshot();
+        if (!cancelledRef.current) setWeather({ loading: false, error: false, ...snapshot });
+      } catch {
+        if (!cancelledRef.current) setWeather({ loading: false, error: true });
+      }
+    }, []);
     useEffect(() => {
-      let cancelled = false;
-      const loadWeather = async () => {
-        try {
-          const snapshot = await fetchWeatherSnapshot();
-          if (!cancelled) setWeather({ loading: false, error: false, ...snapshot });
-        } catch {
-          if (!cancelled) setWeather({ loading: false, error: true });
-        }
-      };
-      loadWeather();
-      const timer = setInterval(loadWeather, 10 * 60 * 1e3);
+      const cancelledRef = { current: false };
+      loadWeather(cancelledRef);
+      const timer = setInterval(() => loadWeather(cancelledRef), 10 * 60 * 1e3);
       return () => {
-        cancelled = true;
+        cancelledRef.current = true;
         clearInterval(timer);
       };
-    }, []);
+    }, [loadWeather]);
     if (weather.error) {
-      return /* @__PURE__ */ import_react.default.createElement("div", { className: "h-11 min-w-[172px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 flex items-center gap-2 text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-cloud" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, "Weather offline"));
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-[280px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 py-2 flex items-center gap-2 text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-cloud" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, "Weather offline"));
     }
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "h-11 min-w-[196px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "w-8 h-8 rounded-lg grid place-items-center bg-[var(--mx-panel)] border border-[var(--mx-line)] text-[var(--mx-accent)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${weather.loading ? "fa-rotate-right fa-spin" : weather.icon || "fa-cloud"}` })), /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 leading-tight" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold whitespace-nowrap" }, weather.loading ? "Loading weather" : `${(_a = weather.temp) != null ? _a : "-"}\xB0C ${weather.label || ""}`), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[11px] text-[var(--mx-muted)] whitespace-nowrap" }, weather.loading ? "Realtime forecast" : `${weather.location || "Local"} \xB7 RH ${(_b = weather.humidity) != null ? _b : "-"}% \xB7 Wind ${(_c = weather.wind) != null ? _c : "-"} km/h`)));
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-[300px] rounded-lg bg-[#20232a] text-white px-3 py-2 shadow-sm border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between gap-3 text-[12px] leading-none" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-location-dot text-slate-200" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "font-extrabold truncate" }, weather.location || WEATHER_FALLBACK_LOCATION.label), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[#78b7ff] font-bold whitespace-nowrap", onClick: () => loadWeather(), type: "button" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E37\u0E49\u0E19\u0E17\u0E35\u0E48")), /* @__PURE__ */ import_react.default.createElement("button", { className: "w-7 h-7 grid place-items-center rounded-md text-slate-300 hover:bg-white/10", onClick: () => loadWeather(), title: "Refresh weather", type: "button" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-ellipsis-vertical" }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement(WeatherGlyph, { loading: weather.loading }), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[46px] leading-none font-light tracking-normal" }, weather.loading ? "--" : (_a = weather.temp) != null ? _a : "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 text-sm font-bold" }, "\xB0C | \xB0F")), /* @__PURE__ */ import_react.default.createElement("div", { className: "ml-auto text-[12px] leading-[1.35] text-slate-300 whitespace-nowrap" }, /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E42\u0E2D\u0E01\u0E32\u0E2A\u0E1D\u0E19\u0E15\u0E01: ", weather.loading ? "-" : (_b = weather.precip) != null ? _b : "-", "%"), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E04\u0E27\u0E32\u0E21\u0E0A\u0E37\u0E49\u0E19: ", weather.loading ? "-" : (_c = weather.humidity) != null ? _c : "-", "%"), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E25\u0E21: ", weather.loading ? "-" : (_d = weather.wind) != null ? _d : "-", " \u0E01\u0E21./\u0E0A\u0E21."))));
   }
   function normalizePhotoUrl(value) {
     const src = String(value || "").trim();
