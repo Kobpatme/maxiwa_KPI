@@ -22349,7 +22349,15 @@ var MaxiwaKpiApp = (() => {
       /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, isDark ? "Light" : "Dark")
     );
   }
-  var WEATHER_FALLBACK_LOCATION = { latitude: 13.826, longitude: 100.571, label: "\u0E41\u0E02\u0E27\u0E07\u0E25\u0E32\u0E14\u0E22\u0E32\u0E27 \u0E40\u0E02\u0E15\u0E08\u0E15\u0E38\u0E08\u0E31\u0E01\u0E23" };
+  var WEATHER_LOCATIONS = [
+    { id: "lat-yao", latitude: 13.826, longitude: 100.571, label: "\u0E41\u0E02\u0E27\u0E07\u0E25\u0E32\u0E14\u0E22\u0E32\u0E27 \u0E40\u0E02\u0E15\u0E08\u0E15\u0E38\u0E08\u0E31\u0E01\u0E23" },
+    { id: "bangkok", latitude: 13.7563, longitude: 100.5018, label: "\u0E01\u0E23\u0E38\u0E07\u0E40\u0E17\u0E1E\u0E21\u0E2B\u0E32\u0E19\u0E04\u0E23" },
+    { id: "bang-na", latitude: 13.6682, longitude: 100.6046, label: "\u0E1A\u0E32\u0E07\u0E19\u0E32" },
+    { id: "chonburi", latitude: 13.3611, longitude: 100.9847, label: "\u0E0A\u0E25\u0E1A\u0E38\u0E23\u0E35" },
+    { id: "rayong", latitude: 12.6814, longitude: 101.2816, label: "\u0E23\u0E30\u0E22\u0E2D\u0E07" },
+    { id: "current", latitude: null, longitude: null, label: "\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19" }
+  ];
+  var WEATHER_FALLBACK_LOCATION = WEATHER_LOCATIONS[0];
   function weatherMeta(code) {
     if (code === 0) return { icon: "fa-sun", label: "Clear" };
     if ([1, 2, 3].includes(code)) return { icon: "fa-cloud-sun", label: "Cloudy" };
@@ -22360,10 +22368,14 @@ var MaxiwaKpiApp = (() => {
     if ([95, 96, 99].includes(code)) return { icon: "fa-cloud-bolt", label: "Storm" };
     return { icon: "fa-cloud", label: "Weather" };
   }
-  function getWeatherLocation() {
+  function getWeatherLocation(selectedLocation = WEATHER_FALLBACK_LOCATION) {
     return new Promise((resolve) => {
+      if ((selectedLocation == null ? void 0 : selectedLocation.id) !== "current") {
+        resolve(selectedLocation || WEATHER_FALLBACK_LOCATION);
+        return;
+      }
       if (!navigator.geolocation) {
-        resolve(WEATHER_FALLBACK_LOCATION);
+        resolve({ ...WEATHER_FALLBACK_LOCATION, label: WEATHER_FALLBACK_LOCATION.label });
         return;
       }
       navigator.geolocation.getCurrentPosition(
@@ -22372,14 +22384,14 @@ var MaxiwaKpiApp = (() => {
           longitude: position.coords.longitude,
           label: "\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19"
         }),
-        () => resolve(WEATHER_FALLBACK_LOCATION),
+        () => resolve({ ...WEATHER_FALLBACK_LOCATION, label: WEATHER_FALLBACK_LOCATION.label }),
         { enableHighAccuracy: false, timeout: 3500, maximumAge: 15 * 60 * 1e3 }
       );
     });
   }
-  async function fetchWeatherSnapshot() {
+  async function fetchWeatherSnapshot(selectedLocation) {
     var _a;
-    const location = await getWeatherLocation();
+    const location = await getWeatherLocation(selectedLocation);
     const params = new URLSearchParams({
       latitude: String(location.latitude),
       longitude: String(location.longitude),
@@ -22410,20 +22422,22 @@ var MaxiwaKpiApp = (() => {
     }
   }
   function WeatherGlyph({ loading }) {
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative w-16 h-14 flex-shrink-0", "aria-hidden": "true" }, loading ? /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute inset-0 grid place-items-center text-[var(--mx-accent)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-rotate-right fa-spin text-3xl" })) : /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-1 top-2 w-8 h-8 rounded-full bg-[#f6a623]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-5 top-2 w-10 h-7 rounded-t-full bg-[#d9e2ef] shadow-[inset_-10px_-8px_0_rgba(75,85,99,0.65)]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-2 top-5 w-12 h-7 rounded-full bg-[#9ca3af]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-0 bottom-1 w-3 h-5 rounded-full bg-[#2f80ed] rotate-[24deg]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-4 bottom-0 w-3 h-6 rounded-full bg-[#0f6fe8] rotate-[24deg]" }), /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bolt absolute left-8 bottom-0 text-[#f59e0b] text-3xl leading-none" })));
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative w-14 h-12 flex-shrink-0", "aria-hidden": "true" }, loading ? /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute inset-0 grid place-items-center text-[var(--mx-accent)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-rotate-right fa-spin text-3xl" })) : /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-1 top-2 w-7 h-7 rounded-full bg-[#f6a623]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-5 top-2 w-9 h-6 rounded-t-full bg-[#d9e2ef] shadow-[inset_-9px_-7px_0_rgba(75,85,99,0.58)]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-2 top-5 w-11 h-6 rounded-full bg-[#9ca3af]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-0 bottom-1 w-3 h-5 rounded-full bg-[#2f80ed] rotate-[24deg]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute left-4 bottom-0 w-3 h-5 rounded-full bg-[#0f6fe8] rotate-[24deg]" }), /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bolt absolute left-8 bottom-0 text-[#f59e0b] text-2xl leading-none" })));
   }
   function WeatherWidget() {
     var _a, _b, _c, _d;
     const [weather, setWeather] = useState({ loading: true, error: false });
+    const [selectedLocation, setSelectedLocation] = useState(WEATHER_FALLBACK_LOCATION);
+    const [menuOpen, setMenuOpen] = useState(false);
     const loadWeather = useCallback(async (cancelledRef = { current: false }) => {
       setWeather((prev) => ({ ...prev, loading: true, error: false }));
       try {
-        const snapshot = await fetchWeatherSnapshot();
+        const snapshot = await fetchWeatherSnapshot(selectedLocation);
         if (!cancelledRef.current) setWeather({ loading: false, error: false, ...snapshot });
       } catch {
         if (!cancelledRef.current) setWeather({ loading: false, error: true });
       }
-    }, []);
+    }, [selectedLocation]);
     useEffect(() => {
       const cancelledRef = { current: false };
       loadWeather(cancelledRef);
@@ -22434,9 +22448,21 @@ var MaxiwaKpiApp = (() => {
       };
     }, [loadWeather]);
     if (weather.error) {
-      return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-[280px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 py-2 flex items-center gap-2 text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-cloud" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, "Weather offline"));
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-[320px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 py-2 flex items-center gap-2 text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-cloud" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, "Weather offline"), /* @__PURE__ */ import_react.default.createElement("button", { className: "ml-auto text-xs font-bold text-[var(--mx-accent)]", type: "button", onClick: () => loadWeather() }, "Retry"));
     }
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-[300px] rounded-lg bg-[#20232a] text-white px-3 py-2 shadow-sm border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between gap-3 text-[12px] leading-none" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-location-dot text-slate-200" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "font-extrabold truncate" }, weather.location || WEATHER_FALLBACK_LOCATION.label), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[#78b7ff] font-bold whitespace-nowrap", onClick: () => loadWeather(), type: "button" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E37\u0E49\u0E19\u0E17\u0E35\u0E48")), /* @__PURE__ */ import_react.default.createElement("button", { className: "w-7 h-7 grid place-items-center rounded-md text-slate-300 hover:bg-white/10", onClick: () => loadWeather(), title: "Refresh weather", type: "button" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-ellipsis-vertical" }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement(WeatherGlyph, { loading: weather.loading }), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[46px] leading-none font-light tracking-normal" }, weather.loading ? "--" : (_a = weather.temp) != null ? _a : "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 text-sm font-bold" }, "\xB0C | \xB0F")), /* @__PURE__ */ import_react.default.createElement("div", { className: "ml-auto text-[12px] leading-[1.35] text-slate-300 whitespace-nowrap" }, /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E42\u0E2D\u0E01\u0E32\u0E2A\u0E1D\u0E19\u0E15\u0E01: ", weather.loading ? "-" : (_b = weather.precip) != null ? _b : "-", "%"), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E04\u0E27\u0E32\u0E21\u0E0A\u0E37\u0E49\u0E19: ", weather.loading ? "-" : (_c = weather.humidity) != null ? _c : "-", "%"), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E25\u0E21: ", weather.loading ? "-" : (_d = weather.wind) != null ? _d : "-", " \u0E01\u0E21./\u0E0A\u0E21."))));
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative w-full max-w-[390px] min-w-[340px] rounded-lg bg-[#20232a] text-white px-3.5 py-3 shadow-sm border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between gap-3 text-[12px] leading-none" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-location-dot text-slate-200" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "font-extrabold truncate max-w-[170px]" }, weather.location || selectedLocation.label), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[#78b7ff] font-bold whitespace-nowrap hover:underline", onClick: () => setMenuOpen((value) => !value), type: "button" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E37\u0E49\u0E19\u0E17\u0E35\u0E48")), /* @__PURE__ */ import_react.default.createElement("button", { className: "w-7 h-7 grid place-items-center rounded-md text-slate-300 hover:bg-white/10", onClick: () => loadWeather(), title: "Refresh weather", type: "button" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-ellipsis-vertical" }))), menuOpen && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute right-3 top-10 z-50 w-56 rounded-lg border border-white/10 bg-[#2a2e38] p-1 shadow-2xl" }, WEATHER_LOCATIONS.map((location) => /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        key: location.id,
+        className: cn("w-full rounded-md px-3 py-2 text-left text-sm font-bold hover:bg-white/10", selectedLocation.id === location.id && "bg-white/10 text-[#78b7ff]"),
+        type: "button",
+        onClick: () => {
+          setSelectedLocation(location);
+          setMenuOpen(false);
+        }
+      },
+      location.label
+    ))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 flex items-center gap-4" }, /* @__PURE__ */ import_react.default.createElement(WeatherGlyph, { loading: weather.loading }), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[44px] leading-none font-light tracking-normal" }, weather.loading ? "--" : (_a = weather.temp) != null ? _a : "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 text-sm font-bold whitespace-nowrap" }, "\xB0C | \xB0F")), /* @__PURE__ */ import_react.default.createElement("div", { className: "ml-auto text-[12px] leading-[1.45] text-slate-300 whitespace-nowrap text-left" }, /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E42\u0E2D\u0E01\u0E32\u0E2A\u0E1D\u0E19\u0E15\u0E01: ", weather.loading ? "-" : (_b = weather.precip) != null ? _b : "-", "%"), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E04\u0E27\u0E32\u0E21\u0E0A\u0E37\u0E49\u0E19: ", weather.loading ? "-" : (_c = weather.humidity) != null ? _c : "-", "%"), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E25\u0E21: ", weather.loading ? "-" : (_d = weather.wind) != null ? _d : "-", " \u0E01\u0E21./\u0E0A\u0E21."))));
   }
   function normalizePhotoUrl(value) {
     const src = String(value || "").trim();

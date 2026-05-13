@@ -1146,7 +1146,15 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-const WEATHER_FALLBACK_LOCATION = { latitude: 13.826, longitude: 100.571, label: 'แขวงลาดยาว เขตจตุจักร' };
+const WEATHER_LOCATIONS = [
+  { id: 'lat-yao', latitude: 13.826, longitude: 100.571, label: 'แขวงลาดยาว เขตจตุจักร' },
+  { id: 'bangkok', latitude: 13.7563, longitude: 100.5018, label: 'กรุงเทพมหานคร' },
+  { id: 'bang-na', latitude: 13.6682, longitude: 100.6046, label: 'บางนา' },
+  { id: 'chonburi', latitude: 13.3611, longitude: 100.9847, label: 'ชลบุรี' },
+  { id: 'rayong', latitude: 12.6814, longitude: 101.2816, label: 'ระยอง' },
+  { id: 'current', latitude: null, longitude: null, label: 'ตำแหน่งปัจจุบัน' },
+];
+const WEATHER_FALLBACK_LOCATION = WEATHER_LOCATIONS[0];
 
 function weatherMeta(code) {
   if (code === 0) return { icon: 'fa-sun', label: 'Clear' };
@@ -1159,10 +1167,14 @@ function weatherMeta(code) {
   return { icon: 'fa-cloud', label: 'Weather' };
 }
 
-function getWeatherLocation() {
+function getWeatherLocation(selectedLocation = WEATHER_FALLBACK_LOCATION) {
   return new Promise((resolve) => {
+    if (selectedLocation?.id !== 'current') {
+      resolve(selectedLocation || WEATHER_FALLBACK_LOCATION);
+      return;
+    }
     if (!navigator.geolocation) {
-      resolve(WEATHER_FALLBACK_LOCATION);
+      resolve({ ...WEATHER_FALLBACK_LOCATION, label: WEATHER_FALLBACK_LOCATION.label });
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -1171,14 +1183,14 @@ function getWeatherLocation() {
         longitude: position.coords.longitude,
         label: 'ตำแหน่งปัจจุบัน',
       }),
-      () => resolve(WEATHER_FALLBACK_LOCATION),
+      () => resolve({ ...WEATHER_FALLBACK_LOCATION, label: WEATHER_FALLBACK_LOCATION.label }),
       { enableHighAccuracy: false, timeout: 3500, maximumAge: 15 * 60 * 1000 }
     );
   });
 }
 
-async function fetchWeatherSnapshot() {
-  const location = await getWeatherLocation();
+async function fetchWeatherSnapshot(selectedLocation) {
+  const location = await getWeatherLocation(selectedLocation);
   const params = new URLSearchParams({
     latitude: String(location.latitude),
     longitude: String(location.longitude),
@@ -1211,19 +1223,19 @@ async function fetchWeatherSnapshot() {
 
 function WeatherGlyph({ loading }) {
   return (
-    <div className="relative w-16 h-14 flex-shrink-0" aria-hidden="true">
+    <div className="relative w-14 h-12 flex-shrink-0" aria-hidden="true">
       {loading ? (
         <div className="absolute inset-0 grid place-items-center text-[var(--mx-accent)]">
           <i className="fa-solid fa-rotate-right fa-spin text-3xl"></i>
         </div>
       ) : (
         <>
-          <span className="absolute left-1 top-2 w-8 h-8 rounded-full bg-[#f6a623]"></span>
-          <span className="absolute left-5 top-2 w-10 h-7 rounded-t-full bg-[#d9e2ef] shadow-[inset_-10px_-8px_0_rgba(75,85,99,0.65)]"></span>
-          <span className="absolute left-2 top-5 w-12 h-7 rounded-full bg-[#9ca3af]"></span>
+          <span className="absolute left-1 top-2 w-7 h-7 rounded-full bg-[#f6a623]"></span>
+          <span className="absolute left-5 top-2 w-9 h-6 rounded-t-full bg-[#d9e2ef] shadow-[inset_-9px_-7px_0_rgba(75,85,99,0.58)]"></span>
+          <span className="absolute left-2 top-5 w-11 h-6 rounded-full bg-[#9ca3af]"></span>
           <span className="absolute left-0 bottom-1 w-3 h-5 rounded-full bg-[#2f80ed] rotate-[24deg]"></span>
-          <span className="absolute left-4 bottom-0 w-3 h-6 rounded-full bg-[#0f6fe8] rotate-[24deg]"></span>
-          <i className="fa-solid fa-bolt absolute left-8 bottom-0 text-[#f59e0b] text-3xl leading-none"></i>
+          <span className="absolute left-4 bottom-0 w-3 h-5 rounded-full bg-[#0f6fe8] rotate-[24deg]"></span>
+          <i className="fa-solid fa-bolt absolute left-8 bottom-0 text-[#f59e0b] text-2xl leading-none"></i>
         </>
       )}
     </div>
@@ -1232,16 +1244,18 @@ function WeatherGlyph({ loading }) {
 
 function WeatherWidget() {
   const [weather, setWeather] = useState({ loading: true, error: false });
+  const [selectedLocation, setSelectedLocation] = useState(WEATHER_FALLBACK_LOCATION);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const loadWeather = useCallback(async (cancelledRef = { current: false }) => {
     setWeather((prev) => ({ ...prev, loading: true, error: false }));
     try {
-      const snapshot = await fetchWeatherSnapshot();
+      const snapshot = await fetchWeatherSnapshot(selectedLocation);
       if (!cancelledRef.current) setWeather({ loading: false, error: false, ...snapshot });
     } catch {
       if (!cancelledRef.current) setWeather({ loading: false, error: true });
     }
-  }, []);
+  }, [selectedLocation]);
 
   useEffect(() => {
     const cancelledRef = { current: false };
@@ -1255,32 +1269,50 @@ function WeatherWidget() {
 
   if (weather.error) {
     return (
-      <div className="min-w-[280px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 py-2 flex items-center gap-2 text-[var(--mx-muted)]">
+      <div className="min-w-[320px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 py-2 flex items-center gap-2 text-[var(--mx-muted)]">
         <i className="fa-solid fa-cloud"></i>
         <span className="text-sm font-extrabold">Weather offline</span>
+        <button className="ml-auto text-xs font-bold text-[var(--mx-accent)]" type="button" onClick={() => loadWeather()}>Retry</button>
       </div>
     );
   }
 
   return (
-    <div className="min-w-[300px] rounded-lg bg-[#20232a] text-white px-3 py-2 shadow-sm border border-[rgba(255,255,255,0.08)]">
+    <div className="relative w-full max-w-[390px] min-w-[340px] rounded-lg bg-[#20232a] text-white px-3.5 py-3 shadow-sm border border-[rgba(255,255,255,0.08)]">
       <div className="flex items-center justify-between gap-3 text-[12px] leading-none">
         <div className="min-w-0 flex items-center gap-2">
           <i className="fa-solid fa-location-dot text-slate-200"></i>
-          <span className="font-extrabold truncate">{weather.location || WEATHER_FALLBACK_LOCATION.label}</span>
-          <button className="text-[#78b7ff] font-bold whitespace-nowrap" onClick={() => loadWeather()} type="button">เลือกพื้นที่</button>
+          <span className="font-extrabold truncate max-w-[170px]">{weather.location || selectedLocation.label}</span>
+          <button className="text-[#78b7ff] font-bold whitespace-nowrap hover:underline" onClick={() => setMenuOpen((value) => !value)} type="button">เลือกพื้นที่</button>
         </div>
         <button className="w-7 h-7 grid place-items-center rounded-md text-slate-300 hover:bg-white/10" onClick={() => loadWeather()} title="Refresh weather" type="button">
           <i className="fa-solid fa-ellipsis-vertical"></i>
         </button>
       </div>
-      <div className="mt-2 flex items-center gap-3">
+      {menuOpen && (
+        <div className="absolute right-3 top-10 z-50 w-56 rounded-lg border border-white/10 bg-[#2a2e38] p-1 shadow-2xl">
+          {WEATHER_LOCATIONS.map((location) => (
+            <button
+              key={location.id}
+              className={cn('w-full rounded-md px-3 py-2 text-left text-sm font-bold hover:bg-white/10', selectedLocation.id === location.id && 'bg-white/10 text-[#78b7ff]')}
+              type="button"
+              onClick={() => {
+                setSelectedLocation(location);
+                setMenuOpen(false);
+              }}
+            >
+              {location.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="mt-3 flex items-center gap-4">
         <WeatherGlyph loading={weather.loading} />
         <div className="flex items-start gap-1">
-          <div className="text-[46px] leading-none font-light tracking-normal">{weather.loading ? '--' : weather.temp ?? '-'}</div>
-          <div className="mt-2 text-sm font-bold">°C | °F</div>
+          <div className="text-[44px] leading-none font-light tracking-normal">{weather.loading ? '--' : weather.temp ?? '-'}</div>
+          <div className="mt-2 text-sm font-bold whitespace-nowrap">°C | °F</div>
         </div>
-        <div className="ml-auto text-[12px] leading-[1.35] text-slate-300 whitespace-nowrap">
+        <div className="ml-auto text-[12px] leading-[1.45] text-slate-300 whitespace-nowrap text-left">
           <div>โอกาสฝนตก: {weather.loading ? '-' : weather.precip ?? '-'}%</div>
           <div>ความชื้น: {weather.loading ? '-' : weather.humidity ?? '-'}%</div>
           <div>ลม: {weather.loading ? '-' : weather.wind ?? '-'} กม./ชม.</div>
