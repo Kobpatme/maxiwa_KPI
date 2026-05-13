@@ -1,3 +1,24 @@
+const MAXIWA_REALTIME_CONFIG_TIMEOUT_MS = 25000;
+
+function maxiwaTimeoutError(timeoutMs) {
+  const error = new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
+  error.code = "REQUEST_TIMEOUT";
+  return error;
+}
+
+async function maxiwaFetchWithTimeout(url, options = {}, timeoutMs = MAXIWA_REALTIME_CONFIG_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(maxiwaTimeoutError(timeoutMs)), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError" || error?.code === "REQUEST_TIMEOUT") throw maxiwaTimeoutError(timeoutMs);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const API = (() => {
   const BASE = (typeof window !== "undefined" && window.API_BASE) ? window.API_BASE : "/api";
   const GET_CACHE_TTL = 15000;
@@ -195,7 +216,7 @@ async function initSupabaseClient() {
   supabaseInitPromise = (async () => {
     try {
       const configUrl = (typeof window !== "undefined" && window.API_BASE) ? window.API_BASE.replace(/\/api\/?$/, "/api/public-config") : "/api/public-config";
-      const res = await fetchWithTimeout(configUrl, {}, GET_TIMEOUT_MS);
+      const res = await maxiwaFetchWithTimeout(configUrl, {}, MAXIWA_REALTIME_CONFIG_TIMEOUT_MS);
       if (!res.ok) throw new Error("Cannot fetch config");
       const { url, key } = await res.json();
       if (!url || !key) return null;
