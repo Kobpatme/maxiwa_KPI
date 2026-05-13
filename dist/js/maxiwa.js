@@ -22350,11 +22350,11 @@ var MaxiwaKpiApp = (() => {
     );
   }
   var WEATHER_LOCATIONS = [
-    { id: "lat-yao", latitude: 13.826, longitude: 100.571, label: "\u0E41\u0E02\u0E27\u0E07\u0E25\u0E32\u0E14\u0E22\u0E32\u0E27 \u0E40\u0E02\u0E15\u0E08\u0E15\u0E38\u0E08\u0E31\u0E01\u0E23" },
-    { id: "bangkok", latitude: 13.7563, longitude: 100.5018, label: "\u0E01\u0E23\u0E38\u0E07\u0E40\u0E17\u0E1E\u0E21\u0E2B\u0E32\u0E19\u0E04\u0E23" },
-    { id: "bang-na", latitude: 13.6682, longitude: 100.6046, label: "\u0E1A\u0E32\u0E07\u0E19\u0E32" },
-    { id: "chonburi", latitude: 13.3611, longitude: 100.9847, label: "\u0E0A\u0E25\u0E1A\u0E38\u0E23\u0E35" },
-    { id: "rayong", latitude: 12.6814, longitude: 101.2816, label: "\u0E23\u0E30\u0E22\u0E2D\u0E07" },
+    { id: "lat-yao", latitude: 13.826, longitude: 100.571, label: "\u0E41\u0E02\u0E27\u0E07\u0E25\u0E32\u0E14\u0E22\u0E32\u0E27 \u0E40\u0E02\u0E15\u0E08\u0E15\u0E38\u0E08\u0E31\u0E01\u0E23", province: "\u0E01\u0E23\u0E38\u0E07\u0E40\u0E17\u0E1E\u0E21\u0E2B\u0E32\u0E19\u0E04\u0E23" },
+    { id: "bangkok", latitude: 13.7563, longitude: 100.5018, label: "\u0E01\u0E23\u0E38\u0E07\u0E40\u0E17\u0E1E\u0E21\u0E2B\u0E32\u0E19\u0E04\u0E23", province: "\u0E01\u0E23\u0E38\u0E07\u0E40\u0E17\u0E1E\u0E21\u0E2B\u0E32\u0E19\u0E04\u0E23" },
+    { id: "bang-na", latitude: 13.6682, longitude: 100.6046, label: "\u0E1A\u0E32\u0E07\u0E19\u0E32", province: "\u0E01\u0E23\u0E38\u0E07\u0E40\u0E17\u0E1E\u0E21\u0E2B\u0E32\u0E19\u0E04\u0E23" },
+    { id: "chonburi", latitude: 13.3611, longitude: 100.9847, label: "\u0E0A\u0E25\u0E1A\u0E38\u0E23\u0E35", province: "\u0E0A\u0E25\u0E1A\u0E38\u0E23\u0E35" },
+    { id: "rayong", latitude: 12.6814, longitude: 101.2816, label: "\u0E23\u0E30\u0E22\u0E2D\u0E07", province: "\u0E23\u0E30\u0E22\u0E2D\u0E07" },
     { id: "current", latitude: null, longitude: null, label: "\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19" }
   ];
   var WEATHER_FALLBACK_LOCATION = WEATHER_LOCATIONS[0];
@@ -22468,7 +22468,8 @@ var MaxiwaKpiApp = (() => {
               id: `geo-${item.id}`,
               latitude: item.latitude,
               longitude: item.longitude,
-              label: [item.name, item.admin1, item.country].filter(Boolean).join(", ")
+              label: [item.name, item.admin1, item.country].filter(Boolean).join(", "),
+              province: item.admin1 || item.name || ""
             })));
           }
         } catch {

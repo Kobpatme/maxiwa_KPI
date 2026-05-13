@@ -1147,11 +1147,11 @@ function ThemeToggle({ theme, onToggle }) {
 }
 
 const WEATHER_LOCATIONS = [
-  { id: 'lat-yao', latitude: 13.826, longitude: 100.571, label: 'แขวงลาดยาว เขตจตุจักร' },
-  { id: 'bangkok', latitude: 13.7563, longitude: 100.5018, label: 'กรุงเทพมหานคร' },
-  { id: 'bang-na', latitude: 13.6682, longitude: 100.6046, label: 'บางนา' },
-  { id: 'chonburi', latitude: 13.3611, longitude: 100.9847, label: 'ชลบุรี' },
-  { id: 'rayong', latitude: 12.6814, longitude: 101.2816, label: 'ระยอง' },
+  { id: 'lat-yao', latitude: 13.826, longitude: 100.571, label: 'แขวงลาดยาว เขตจตุจักร', province: 'กรุงเทพมหานคร' },
+  { id: 'bangkok', latitude: 13.7563, longitude: 100.5018, label: 'กรุงเทพมหานคร', province: 'กรุงเทพมหานคร' },
+  { id: 'bang-na', latitude: 13.6682, longitude: 100.6046, label: 'บางนา', province: 'กรุงเทพมหานคร' },
+  { id: 'chonburi', latitude: 13.3611, longitude: 100.9847, label: 'ชลบุรี', province: 'ชลบุรี' },
+  { id: 'rayong', latitude: 12.6814, longitude: 101.2816, label: 'ระยอง', province: 'ระยอง' },
   { id: 'current', latitude: null, longitude: null, label: 'ตำแหน่งปัจจุบัน' },
 ];
 const WEATHER_FALLBACK_LOCATION = WEATHER_LOCATIONS[0];
@@ -1279,6 +1279,7 @@ function WeatherWidget() {
             latitude: item.latitude,
             longitude: item.longitude,
             label: [item.name, item.admin1, item.country].filter(Boolean).join(', '),
+            province: item.admin1 || item.name || '',
           })));
         }
       } catch {

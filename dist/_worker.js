@@ -8,6 +8,13 @@ const READ_RETRY_DELAYS_MS = [500, 1200];
 const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log", "app_system_links"];
 const SERVER_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const TMD_WEATHER_TODAY_URL = "https://data.tmd.go.th/api/WeatherToday/V2/";
+const TMD_AWS_WEATHER_URL = "https://www.tmd.go.th/api/weather/get-aws-weather-by-province";
+const TMD_WEATHER_TIMEOUT_MS = 6500;
+const TMD_PROVINCE_ALIASES = [
+  { keys: ["กรุงเทพ", "bangkok", "ลาดยาว", "จตุจักร", "บางนา"], province: "กรุงเทพมหานคร" },
+  { keys: ["ชลบุรี", "chonburi"], province: "ชลบุรี" },
+  { keys: ["ระยอง", "rayong"], province: "ระยอง" },
+];
 
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "*";
@@ -83,6 +90,83 @@ function numberValue(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function provinceForTmd(value = "") {
+  const key = String(value || "").trim().toLowerCase();
+  if (!key) return "กรุงเทพมหานคร";
+  const match = TMD_PROVINCE_ALIASES.find((item) => item.keys.some((alias) => key.includes(alias.toLowerCase())));
+  return match?.province || String(value || "").split(",")[0].trim() || "กรุงเทพมหานคร";
+}
+
+function tmdWeatherDescription(weatherType) {
+  const code = String(weatherType ?? "").padStart(2, "0");
+  const descriptions = {
+    "01": "ท้องฟ้าแจ่มใส",
+    "02": "มีเมฆบางส่วน",
+    "03": "มีเมฆเป็นส่วนมาก",
+    "04": "มีเมฆมาก",
+    "05": "ฝนตก",
+    "63": "ฝนฟ้าคะนอง",
+  };
+  return descriptions[code] || "";
+}
+
+function normalizeTmdAwsStation(row = {}) {
+  return {
+    name: row.stationNameTh || row.stationNameEn || "TMD AWS Station",
+    province: row.provinceNameTh || row.provinceNameEn || "",
+    lat: numberValue(row.stationLat),
+    lon: numberValue(row.stationLon),
+    temperature: numberValue(row.temperature),
+    humidity: numberValue(row.humidity),
+    wind: numberValue(row.windSpeed),
+    rainfall: numberValue(row.precipToday ?? row.precip1Hr ?? row.precip15Mins),
+    description: tmdWeatherDescription(row.weatherType),
+    time: row.dateTimeUtc7 || "",
+  };
+}
+
+function decodeXmlText(value = "") {
+  return String(value)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .trim();
+}
+
+function xmlTagValue(xml, tag) {
+  const match = String(xml || "").match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return match ? decodeXmlText(match[1]) : "";
+}
+
+function parseTmdXmlStations(xml) {
+  const stations = [];
+  const stationMatches = String(xml || "").match(/<Station(?:\s[^>]*)?>[\s\S]*?<\/Station>/gi) || [];
+  for (const stationXml of stationMatches) {
+    const observationXml = (stationXml.match(/<Observation(?:\s[^>]*)?>[\s\S]*?<\/Observation>/i) || [""])[0];
+    stations.push({
+      StationNameThai: xmlTagValue(stationXml, "StationNameThai"),
+      StationNameEnglish: xmlTagValue(stationXml, "StationNameEnglish"),
+      Province: xmlTagValue(stationXml, "Province"),
+      Latitude: xmlTagValue(stationXml, "Latitude"),
+      Longitude: xmlTagValue(stationXml, "Longitude"),
+      Observation: {
+        DateTime: xmlTagValue(observationXml, "DateTime"),
+        Temperature: xmlTagValue(observationXml, "Temperature"),
+        RelativeHumidity: xmlTagValue(observationXml, "RelativeHumidity"),
+        WindSpeed: xmlTagValue(observationXml, "WindSpeed"),
+        Rainfall: xmlTagValue(observationXml, "Rainfall"),
+        WeatherDescriptionThai: xmlTagValue(observationXml, "Weather") || xmlTagValue(observationXml, "WeatherDescriptionThai"),
+      },
+    });
+  }
+  return stations;
+}
+
 function collectTmdStations(value, stations = []) {
   if (!value || typeof value !== "object") return stations;
   if (Array.isArray(value)) {
@@ -108,18 +192,18 @@ function distanceKm(a, b) {
 }
 
 function normalizeTmdStation(row) {
-  const observe = row.Observe || row.Observation || row.WeatherObservation || {};
+  const observe = row.Observe || row.Observation || row.WeatherObservation || row || {};
   const station = {
-    name: firstValue(row, ["StationNameThai", "StationName", "StationNameEnglish", "Name"]) || "TMD Station",
-    province: firstValue(row, ["Province", "ProvinceName", "ProvinceThai", "StationProvince"]) || "",
-    lat: numberValue(firstValue(row, ["Latitude", "Lat", "latitude"])),
-    lon: numberValue(firstValue(row, ["Longitude", "Lon", "Long", "longitude"])),
-    temperature: numberValue(firstValue(observe, ["Temperature.Value", "Temperature", "MeanTemperature.Value", "MeanTemperature"])),
-    humidity: numberValue(firstValue(observe, ["RelativeHumidity.Value", "RelativeHumidity", "Humidity.Value", "Humidity"])),
-    wind: numberValue(firstValue(observe, ["WindSpeed.Value", "WindSpeed"])),
-    rainfall: numberValue(firstValue(observe, ["Rainfall.Value", "Rainfall", "Rainfall24Hr.Value", "Rainfall24Hr"])),
-    description: firstValue(observe, ["Weather", "WeatherDescription", "WeatherDescriptionThai", "Condition"]) || "",
-    time: firstValue(observe, ["Time", "DateTime", "ObservationTime"]) || "",
+    name: firstValue(row, ["StationNameThai", "StationName", "StationNameEnglish", "Name", "name"]) || "TMD Station",
+    province: firstValue(row, ["Province", "ProvinceName", "ProvinceThai", "StationProvince", "province"]) || "",
+    lat: numberValue(firstValue(row, ["Latitude", "Lat", "latitude", "lat"])),
+    lon: numberValue(firstValue(row, ["Longitude", "Lon", "Long", "longitude", "lon"])),
+    temperature: numberValue(firstValue(observe, ["Temperature.Value", "Temperature", "MeanTemperature.Value", "MeanTemperature", "temperature"])),
+    humidity: numberValue(firstValue(observe, ["RelativeHumidity.Value", "RelativeHumidity", "Humidity.Value", "Humidity", "humidity"])),
+    wind: numberValue(firstValue(observe, ["WindSpeed.Value", "WindSpeed", "wind"])),
+    rainfall: numberValue(firstValue(observe, ["Rainfall.Value", "Rainfall", "Rainfall24Hr.Value", "Rainfall24Hr", "rainfall"])),
+    description: firstValue(observe, ["Weather", "WeatherDescription", "WeatherDescriptionThai", "Condition", "description"]) || "",
+    time: firstValue(observe, ["Time", "DateTime", "ObservationTime", "time"]) || "",
   };
   return station;
 }
@@ -141,37 +225,82 @@ function chooseTmdStation(stations, { province = "", lat = null, lon = null } = 
 }
 
 async function fetchTmdWeather(request, url) {
-  const params = new URLSearchParams({ uid: "api", ukey: "api12345", format: "json" });
-  const res = await fetchWithTimeout(`${TMD_WEATHER_TODAY_URL}?${params.toString()}`, { headers: { Accept: "application/json" } }, READ_TIMEOUT_MS);
-  const text = await res.text();
-  let data = null;
   try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error("TMD weather response was not JSON");
+    const awsProvince = provinceForTmd(url.searchParams.get("province") || "");
+    const awsUrl = `${TMD_AWS_WEATHER_URL}?province=${encodeURIComponent(awsProvince)}`;
+    const awsRes = await fetchWithTimeout(awsUrl, { headers: { Accept: "application/json" } }, TMD_WEATHER_TIMEOUT_MS);
+    const awsData = await awsRes.json().catch(() => null);
+    if (!awsRes.ok) throw new Error(awsData?.message || `TMD AWS weather HTTP ${awsRes.status}`);
+    const awsStations = (Array.isArray(awsData?.data) ? awsData.data : []).map(normalizeTmdAwsStation);
+    const awsStation = chooseTmdStation(awsStations, {
+      province: awsProvince,
+      lat: url.searchParams.get("lat"),
+      lon: url.searchParams.get("lon"),
+    });
+    if (awsStation) {
+      return jsonResponse(request, {
+        source: "TMD",
+        sourceUrl: "https://www.tmd.go.th/",
+        station: awsStation,
+        weather: {
+          location: awsStation.province || awsProvince,
+          stationName: awsStation.name,
+          temp: awsStation.temperature,
+          humidity: awsStation.humidity,
+          wind: awsStation.wind,
+          rainfall: awsStation.rainfall,
+          description: awsStation.description,
+          observedAt: awsStation.time,
+        },
+      }, 200, {
+        "Cache-Control": "public, max-age=300",
+        "X-Maxiwa-Backend": "tmd",
+      });
+    }
+
+    const params = new URLSearchParams({ uid: "api", ukey: "api12345" });
+    const res = await fetchWithTimeout(`${TMD_WEATHER_TODAY_URL}?${params.toString()}`, {
+      headers: { Accept: "application/xml,text/xml,application/json" },
+    }, TMD_WEATHER_TIMEOUT_MS);
+    const text = await res.text();
+    if (!res.ok) throw new Error(`TMD weather HTTP ${res.status}`);
+    let stations = [];
+    try {
+      stations = collectTmdStations(JSON.parse(text));
+    } catch {
+      stations = parseTmdXmlStations(text);
+    }
+    const station = chooseTmdStation(stations, {
+      province: url.searchParams.get("province") || "",
+      lat: url.searchParams.get("lat"),
+      lon: url.searchParams.get("lon"),
+    });
+    if (!station) return jsonResponse(request, { error: "No TMD station data found" }, 502, { "X-Maxiwa-Backend": "tmd" });
+    return jsonResponse(request, {
+      source: "TMD",
+      sourceUrl: "https://www.tmd.go.th/",
+      station,
+      weather: {
+        location: station.province || station.name,
+        stationName: station.name,
+        temp: station.temperature,
+        humidity: station.humidity,
+        wind: station.wind,
+        rainfall: station.rainfall,
+        description: station.description,
+        observedAt: station.time,
+      },
+    }, 200, {
+      "Cache-Control": "public, max-age=300",
+      "X-Maxiwa-Backend": "tmd",
+    });
+  } catch (error) {
+    return jsonResponse(request, {
+      error: error?.message || "TMD weather is unavailable",
+      source: "TMD",
+      sourceUrl: "https://www.tmd.go.th/",
+    }, 502, { "X-Maxiwa-Backend": "tmd-error" });
   }
-  if (!res.ok) throw new Error(`TMD weather HTTP ${res.status}`);
-  const station = chooseTmdStation(collectTmdStations(data), {
-    province: url.searchParams.get("province") || "",
-    lat: url.searchParams.get("lat"),
-    lon: url.searchParams.get("lon"),
-  });
-  if (!station) return jsonResponse(request, { error: "No TMD station data found" }, 502, { "X-Maxiwa-Backend": "tmd" });
-  return jsonResponse(request, {
-    source: "TMD",
-    sourceUrl: "https://www.tmd.go.th/",
-    station,
-    weather: {
-      location: station.province || station.name,
-      stationName: station.name,
-      temp: station.temperature,
-      humidity: station.humidity,
-      wind: station.wind,
-      rainfall: station.rainfall,
-      description: station.description,
-      observedAt: station.time,
-    },
-  }, 200, { "X-Maxiwa-Backend": "tmd" });
 }
 
 function sleep(ms) {
@@ -1172,6 +1301,10 @@ async function syncKpiRuleToTasks(env, beforeKpi, afterKpi) {
 
 async function handleApi(request, env, apiPath) {
   const url = new URL(request.url);
+  if (apiPath === "tmd/weather") {
+    return fetchTmdWeather(request, url);
+  }
+
   const settings = supabaseSettings(env);
   if (!settings) return null;
 
@@ -1208,10 +1341,6 @@ async function handleApi(request, env, apiPath) {
 
   if (apiPath === "session/heartbeat") {
     return jsonResponse(request, { ok: true, session }, 200, { "X-Maxiwa-Backend": "supabase" });
-  }
-
-  if (apiPath === "tmd/weather") {
-    return fetchTmdWeather(request, url);
   }
 
   if (apiPath === "getKPIsByTeam") {
