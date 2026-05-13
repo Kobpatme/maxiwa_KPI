@@ -1146,6 +1146,112 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
+const WEATHER_FALLBACK_LOCATION = { latitude: 13.7563, longitude: 100.5018, label: 'Bangkok' };
+
+function weatherMeta(code) {
+  if (code === 0) return { icon: 'fa-sun', label: 'Clear' };
+  if ([1, 2, 3].includes(code)) return { icon: 'fa-cloud-sun', label: 'Cloudy' };
+  if ([45, 48].includes(code)) return { icon: 'fa-smog', label: 'Fog' };
+  if ([51, 53, 55, 56, 57].includes(code)) return { icon: 'fa-cloud-rain', label: 'Drizzle' };
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { icon: 'fa-cloud-showers-heavy', label: 'Rain' };
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return { icon: 'fa-snowflake', label: 'Snow' };
+  if ([95, 96, 99].includes(code)) return { icon: 'fa-cloud-bolt', label: 'Storm' };
+  return { icon: 'fa-cloud', label: 'Weather' };
+}
+
+function getWeatherLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(WEATHER_FALLBACK_LOCATION);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        label: 'Local',
+      }),
+      () => resolve(WEATHER_FALLBACK_LOCATION),
+      { enableHighAccuracy: false, timeout: 3500, maximumAge: 15 * 60 * 1000 }
+    );
+  });
+}
+
+async function fetchWeatherSnapshot() {
+  const location = await getWeatherLocation();
+  const params = new URLSearchParams({
+    latitude: String(location.latitude),
+    longitude: String(location.longitude),
+    current: 'temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m',
+    timezone: 'auto',
+  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Weather HTTP ${res.status}`);
+    const data = await res.json();
+    const current = data.current || {};
+    const meta = weatherMeta(Number(current.weather_code));
+    return {
+      location: location.label,
+      temp: Number.isFinite(Number(current.temperature_2m)) ? Math.round(Number(current.temperature_2m)) : null,
+      humidity: Number.isFinite(Number(current.relative_humidity_2m)) ? Math.round(Number(current.relative_humidity_2m)) : null,
+      wind: Number.isFinite(Number(current.wind_speed_10m)) ? Math.round(Number(current.wind_speed_10m)) : null,
+      ...meta,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function WeatherWidget() {
+  const [weather, setWeather] = useState({ loading: true, error: false });
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadWeather = async () => {
+      try {
+        const snapshot = await fetchWeatherSnapshot();
+        if (!cancelled) setWeather({ loading: false, error: false, ...snapshot });
+      } catch {
+        if (!cancelled) setWeather({ loading: false, error: true });
+      }
+    };
+    loadWeather();
+    const timer = setInterval(loadWeather, 10 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  if (weather.error) {
+    return (
+      <div className="h-11 min-w-[172px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 flex items-center gap-2 text-[var(--mx-muted)]">
+        <i className="fa-solid fa-cloud"></i>
+        <span className="text-sm font-extrabold">Weather offline</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-11 min-w-[196px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 flex items-center gap-3">
+      <span className="w-8 h-8 rounded-lg grid place-items-center bg-[var(--mx-panel)] border border-[var(--mx-line)] text-[var(--mx-accent)]">
+        <i className={`fa-solid ${weather.loading ? 'fa-rotate-right fa-spin' : weather.icon || 'fa-cloud'}`}></i>
+      </span>
+      <div className="min-w-0 leading-tight">
+        <div className="text-sm font-extrabold whitespace-nowrap">
+          {weather.loading ? 'Loading weather' : `${weather.temp ?? '-'}°C ${weather.label || ''}`}
+        </div>
+        <div className="text-[11px] text-[var(--mx-muted)] whitespace-nowrap">
+          {weather.loading ? 'Realtime forecast' : `${weather.location || 'Local'} · RH ${weather.humidity ?? '-'}% · Wind ${weather.wind ?? '-'} km/h`}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function normalizePhotoUrl(value) {
   const src = String(value || '').trim();
   if (!src) return '';
@@ -5524,6 +5630,7 @@ function App() {
                       <span>Performance View</span>
                     </button>
                   )}
+                  <WeatherWidget />
                   <ThemeToggle theme={theme} onToggle={toggleTheme} />
                   <div className="relative">
                     <button className="mx-btn mx-btn-soft !py-2 !px-3 relative" onClick={() => setShowNotif((v) => !v)} title="Notifications" aria-label="Notifications">

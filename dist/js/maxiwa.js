@@ -22349,6 +22349,86 @@ var MaxiwaKpiApp = (() => {
       /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, isDark ? "Light" : "Dark")
     );
   }
+  var WEATHER_FALLBACK_LOCATION = { latitude: 13.7563, longitude: 100.5018, label: "Bangkok" };
+  function weatherMeta(code) {
+    if (code === 0) return { icon: "fa-sun", label: "Clear" };
+    if ([1, 2, 3].includes(code)) return { icon: "fa-cloud-sun", label: "Cloudy" };
+    if ([45, 48].includes(code)) return { icon: "fa-smog", label: "Fog" };
+    if ([51, 53, 55, 56, 57].includes(code)) return { icon: "fa-cloud-rain", label: "Drizzle" };
+    if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { icon: "fa-cloud-showers-heavy", label: "Rain" };
+    if ([71, 73, 75, 77, 85, 86].includes(code)) return { icon: "fa-snowflake", label: "Snow" };
+    if ([95, 96, 99].includes(code)) return { icon: "fa-cloud-bolt", label: "Storm" };
+    return { icon: "fa-cloud", label: "Weather" };
+  }
+  function getWeatherLocation() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve(WEATHER_FALLBACK_LOCATION);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          label: "Local"
+        }),
+        () => resolve(WEATHER_FALLBACK_LOCATION),
+        { enableHighAccuracy: false, timeout: 3500, maximumAge: 15 * 60 * 1e3 }
+      );
+    });
+  }
+  async function fetchWeatherSnapshot() {
+    const location = await getWeatherLocation();
+    const params = new URLSearchParams({
+      latitude: String(location.latitude),
+      longitude: String(location.longitude),
+      current: "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m",
+      timezone: "auto"
+    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8e3);
+    try {
+      const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, { signal: controller.signal });
+      if (!res.ok) throw new Error(`Weather HTTP ${res.status}`);
+      const data = await res.json();
+      const current = data.current || {};
+      const meta = weatherMeta(Number(current.weather_code));
+      return {
+        location: location.label,
+        temp: Number.isFinite(Number(current.temperature_2m)) ? Math.round(Number(current.temperature_2m)) : null,
+        humidity: Number.isFinite(Number(current.relative_humidity_2m)) ? Math.round(Number(current.relative_humidity_2m)) : null,
+        wind: Number.isFinite(Number(current.wind_speed_10m)) ? Math.round(Number(current.wind_speed_10m)) : null,
+        ...meta
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  function WeatherWidget() {
+    var _a, _b, _c;
+    const [weather, setWeather] = useState({ loading: true, error: false });
+    useEffect(() => {
+      let cancelled = false;
+      const loadWeather = async () => {
+        try {
+          const snapshot = await fetchWeatherSnapshot();
+          if (!cancelled) setWeather({ loading: false, error: false, ...snapshot });
+        } catch {
+          if (!cancelled) setWeather({ loading: false, error: true });
+        }
+      };
+      loadWeather();
+      const timer = setInterval(loadWeather, 10 * 60 * 1e3);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
+      };
+    }, []);
+    if (weather.error) {
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "h-11 min-w-[172px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 flex items-center gap-2 text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-cloud" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, "Weather offline"));
+    }
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "h-11 min-w-[196px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 flex items-center gap-3" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "w-8 h-8 rounded-lg grid place-items-center bg-[var(--mx-panel)] border border-[var(--mx-line)] text-[var(--mx-accent)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${weather.loading ? "fa-rotate-right fa-spin" : weather.icon || "fa-cloud"}` })), /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 leading-tight" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold whitespace-nowrap" }, weather.loading ? "Loading weather" : `${(_a = weather.temp) != null ? _a : "-"}\xB0C ${weather.label || ""}`), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[11px] text-[var(--mx-muted)] whitespace-nowrap" }, weather.loading ? "Realtime forecast" : `${weather.location || "Local"} \xB7 RH ${(_b = weather.humidity) != null ? _b : "-"}% \xB7 Wind ${(_c = weather.wind) != null ? _c : "-"} km/h`)));
+  }
   function normalizePhotoUrl(value) {
     const src = String(value || "").trim();
     if (!src) return "";
@@ -24875,7 +24955,7 @@ var MaxiwaKpiApp = (() => {
         adminSection,
         setAdminSection
       }
-    ), /* @__PURE__ */ import_react.default.createElement("main", { className: "grid content-start gap-5" }, /* @__PURE__ */ import_react.default.createElement("header", { className: "mx-shell-card overflow-visible" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "px-5 py-5 md:px-6 md:py-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement(BrandPill, { className: "px-3 py-2 text-[11px] tracking-[0.16em]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-completed" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-building-user" }), user.team)), /* @__PURE__ */ import_react.default.createElement("h1", { className: "mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal" }, pageTitle), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]" }, pageSubtitle)), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center xl:justify-end gap-2" }, canOpenExecutiveView(user.role) && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2", onClick: openExecutiveView, title: "Open Performance View" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-display" }), /* @__PURE__ */ import_react.default.createElement("span", null, "Performance View")), /* @__PURE__ */ import_react.default.createElement(ThemeToggle, { theme, onToggle: toggleTheme }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3 relative", onClick: () => setShowNotif((v) => !v), title: "Notifications", "aria-label": "Notifications" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bell" }), notifications.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center" }, notifications.length > 9 ? "9+" : notifications.length)), showNotif && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold mb-3 flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", onClick: () => setShowNotif(false) }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), notifications.length === 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-2 max-h-72 overflow-y-auto" }, notifications.slice(0, 10).map((n) => /* @__PURE__ */ import_react.default.createElement("div", { key: n.id, className: "rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-2 text-sm" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${n.icon} mt-0.5 flex-shrink-0`, style: { color: n.color } }), /* @__PURE__ */ import_react.default.createElement("span", null, n.message))))))), ["tasks", "my-tasks"].includes(view) && state.tasks.length > 0 && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: downloadCSV, title: "Export CSV" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-file-csv mr-1" }), "CSV"), (state.loading || actionLoading) && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-pending" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-rotate-right fa-spin" }), "Loading")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "w-9 h-9 rounded-lg mx-brand-mark grid place-items-center" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-calendar-check text-[var(--mx-accent)]" })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[11px] uppercase tracking-[0.14em] font-extrabold" }, "Current Scope"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-0.5 text-[var(--mx-text)] font-bold" }, activePeriodLabel))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-2" }, showFilterBar && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement(
+    ), /* @__PURE__ */ import_react.default.createElement("main", { className: "grid content-start gap-5" }, /* @__PURE__ */ import_react.default.createElement("header", { className: "mx-shell-card overflow-visible" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "px-5 py-5 md:px-6 md:py-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement(BrandPill, { className: "px-3 py-2 text-[11px] tracking-[0.16em]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-completed" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-building-user" }), user.team)), /* @__PURE__ */ import_react.default.createElement("h1", { className: "mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal" }, pageTitle), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]" }, pageSubtitle)), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center xl:justify-end gap-2" }, canOpenExecutiveView(user.role) && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2", onClick: openExecutiveView, title: "Open Performance View" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-display" }), /* @__PURE__ */ import_react.default.createElement("span", null, "Performance View")), /* @__PURE__ */ import_react.default.createElement(WeatherWidget, null), /* @__PURE__ */ import_react.default.createElement(ThemeToggle, { theme, onToggle: toggleTheme }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3 relative", onClick: () => setShowNotif((v) => !v), title: "Notifications", "aria-label": "Notifications" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bell" }), notifications.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center" }, notifications.length > 9 ? "9+" : notifications.length)), showNotif && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold mb-3 flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", onClick: () => setShowNotif(false) }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), notifications.length === 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-2 max-h-72 overflow-y-auto" }, notifications.slice(0, 10).map((n) => /* @__PURE__ */ import_react.default.createElement("div", { key: n.id, className: "rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-2 text-sm" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${n.icon} mt-0.5 flex-shrink-0`, style: { color: n.color } }), /* @__PURE__ */ import_react.default.createElement("span", null, n.message))))))), ["tasks", "my-tasks"].includes(view) && state.tasks.length > 0 && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: downloadCSV, title: "Export CSV" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-file-csv mr-1" }), "CSV"), (state.loading || actionLoading) && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-pending" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-rotate-right fa-spin" }), "Loading")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "w-9 h-9 rounded-lg mx-brand-mark grid place-items-center" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-calendar-check text-[var(--mx-accent)]" })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[11px] uppercase tracking-[0.14em] font-extrabold" }, "Current Scope"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-0.5 text-[var(--mx-text)] font-bold" }, activePeriodLabel))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-2" }, showFilterBar && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement(
       "select",
       {
         className: "mx-select !w-[160px] !py-2 !text-sm",
