@@ -244,6 +244,7 @@ async function initSupabaseClient() {
 
 async function subscribeToRealtime(tableName, callback) {
   const client = await initSupabaseClient();
+  if (typeof window !== "undefined") window.MAXIWA_REALTIME_ACTIVE = Boolean(client);
   if (!client) return null;
 
   if (realtimeSubscriptions[tableName]) {
@@ -280,6 +281,7 @@ async function unsubscribeFromRealtime(tableName) {
     delete realtimeDebounceTimers[tableName];
   }
   delete realtimeSubscriptions[tableName];
+  if (typeof window !== "undefined" && Object.keys(realtimeSubscriptions).length === 0) window.MAXIWA_REALTIME_ACTIVE = false;
 }
 
 function systemLinkFromRow(row) {

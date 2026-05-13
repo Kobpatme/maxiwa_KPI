@@ -1582,6 +1582,7 @@ function useAppData(user, view) {
     loading: false, error: '', dashboard: null, tasks: [], people: [], admin: null, holidays: [],
   });
   const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1); // 0 = ทุกเดือน
+  const [realtimeActive, setRealtimeActive] = useState(false);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
 
   const safeSet = (patch) => setState((prev) => ({ ...prev, ...patch }));
@@ -1748,24 +1749,37 @@ function useAppData(user, view) {
 
   // Realtime subscription
   useEffect(() => {
-    if (!user || !window.subscribeToRealtime) return;
+    if (!user || !window.subscribeToRealtime) {
+      setRealtimeActive(false);
+      return undefined;
+    }
+    let cancelled = false;
     window.subscribeToRealtime('tasks', () => {
       if (view === 'executive') loadDashboard();
       if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard();
       if (['tasks', 'my-tasks'].includes(view)) loadTasks();
+    }).then((channel) => {
+      if (!cancelled) setRealtimeActive(Boolean(channel));
+    }).catch(() => {
+      if (!cancelled) setRealtimeActive(false);
     });
-    return () => { if (window.unsubscribeFromRealtime) window.unsubscribeFromRealtime('tasks'); };
+    return () => {
+      cancelled = true;
+      setRealtimeActive(false);
+      if (window.unsubscribeFromRealtime) window.unsubscribeFromRealtime('tasks');
+    };
   }, [user, view, loadDashboard, loadTasks]);
 
   useEffect(() => {
     if (!user) return undefined;
+    const intervalMs = realtimeActive ? 300000 : 30000;
     const timer = setInterval(() => {
       if (view === 'executive') loadDashboard({ silent: true });
       if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard({ silent: true });
       if (['tasks', 'my-tasks'].includes(view)) loadTasks({ silent: true });
-    }, window.subscribeToRealtime ? 60000 : 30000);
+    }, intervalMs);
     return () => clearInterval(timer);
-  }, [user, view, loadDashboard, loadTasks]);
+  }, [user, view, loadDashboard, loadTasks, realtimeActive]);
 
   return {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,

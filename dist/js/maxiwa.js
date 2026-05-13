@@ -22543,6 +22543,7 @@ var MaxiwaKpiApp = (() => {
       holidays: []
     });
     const [filterMonth, setFilterMonth] = useState((/* @__PURE__ */ new Date()).getMonth() + 1);
+    const [realtimeActive, setRealtimeActive] = useState(false);
     const [filterYear, setFilterYear] = useState((/* @__PURE__ */ new Date()).getFullYear());
     const safeSet = (patch) => setState((prev) => ({ ...prev, ...patch }));
     const loadHolidays = useCallback(async () => {
@@ -22694,25 +22695,36 @@ var MaxiwaKpiApp = (() => {
       if (view === "admin") loadAdmin();
     }, [user, view, loadDashboard, loadTasks, loadPeople, loadAdmin, loadHolidays]);
     useEffect(() => {
-      if (!user || !window.subscribeToRealtime) return;
+      if (!user || !window.subscribeToRealtime) {
+        setRealtimeActive(false);
+        return void 0;
+      }
+      let cancelled = false;
       window.subscribeToRealtime("tasks", () => {
         if (view === "executive") loadDashboard();
         if (["dashboard", "my-dashboard"].includes(view)) loadDashboard();
         if (["tasks", "my-tasks"].includes(view)) loadTasks();
+      }).then((channel) => {
+        if (!cancelled) setRealtimeActive(Boolean(channel));
+      }).catch(() => {
+        if (!cancelled) setRealtimeActive(false);
       });
       return () => {
+        cancelled = true;
+        setRealtimeActive(false);
         if (window.unsubscribeFromRealtime) window.unsubscribeFromRealtime("tasks");
       };
     }, [user, view, loadDashboard, loadTasks]);
     useEffect(() => {
       if (!user) return void 0;
+      const intervalMs = realtimeActive ? 3e5 : 3e4;
       const timer = setInterval(() => {
         if (view === "executive") loadDashboard({ silent: true });
         if (["dashboard", "my-dashboard"].includes(view)) loadDashboard({ silent: true });
         if (["tasks", "my-tasks"].includes(view)) loadTasks({ silent: true });
-      }, window.subscribeToRealtime ? 6e4 : 3e4);
+      }, intervalMs);
       return () => clearInterval(timer);
-    }, [user, view, loadDashboard, loadTasks]);
+    }, [user, view, loadDashboard, loadTasks, realtimeActive]);
     return {
       state,
       filterMonth,

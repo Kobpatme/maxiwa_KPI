@@ -693,6 +693,44 @@ function filterTasks(tasks, params = {}) {
   });
 }
 
+function monthEndIso(month, year) {
+  if (!month || !year) return "";
+  const date = new Date(Number(year), Number(month), 0, 23, 59, 59, 999);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function taskQueryPrefix(params = {}) {
+  const month = Number(params.month || 0);
+  const year = Number(params.year || 0);
+  const allTime = params.allTime === true || params.allTime === "true" || month === 0;
+  const team = String(params.team || "").trim();
+  const name = String(params.name || "").trim();
+  const filters = ["select=*"];
+
+  if (team && team !== "all") filters.push(`team=eq.${encodeEq(team)}`);
+  if (name) filters.push(`name=eq.${encodeEq(name)}`);
+
+  const periodEnd = !allTime ? monthEndIso(month, year) : "";
+  if (periodEnd) {
+    const encodedEnd = encodeEq(periodEnd);
+    filters.push(`or=(startdate.lte.${encodedEnd},created_at.lte.${encodedEnd},deadline.lte.${encodedEnd},completiondate.lte.${encodedEnd},startdate.is.null)`);
+  }
+
+  return filters.join("&");
+}
+
+async function readTasksForParams(env, params = {}) {
+  try {
+    return await readAll(env, "tasks", taskQueryPrefix(params));
+  } catch (error) {
+    if (error?.status === 400 || error?.status === 404) {
+      console.warn("Filtered task query failed, falling back to full task scan:", error?.message || error);
+      return readAll(env, "tasks");
+    }
+    throw error;
+  }
+}
+
 function summarizeTasks(tasks) {
   const people = new Map();
   for (const task of tasks || []) {
@@ -1078,7 +1116,7 @@ async function handleApi(request, env, apiPath) {
   if (apiPath === "getEmployeeTasks" || apiPath === "getAllTasks") {
     const params = Object.fromEntries(url.searchParams.entries());
     const [allTasks, holidays] = await Promise.all([
-      readAll(env, "tasks"),
+      readTasksForParams(env, params),
       readAll(env, "holidays").catch(() => []),
     ]);
     return jsonResponse(request, { tasks: filterTasks(allTasks, params), holidays }, 200, { "X-Maxiwa-Backend": "supabase" });
@@ -1087,7 +1125,7 @@ async function handleApi(request, env, apiPath) {
   if (apiPath === "getSummaryReport" || apiPath === "getTeamSummaryReport") {
     const params = Object.fromEntries(url.searchParams.entries());
     const [allTasks, holidays] = await Promise.all([
-      readAll(env, "tasks"),
+      readTasksForParams(env, params),
       readAll(env, "holidays").catch(() => []),
     ]);
     const tasks = filterTasks(allTasks, params);
