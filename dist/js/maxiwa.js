@@ -22368,13 +22368,23 @@ var MaxiwaKpiApp = (() => {
     if ([95, 96, 99].includes(code)) return { icon: "fa-cloud-bolt", label: "Storm" };
     return { icon: "fa-cloud", label: "Weather" };
   }
+  function canRequestGeolocation() {
+    if (!navigator.geolocation) return false;
+    try {
+      const policy = document.permissionsPolicy || document.featurePolicy;
+      if ((policy == null ? void 0 : policy.allowsFeature) && policy.allowsFeature("geolocation") === false) return false;
+    } catch {
+      return false;
+    }
+    return true;
+  }
   function getWeatherLocation(selectedLocation = WEATHER_FALLBACK_LOCATION) {
     return new Promise((resolve) => {
       if ((selectedLocation == null ? void 0 : selectedLocation.id) !== "current") {
         resolve(selectedLocation || WEATHER_FALLBACK_LOCATION);
         return;
       }
-      if (!navigator.geolocation) {
+      if (!canRequestGeolocation()) {
         resolve({ ...WEATHER_FALLBACK_LOCATION, label: WEATHER_FALLBACK_LOCATION.label });
         return;
       }

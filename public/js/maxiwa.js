@@ -1167,13 +1167,24 @@ function weatherMeta(code) {
   return { icon: 'fa-cloud', label: 'Weather' };
 }
 
+function canRequestGeolocation() {
+  if (!navigator.geolocation) return false;
+  try {
+    const policy = document.permissionsPolicy || document.featurePolicy;
+    if (policy?.allowsFeature && policy.allowsFeature('geolocation') === false) return false;
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 function getWeatherLocation(selectedLocation = WEATHER_FALLBACK_LOCATION) {
   return new Promise((resolve) => {
     if (selectedLocation?.id !== 'current') {
       resolve(selectedLocation || WEATHER_FALLBACK_LOCATION);
       return;
     }
-    if (!navigator.geolocation) {
+    if (!canRequestGeolocation()) {
       resolve({ ...WEATHER_FALLBACK_LOCATION, label: WEATHER_FALLBACK_LOCATION.label });
       return;
     }
