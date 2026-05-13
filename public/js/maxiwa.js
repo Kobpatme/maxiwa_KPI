@@ -1278,7 +1278,7 @@ function WeatherWidget() {
   }
 
   return (
-    <div className="relative w-full max-w-[390px] min-w-[340px] rounded-lg bg-[#20232a] text-white px-3.5 py-3 shadow-sm border border-[rgba(255,255,255,0.08)]">
+    <div className="relative w-full max-w-[390px] min-w-0 rounded-lg bg-[#20232a] text-white px-3.5 py-3 shadow-sm border border-[rgba(255,255,255,0.08)]">
       <div className="flex items-center justify-between gap-3 text-[12px] leading-none">
         <div className="min-w-0 flex items-center gap-2">
           <i className="fa-solid fa-location-dot text-slate-200"></i>
@@ -5679,7 +5679,7 @@ function App() {
         <main className="grid content-start gap-5">
           <header className="mx-shell-card overflow-visible">
             <div className="px-5 py-5 md:px-6 md:py-6">
-              <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px_auto] xl:items-start">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <BrandPill className="px-3 py-2 text-[11px] tracking-[0.16em]" />
@@ -5693,14 +5693,17 @@ function App() {
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center xl:justify-end gap-2">
+                <div className="xl:justify-self-end">
+                  <WeatherWidget />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   {canOpenExecutiveView(user.role) && (
                     <button className="mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2" onClick={openExecutiveView} title="Open Performance View">
                       <i className="fa-solid fa-display"></i>
                       <span>Performance View</span>
                     </button>
                   )}
-                  <WeatherWidget />
                   <ThemeToggle theme={theme} onToggle={toggleTheme} />
                   <div className="relative">
                     <button className="mx-btn mx-btn-soft !py-2 !px-3 relative" onClick={() => setShowNotif((v) => !v)} title="Notifications" aria-label="Notifications">
