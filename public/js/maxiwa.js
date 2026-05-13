@@ -1316,7 +1316,7 @@ function WeatherWidget() {
   }
 
   return (
-    <div className="relative w-full max-w-[390px] min-w-0 rounded-lg bg-[#20232a] text-white px-4 py-3 shadow-sm border border-[rgba(255,255,255,0.08)]">
+    <div className="relative z-[120] w-full max-w-[390px] min-w-0 rounded-lg bg-[#20232a] text-white px-4 py-3 shadow-sm border border-[rgba(255,255,255,0.08)]">
       <div className="flex items-center justify-between gap-3 text-[12px] leading-none">
         <div className="min-w-0 flex items-center gap-2">
           <i className="fa-solid fa-location-dot text-slate-200"></i>
@@ -1328,7 +1328,7 @@ function WeatherWidget() {
         </button>
       </div>
       {menuOpen && (
-        <div className="absolute right-3 top-10 z-50 w-72 rounded-lg border border-white/10 bg-[#2a2e38] p-2 shadow-2xl">
+        <div className="absolute right-0 top-[calc(100%+8px)] z-[130] w-[min(20rem,calc(100vw-2rem))] max-h-[min(420px,62vh)] overflow-y-auto rounded-lg border border-white/10 bg-[#2a2e38] p-2 shadow-2xl">
           <input
             className="w-full rounded-md border border-white/10 bg-[#1f2430] px-3 py-2 text-sm text-white outline-none placeholder:text-slate-400"
             value={locationQuery}
@@ -5765,7 +5765,7 @@ function App() {
         />
 
         <main className="grid content-start gap-5">
-          <header className="mx-shell-card overflow-visible">
+            <header className="relative z-[80] mx-shell-card overflow-visible">
             <div className="px-5 py-5 md:px-6 md:py-6">
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px_auto] xl:items-start">
                 <div className="min-w-0">
