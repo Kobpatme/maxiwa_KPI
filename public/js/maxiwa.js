@@ -1146,25 +1146,30 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
+function normalizePhotoUrl(value) {
+  const src = String(value || '').trim();
+  if (!src) return '';
+  const driveMatch = src.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  if (driveMatch) return `https://drive.google.com/thumbnail?id=${driveMatch[1]}&sz=w240`;
+  const driveOpenMatch = src.match(/[?&]id=([^&]+)/);
+  if (src.includes('drive.google.com') && driveOpenMatch) return `https://drive.google.com/thumbnail?id=${driveOpenMatch[1]}&sz=w240`;
+  if (/^[A-Za-z0-9_-]{20,}$/.test(src)) return `https://drive.google.com/thumbnail?id=${src}&sz=w240`;
+  if (/^(https?:|data:image\/|blob:)/i.test(src)) return src;
+  if (src.startsWith('//')) return `https:${src}`;
+  if (src.startsWith('/')) {
+    const base = (typeof window !== 'undefined' && window.API_BASE) ? window.API_BASE.replace(/\/api\/?$/, '') : '';
+    return `${base}${src}`;
+  }
+  return '';
+}
+
 function UserAvatar({ user, size = 'lg' }) {
   const [imgFailed, setImgFailed] = useState(false);
   const rawPhoto = user?.pigurl || user?.pigUrl || user?.pigURL || user?.picurl || user?.picUrl || user?.picture || user?.pictureUrl || user?.profilePicture || user?.profile_picture || user?.avatar || user?.avatarUrl || user?.photoUrl || user?.photo_url || user?.profileUrl || user?.profile_url || user?.imageUrl || user?.image_url || user?.image || user?.photo || '';
-  const normalizePhotoUrl = (value) => {
-    const src = String(value || '').trim();
-    if (!src) return '';
-    const driveMatch = src.match(/drive\.google\.com\/file\/d\/([^/]+)/);
-    if (driveMatch) return `https://drive.google.com/thumbnail?id=${driveMatch[1]}&sz=w240`;
-    const driveOpenMatch = src.match(/[?&]id=([^&]+)/);
-    if (src.includes('drive.google.com') && driveOpenMatch) return `https://drive.google.com/thumbnail?id=${driveOpenMatch[1]}&sz=w240`;
-    if (/^[A-Za-z0-9_-]{20,}$/.test(src)) return `https://drive.google.com/thumbnail?id=${src}&sz=w240`;
-    if (src.startsWith('//')) return `https:${src}`;
-    if (src.startsWith('/')) {
-      const base = (typeof window !== 'undefined' && window.API_BASE) ? window.API_BASE.replace(/\/api\/?$/, '') : '';
-      return `${base}${src}`;
-    }
-    return src;
-  };
   const photo = normalizePhotoUrl(rawPhoto);
+  useEffect(() => {
+    setImgFailed(false);
+  }, [photo]);
   const initials = String(user?.name || user?.empId || 'U')
     .trim()
     .split(/\s+/)

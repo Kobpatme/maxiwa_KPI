@@ -22349,25 +22349,29 @@ var MaxiwaKpiApp = (() => {
       /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, isDark ? "Light" : "Dark")
     );
   }
+  function normalizePhotoUrl(value) {
+    const src = String(value || "").trim();
+    if (!src) return "";
+    const driveMatch = src.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+    if (driveMatch) return `https://drive.google.com/thumbnail?id=${driveMatch[1]}&sz=w240`;
+    const driveOpenMatch = src.match(/[?&]id=([^&]+)/);
+    if (src.includes("drive.google.com") && driveOpenMatch) return `https://drive.google.com/thumbnail?id=${driveOpenMatch[1]}&sz=w240`;
+    if (/^[A-Za-z0-9_-]{20,}$/.test(src)) return `https://drive.google.com/thumbnail?id=${src}&sz=w240`;
+    if (/^(https?:|data:image\/|blob:)/i.test(src)) return src;
+    if (src.startsWith("//")) return `https:${src}`;
+    if (src.startsWith("/")) {
+      const base = typeof window !== "undefined" && window.API_BASE ? window.API_BASE.replace(/\/api\/?$/, "") : "";
+      return `${base}${src}`;
+    }
+    return "";
+  }
   function UserAvatar({ user, size = "lg" }) {
     const [imgFailed, setImgFailed] = useState(false);
     const rawPhoto = (user == null ? void 0 : user.pigurl) || (user == null ? void 0 : user.pigUrl) || (user == null ? void 0 : user.pigURL) || (user == null ? void 0 : user.picurl) || (user == null ? void 0 : user.picUrl) || (user == null ? void 0 : user.picture) || (user == null ? void 0 : user.pictureUrl) || (user == null ? void 0 : user.profilePicture) || (user == null ? void 0 : user.profile_picture) || (user == null ? void 0 : user.avatar) || (user == null ? void 0 : user.avatarUrl) || (user == null ? void 0 : user.photoUrl) || (user == null ? void 0 : user.photo_url) || (user == null ? void 0 : user.profileUrl) || (user == null ? void 0 : user.profile_url) || (user == null ? void 0 : user.imageUrl) || (user == null ? void 0 : user.image_url) || (user == null ? void 0 : user.image) || (user == null ? void 0 : user.photo) || "";
-    const normalizePhotoUrl = (value) => {
-      const src = String(value || "").trim();
-      if (!src) return "";
-      const driveMatch = src.match(/drive\.google\.com\/file\/d\/([^/]+)/);
-      if (driveMatch) return `https://drive.google.com/thumbnail?id=${driveMatch[1]}&sz=w240`;
-      const driveOpenMatch = src.match(/[?&]id=([^&]+)/);
-      if (src.includes("drive.google.com") && driveOpenMatch) return `https://drive.google.com/thumbnail?id=${driveOpenMatch[1]}&sz=w240`;
-      if (/^[A-Za-z0-9_-]{20,}$/.test(src)) return `https://drive.google.com/thumbnail?id=${src}&sz=w240`;
-      if (src.startsWith("//")) return `https:${src}`;
-      if (src.startsWith("/")) {
-        const base = typeof window !== "undefined" && window.API_BASE ? window.API_BASE.replace(/\/api\/?$/, "") : "";
-        return `${base}${src}`;
-      }
-      return src;
-    };
     const photo = normalizePhotoUrl(rawPhoto);
+    useEffect(() => {
+      setImgFailed(false);
+    }, [photo]);
     const initials = String((user == null ? void 0 : user.name) || (user == null ? void 0 : user.empId) || "U").trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join("") || "U";
     const box = size === "xl" ? "w-20 h-20 text-2xl" : "w-14 h-14 text-lg";
     return /* @__PURE__ */ import_react.default.createElement("div", { className: cn("relative rounded-lg overflow-hidden mx-brand-mark grid place-items-center font-black flex-shrink-0", box) }, photo && !imgFailed ? /* @__PURE__ */ import_react.default.createElement(

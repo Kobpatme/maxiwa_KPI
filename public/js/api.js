@@ -1,6 +1,9 @@
 const API = (() => {
   const BASE = (typeof window !== "undefined" && window.API_BASE) ? window.API_BASE : "/api";
   const GET_CACHE_TTL = 15000;
+  const GET_TIMEOUT_MS = 25000;
+  const POST_TIMEOUT_MS = 30000;
+  const RETRY_DELAYS_MS = [700, 1600];
   const getCache = new Map();
   const inflightGets = new Map();
 
@@ -36,13 +39,59 @@ const API = (() => {
     inflightGets.clear();
   }
 
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function timeoutError(timeoutMs) {
+    const error = new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
+    error.code = "REQUEST_TIMEOUT";
+    return error;
+  }
+
+  async function fetchWithTimeout(url, options = {}, timeoutMs = GET_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(timeoutError(timeoutMs)), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } catch (error) {
+      if (error?.name === "AbortError" || error?.code === "REQUEST_TIMEOUT") throw timeoutError(timeoutMs);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function isRetryableError(error) {
+    return error?.code === "REQUEST_TIMEOUT"
+      || error?.name === "TypeError"
+      || error?.status === 408
+      || error?.status === 425
+      || error?.status === 429
+      || (error?.status >= 500 && error?.status <= 599);
+  }
+
+  async function retryRead(operation) {
+    let lastError;
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        if (!isRetryableError(error) || attempt === RETRY_DELAYS_MS.length) break;
+        await sleep(RETRY_DELAYS_MS[attempt]);
+      }
+    }
+    throw lastError;
+  }
+
   async function post(endpoint, body, headers = {}) {
     const mergedHeaders = { "Content-Type": "application/json", ...sessionHeaders(), ...headers };
-    const res = await fetch(`${BASE}/${endpoint}`, {
+    const res = await fetchWithTimeout(`${BASE}/${endpoint}`, {
       method: "POST",
       headers: mergedHeaders,
       body: JSON.stringify(body),
-    });
+    }, POST_TIMEOUT_MS);
     if (!res.ok) {
       throw await readError(res);
     }
@@ -62,11 +111,13 @@ const API = (() => {
     if (inflightGets.has(key)) return inflightGets.get(key);
     const qs = new URLSearchParams(cleanParams).toString();
     const request = (async () => {
-      const res = await fetch(`${BASE}/${endpoint}${qs ? `?${qs}` : ""}`, { headers: mergedHeaders });
-      if (!res.ok) {
-        throw await readError(res);
-      }
-      const data = await res.json();
+      const data = await retryRead(async () => {
+        const res = await fetchWithTimeout(`${BASE}/${endpoint}${qs ? `?${qs}` : ""}`, { headers: mergedHeaders }, GET_TIMEOUT_MS);
+        if (!res.ok) {
+          throw await readError(res);
+        }
+        return res.json();
+      });
       getCache.set(key, { data, expiresAt: Date.now() + GET_CACHE_TTL });
       return data;
     })();
@@ -80,10 +131,10 @@ const API = (() => {
 
   async function del(endpoint, searchParams, headers = {}) {
     const mergedHeaders = { ...sessionHeaders(), ...headers };
-    const res = await fetch(`${BASE}/${endpoint}?${new URLSearchParams(searchParams).toString()}`, {
+    const res = await fetchWithTimeout(`${BASE}/${endpoint}?${new URLSearchParams(searchParams).toString()}`, {
       method: "DELETE",
       headers: mergedHeaders,
-    });
+    }, POST_TIMEOUT_MS);
     if (!res.ok) {
       throw await readError(res);
     }
@@ -144,7 +195,7 @@ async function initSupabaseClient() {
   supabaseInitPromise = (async () => {
     try {
       const configUrl = (typeof window !== "undefined" && window.API_BASE) ? window.API_BASE.replace(/\/api\/?$/, "/api/public-config") : "/api/public-config";
-      const res = await fetch(configUrl);
+      const res = await fetchWithTimeout(configUrl, {}, GET_TIMEOUT_MS);
       if (!res.ok) throw new Error("Cannot fetch config");
       const { url, key } = await res.json();
       if (!url || !key) return null;

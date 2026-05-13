@@ -1,6 +1,10 @@
 const DEFAULT_BACKEND_API_BASE = "";
 const DEFAULT_THAI_HOLIDAY_API_URL = "https://api.iapp.co.th/v3/store/data/thai-holiday";
 const PAGE_SIZE = 1000;
+const READ_TIMEOUT_MS = 15000;
+const WRITE_TIMEOUT_MS = 20000;
+const PROXY_TIMEOUT_MS = 25000;
+const READ_RETRY_DELAYS_MS = [500, 1200];
 const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log", "app_system_links"];
 const SERVER_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
@@ -60,25 +64,77 @@ function endpoint(settings, table, query = "") {
   return `${settings.url}/rest/v1/${encodeURIComponent(table)}${qs}`;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function timeoutError(timeoutMs) {
+  const error = new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
+  error.code = "REQUEST_TIMEOUT";
+  return error;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = READ_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(timeoutError(timeoutMs)), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError" || error?.code === "REQUEST_TIMEOUT") throw timeoutError(timeoutMs);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isRetryableReadError(error) {
+  return error?.code === "REQUEST_TIMEOUT"
+    || error?.name === "TypeError"
+    || error?.status === 408
+    || error?.status === 425
+    || error?.status === 429
+    || (error?.status >= 500 && error?.status <= 599);
+}
+
+async function retryRead(operation) {
+  let lastError;
+  for (let attempt = 0; attempt <= READ_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableReadError(error) || attempt === READ_RETRY_DELAYS_MS.length) break;
+      await sleep(READ_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  throw lastError;
+}
+
 async function supabaseFetch(env, table, query = "") {
   const settings = supabaseSettings(env);
   if (!settings) throw new Error("Supabase environment variables are not configured");
-  const res = await fetch(endpoint(settings, table, query), {
-    headers: {
-      apikey: settings.writeKey,
-      Authorization: `Bearer ${settings.writeKey}`,
-      Accept: "application/json",
-    },
+  return retryRead(async () => {
+    const res = await fetchWithTimeout(endpoint(settings, table, query), {
+      headers: {
+        apikey: settings.writeKey,
+        Authorization: `Bearer ${settings.writeKey}`,
+        Accept: "application/json",
+      },
+    }, READ_TIMEOUT_MS);
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const error = new Error(data?.message || data?.error || `Supabase ${table} HTTP ${res.status}`);
+      error.status = res.status;
+      throw error;
+    }
+    return Array.isArray(data) ? data : [];
   });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.message || data?.error || `Supabase ${table} HTTP ${res.status}`);
-  return Array.isArray(data) ? data : [];
 }
 
 async function supabaseWrite(env, table, { method = "POST", query = "", body, prefer = "return=representation" } = {}) {
   const settings = supabaseSettings(env);
   if (!settings) throw new Error("Supabase environment variables are not configured");
-  const res = await fetch(endpoint(settings, table, query), {
+  const res = await fetchWithTimeout(endpoint(settings, table, query), {
     method,
     headers: {
       apikey: settings.writeKey,
@@ -88,7 +144,7 @@ async function supabaseWrite(env, table, { method = "POST", query = "", body, pr
       Prefer: prefer,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  }, WRITE_TIMEOUT_MS);
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) throw new Error(data?.message || data?.error || `Supabase ${table} HTTP ${res.status}`);
@@ -266,7 +322,7 @@ function normalizeHolidayYears(input) {
 }
 
 async function fetchThaiPublicHolidays(year) {
-  const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/TH`, { headers: { Accept: "application/json" } });
+  const res = await fetchWithTimeout(`https://date.nager.at/api/v3/PublicHolidays/${year}/TH`, { headers: { Accept: "application/json" } }, READ_TIMEOUT_MS);
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.message || `Nager.Date HTTP ${res.status}`);
   return normalizeThaiHolidayResponse(data, year, "nager.date");
@@ -316,7 +372,7 @@ function normalizeThaiHolidayResponse(data, year, provider = "iapp") {
 async function fetchThaiPublicHolidaysFromIapp(env, year) {
   const apiUrl = new URL(thaiHolidayApiUrl(env));
   if (!apiUrl.searchParams.has("year")) apiUrl.searchParams.set("year", String(year));
-  const res = await fetch(apiUrl.toString(), { headers: thaiHolidayHeaders(env) });
+  const res = await fetchWithTimeout(apiUrl.toString(), { headers: thaiHolidayHeaders(env) }, READ_TIMEOUT_MS);
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.message || data?.error || `iApp Thai holiday HTTP ${res.status}`);
   return normalizeThaiHolidayResponse(data, year, "iapp");
@@ -1012,8 +1068,8 @@ async function handleApi(request, env, apiPath) {
 
   if (apiPath === "getDashboardData") {
     const [tasks, kpis, holidays] = await Promise.all([
-      readAll(env, "tasks").catch(() => []),
-      readAll(env, "kpis").catch(() => []),
+      readAll(env, "tasks"),
+      readAll(env, "kpis"),
       readAll(env, "holidays").catch(() => []),
     ]);
     return jsonResponse(request, { tasks, kpis, holidays }, 200, { "X-Maxiwa-Backend": "supabase" });
@@ -1022,7 +1078,7 @@ async function handleApi(request, env, apiPath) {
   if (apiPath === "getEmployeeTasks" || apiPath === "getAllTasks") {
     const params = Object.fromEntries(url.searchParams.entries());
     const [allTasks, holidays] = await Promise.all([
-      readAll(env, "tasks").catch(() => []),
+      readAll(env, "tasks"),
       readAll(env, "holidays").catch(() => []),
     ]);
     return jsonResponse(request, { tasks: filterTasks(allTasks, params), holidays }, 200, { "X-Maxiwa-Backend": "supabase" });
@@ -1031,7 +1087,7 @@ async function handleApi(request, env, apiPath) {
   if (apiPath === "getSummaryReport" || apiPath === "getTeamSummaryReport") {
     const params = Object.fromEntries(url.searchParams.entries());
     const [allTasks, holidays] = await Promise.all([
-      readAll(env, "tasks").catch(() => []),
+      readAll(env, "tasks"),
       readAll(env, "holidays").catch(() => []),
     ]);
     const tasks = filterTasks(allTasks, params);
@@ -1315,12 +1371,12 @@ async function proxyApiRequest(request, env) {
   const headers = new Headers(request.headers);
   ["host", "origin", "referer", "cf-connecting-ip", "cf-ipcountry", "cf-ray", "cf-visitor", "x-forwarded-proto", "x-real-ip"]
     .forEach((header) => headers.delete(header));
-  const backendResponse = await fetch(targetUrl, {
+  const backendResponse = await fetchWithTimeout(targetUrl, {
     method: request.method,
     headers,
     body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
     redirect: "follow",
-  });
+  }, PROXY_TIMEOUT_MS);
   const responseHeaders = new Headers(backendResponse.headers);
   for (const [key, value] of Object.entries(corsHeaders(request))) responseHeaders.set(key, value);
   responseHeaders.set("X-Maxiwa-Proxy-Target", `/api/${apiPath}`);
