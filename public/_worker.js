@@ -7,6 +7,7 @@ const PROXY_TIMEOUT_MS = 25000;
 const READ_RETRY_DELAYS_MS = [500, 1200];
 const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log", "app_system_links"];
 const SERVER_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const TMD_WEATHER_TODAY_URL = "https://data.tmd.go.th/api/WeatherToday/V2/";
 
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "*";
@@ -62,6 +63,115 @@ function supabaseSettings(env) {
 function endpoint(settings, table, query = "") {
   const qs = query ? (query.startsWith("?") ? query : `?${query}`) : "";
   return `${settings.url}/rest/v1/${encodeURIComponent(table)}${qs}`;
+}
+
+function getByPath(obj, path) {
+  return path.split(".").reduce((value, key) => (value && value[key] !== undefined ? value[key] : undefined), obj);
+}
+
+function firstValue(obj, paths = []) {
+  for (const path of paths) {
+    const value = getByPath(obj, path);
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return "";
+}
+
+function numberValue(value) {
+  const raw = typeof value === "object" && value !== null ? firstValue(value, ["Value", "value", "_text", "#text"]) : value;
+  const num = Number.parseFloat(String(raw ?? "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(num) ? num : null;
+}
+
+function collectTmdStations(value, stations = []) {
+  if (!value || typeof value !== "object") return stations;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectTmdStations(item, stations));
+    return stations;
+  }
+  const hasStationName = firstValue(value, ["StationNameThai", "StationName", "StationNameEnglish", "Name"]);
+  const hasObserve = value.Observe || value.Observation || value.WeatherObservation;
+  if (hasStationName && hasObserve) stations.push(value);
+  for (const child of Object.values(value)) collectTmdStations(child, stations);
+  return stations;
+}
+
+function distanceKm(a, b) {
+  if (!Number.isFinite(a.lat) || !Number.isFinite(a.lon) || !Number.isFinite(b.lat) || !Number.isFinite(b.lon)) return Number.POSITIVE_INFINITY;
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLon = (b.lon - a.lon) * rad;
+  const lat1 = a.lat * rad;
+  const lat2 = b.lat * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function normalizeTmdStation(row) {
+  const observe = row.Observe || row.Observation || row.WeatherObservation || {};
+  const station = {
+    name: firstValue(row, ["StationNameThai", "StationName", "StationNameEnglish", "Name"]) || "TMD Station",
+    province: firstValue(row, ["Province", "ProvinceName", "ProvinceThai", "StationProvince"]) || "",
+    lat: numberValue(firstValue(row, ["Latitude", "Lat", "latitude"])),
+    lon: numberValue(firstValue(row, ["Longitude", "Lon", "Long", "longitude"])),
+    temperature: numberValue(firstValue(observe, ["Temperature.Value", "Temperature", "MeanTemperature.Value", "MeanTemperature"])),
+    humidity: numberValue(firstValue(observe, ["RelativeHumidity.Value", "RelativeHumidity", "Humidity.Value", "Humidity"])),
+    wind: numberValue(firstValue(observe, ["WindSpeed.Value", "WindSpeed"])),
+    rainfall: numberValue(firstValue(observe, ["Rainfall.Value", "Rainfall", "Rainfall24Hr.Value", "Rainfall24Hr"])),
+    description: firstValue(observe, ["Weather", "WeatherDescription", "WeatherDescriptionThai", "Condition"]) || "",
+    time: firstValue(observe, ["Time", "DateTime", "ObservationTime"]) || "",
+  };
+  return station;
+}
+
+function chooseTmdStation(stations, { province = "", lat = null, lon = null } = {}) {
+  const normalized = stations.map(normalizeTmdStation).filter((station) => station.name);
+  const provinceKey = String(province || "").trim().toLowerCase();
+  if (provinceKey) {
+    const exact = normalized.find((station) => [station.province, station.name].some((value) => String(value || "").toLowerCase().includes(provinceKey)));
+    if (exact) return exact;
+  }
+  const point = { lat: Number(lat), lon: Number(lon) };
+  if (Number.isFinite(point.lat) && Number.isFinite(point.lon)) {
+    return normalized
+      .map((station) => ({ station, distance: distanceKm(point, { lat: station.lat, lon: station.lon }) }))
+      .sort((a, b) => a.distance - b.distance)[0]?.station || normalized[0] || null;
+  }
+  return normalized[0] || null;
+}
+
+async function fetchTmdWeather(request, url) {
+  const params = new URLSearchParams({ uid: "api", ukey: "api12345", format: "json" });
+  const res = await fetchWithTimeout(`${TMD_WEATHER_TODAY_URL}?${params.toString()}`, { headers: { Accept: "application/json" } }, READ_TIMEOUT_MS);
+  const text = await res.text();
+  let data = null;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("TMD weather response was not JSON");
+  }
+  if (!res.ok) throw new Error(`TMD weather HTTP ${res.status}`);
+  const station = chooseTmdStation(collectTmdStations(data), {
+    province: url.searchParams.get("province") || "",
+    lat: url.searchParams.get("lat"),
+    lon: url.searchParams.get("lon"),
+  });
+  if (!station) return jsonResponse(request, { error: "No TMD station data found" }, 502, { "X-Maxiwa-Backend": "tmd" });
+  return jsonResponse(request, {
+    source: "TMD",
+    sourceUrl: "https://www.tmd.go.th/",
+    station,
+    weather: {
+      location: station.province || station.name,
+      stationName: station.name,
+      temp: station.temperature,
+      humidity: station.humidity,
+      wind: station.wind,
+      rainfall: station.rainfall,
+      description: station.description,
+      observedAt: station.time,
+    },
+  }, 200, { "X-Maxiwa-Backend": "tmd" });
 }
 
 function sleep(ms) {
@@ -1098,6 +1208,10 @@ async function handleApi(request, env, apiPath) {
 
   if (apiPath === "session/heartbeat") {
     return jsonResponse(request, { ok: true, session }, 200, { "X-Maxiwa-Backend": "supabase" });
+  }
+
+  if (apiPath === "tmd/weather") {
+    return fetchTmdWeather(request, url);
   }
 
   if (apiPath === "getKPIsByTeam") {

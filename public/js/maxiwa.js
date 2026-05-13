@@ -1192,28 +1192,29 @@ function getWeatherLocation(selectedLocation = WEATHER_FALLBACK_LOCATION) {
 async function fetchWeatherSnapshot(selectedLocation) {
   const location = await getWeatherLocation(selectedLocation);
   const params = new URLSearchParams({
-    latitude: String(location.latitude),
-    longitude: String(location.longitude),
-    current: 'temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m',
-    hourly: 'precipitation_probability',
-    forecast_days: '1',
-    timezone: 'auto',
+    lat: String(location.latitude),
+    lon: String(location.longitude),
+    province: location.province || location.label || '',
   });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, { signal: controller.signal });
+    const res = await fetch(`${apiBase()}/tmd/weather?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
     if (!res.ok) throw new Error(`Weather HTTP ${res.status}`);
     const data = await res.json();
-    const current = data.current || {};
-    const precip = Array.isArray(data.hourly?.precipitation_probability) ? data.hourly.precipitation_probability[0] : null;
-    const meta = weatherMeta(Number(current.weather_code));
+    const current = data.weather || {};
+    const conditionText = String(current.description || '').toLowerCase();
+    const meta = conditionText.includes('ฝน') || conditionText.includes('rain')
+      ? { icon: 'fa-cloud-showers-heavy', label: current.description || 'Rain' }
+      : weatherMeta(Number.NaN);
     return {
-      location: location.label,
-      temp: Number.isFinite(Number(current.temperature_2m)) ? Math.round(Number(current.temperature_2m)) : null,
-      precip: Number.isFinite(Number(precip)) ? Math.round(Number(precip)) : null,
-      humidity: Number.isFinite(Number(current.relative_humidity_2m)) ? Math.round(Number(current.relative_humidity_2m)) : null,
-      wind: Number.isFinite(Number(current.wind_speed_10m)) ? Math.round(Number(current.wind_speed_10m)) : null,
+      location: current.location || location.label,
+      stationName: current.stationName || '',
+      temp: Number.isFinite(Number(current.temp)) ? Math.round(Number(current.temp)) : null,
+      rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,
+      humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
+      wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
+      source: data.source || 'TMD',
       ...meta,
     };
   } finally {
@@ -1387,9 +1388,10 @@ function WeatherWidget() {
           <div className="mt-2 text-sm font-bold whitespace-nowrap">°C | °F</div>
         </div>
         <div className="ml-auto text-[12px] leading-[1.45] text-slate-300 whitespace-nowrap text-left">
-          <div>โอกาสฝนตก: {weather.loading ? '-' : weather.precip ?? '-'}%</div>
+          <div>ฝนสะสม: {weather.loading ? '-' : weather.rainfall ?? '-'} มม.</div>
           <div>ความชื้น: {weather.loading ? '-' : weather.humidity ?? '-'}%</div>
           <div>ลม: {weather.loading ? '-' : weather.wind ?? '-'} กม./ชม.</div>
+          <div className="text-[10px] text-slate-400">ที่มา: {weather.source || 'TMD'}</div>
         </div>
       </div>
     </div>
