@@ -22661,12 +22661,12 @@ var MaxiwaKpiApp = (() => {
       if (!user) return;
       safeSet({ loading: true, error: "" });
       try {
-        const [logs, teams, holidays, staff, dashboardRes] = await Promise.all([
+        const [logs, teams, holidays, staff, kpisRes] = await Promise.all([
           adminGet("admin/getAuditLogs", userEmpId(user)),
           adminGet("admin/getTeams", userEmpId(user)),
           adminGet("admin/getHolidays", userEmpId(user)),
           API.getAllStaff(userEmpId(user)),
-          API.getDashboardData()
+          API.getKPIsByTeam("")
         ]);
         safeSet({
           admin: {
@@ -22674,8 +22674,7 @@ var MaxiwaKpiApp = (() => {
             teams: teams.teams || [],
             holidays: holidays.holidays || [],
             staff: staff.staff || [],
-            kpis: dashboardRes.kpis || [],
-            tasks: dashboardRes.tasks || []
+            kpis: kpisRes.kpis || []
           },
           holidays: holidays.holidays || [],
           loading: false
@@ -23791,10 +23790,11 @@ var MaxiwaKpiApp = (() => {
     const [selectedOverrideEmpId, setSelectedOverrideEmpId] = useState("");
     const [kpiOverrideDrafts, setKpiOverrideDrafts] = useState({});
     const [saving, setSaving] = useState("");
+    const [kpiMigrationTasks, setKpiMigrationTasks] = useState([]);
+    const [kpiMigrationLoading, setKpiMigrationLoading] = useState(false);
     const teams = (adminData == null ? void 0 : adminData.teams) || [];
     const staff = (adminData == null ? void 0 : adminData.staff) || [];
     const kpis = (adminData == null ? void 0 : adminData.kpis) || [];
-    const adminTasks = (adminData == null ? void 0 : adminData.tasks) || [];
     const holidays = (adminData == null ? void 0 : adminData.holidays) || [];
     const logs = (adminData == null ? void 0 : adminData.logs) || [];
     const q = adminSearch.trim().toLowerCase();
@@ -23848,11 +23848,10 @@ var MaxiwaKpiApp = (() => {
       if (!(originalKpi == null ? void 0 : originalKpi.id)) return 0;
       const oldMain = originalKpi.main || originalKpi.mainkpi || "";
       const oldSub = originalKpi.sub || originalKpi.subkpi || "";
-      const oldTeam = originalKpi.team || "";
       const mainChanged = normalizedKpiText(oldMain) !== normalizedKpiText(nextKpi.main);
       const subChanged = normalizedKpiText(oldSub) !== normalizedKpiText(nextKpi.sub);
       if (!mainChanged && !subChanged) return 0;
-      const affectedTasks = adminTasks.filter((task) => normalizedKpiText(task.team) === normalizedKpiText(oldTeam) && normalizedKpiText(task.mainkpi || task.mainKpi || task.main) === normalizedKpiText(oldMain) && normalizedKpiText(task.subkpi || task.subKpi || task.sub) === normalizedKpiText(oldSub));
+      const affectedTasks = await fetchTasksForKpiRule(originalKpi);
       for (const task of affectedTasks) {
         await API.updateTaskDetails({
           id: task.id,
@@ -24022,6 +24021,16 @@ var MaxiwaKpiApp = (() => {
     const findKpiByKey = (key) => kpis.find((item) => kpiRuleKey(item) === key);
     const kpiRuleLabel = (item = {}) => `${item.team || "-"} / ${kpiMainValue(item) || "-"} / ${kpiSubValue(item) || "-"}`;
     const taskMatchesKpiRule = (task, kpi) => normalizedKpiText(task.team) === normalizedKpiText(kpi.team) && normalizedKpiText(task.mainkpi || task.mainKpi || task.main) === normalizedKpiText(kpiMainValue(kpi)) && normalizedKpiText(task.subkpi || task.subKpi || task.sub) === normalizedKpiText(kpiSubValue(kpi));
+    const fetchTasksForKpiRule = async (kpi) => {
+      if (!kpi) return [];
+      const params = new URLSearchParams({
+        team: kpi.team || "",
+        main: kpiMainValue(kpi),
+        sub: kpiSubValue(kpi)
+      });
+      const res = await adminGet(`admin/getTasksByKpiRule?${params.toString()}`, user.empId);
+      return (res.tasks || []).filter((task) => taskMatchesKpiRule(task, kpi));
+    };
     const selectedOverrideUser = staff.find((person) => String(person.empId || person.empid || "").trim().toUpperCase() === selectedOverrideEmpId);
     const selectedOverridePermissions = userPermissions(selectedOverrideUser);
     const selectedKpiOverrides = selectedOverridePermissions.kpiOverrides || {};
@@ -24077,8 +24086,17 @@ var MaxiwaKpiApp = (() => {
     const editKpi = (item) => {
       setEditingKpi(kpiFormFromItem(item));
     };
-    const openKpiMigration = (item) => {
+    const openKpiMigration = async (item) => {
       setKpiMigration({ sourceKey: kpiRuleKey(item), targetKey: "" });
+      setKpiMigrationTasks([]);
+      setKpiMigrationLoading(true);
+      try {
+        setKpiMigrationTasks(await fetchTasksForKpiRule(item));
+      } catch (error) {
+        alert(`\u0E42\u0E2B\u0E25\u0E14\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A KPI \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08: ${error.message || "Request failed"}`);
+      } finally {
+        setKpiMigrationLoading(false);
+      }
     };
     const editHoliday = (item) => {
       setHolidayForm({
@@ -24308,7 +24326,7 @@ var MaxiwaKpiApp = (() => {
       const targetKpi = findKpiByKey(kpiMigration == null ? void 0 : kpiMigration.targetKey);
       if (!sourceKpi || !targetKpi) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01 KPI \u0E40\u0E14\u0E34\u0E21\u0E41\u0E25\u0E30 KPI \u0E43\u0E2B\u0E21\u0E48\u0E43\u0E2B\u0E49\u0E04\u0E23\u0E1A");
       if (kpiRuleKey(sourceKpi) === kpiRuleKey(targetKpi)) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01 KPI \u0E43\u0E2B\u0E21\u0E48\u0E17\u0E35\u0E48\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E40\u0E14\u0E34\u0E21");
-      const affectedTasks = adminTasks.filter((task) => taskMatchesKpiRule(task, sourceKpi));
+      const affectedTasks = kpiMigrationTasks.length > 0 ? kpiMigrationTasks : await fetchTasksForKpiRule(sourceKpi);
       if (affectedTasks.length === 0) return alert("\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E07\u0E32\u0E19\u0E40\u0E01\u0E48\u0E32\u0E17\u0E35\u0E48\u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A KPI \u0E40\u0E14\u0E34\u0E21");
       if (!window.confirm(`\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E01\u0E32\u0E23\u0E22\u0E49\u0E32\u0E22\u0E07\u0E32\u0E19\u0E40\u0E01\u0E48\u0E32 ${affectedTasks.length} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E44\u0E1B\u0E43\u0E0A\u0E49 KPI \u0E43\u0E2B\u0E21\u0E48?`)) return;
       let succeeded = false;
@@ -24328,14 +24346,17 @@ var MaxiwaKpiApp = (() => {
         succeeded = true;
         return { ok: true };
       }, `\u0E22\u0E49\u0E32\u0E22\u0E07\u0E32\u0E19\u0E40\u0E01\u0E48\u0E32 ${affectedTasks.length} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08`);
-      if (succeeded) setKpiMigration(null);
+      if (succeeded) {
+        setKpiMigration(null);
+        setKpiMigrationTasks([]);
+      }
     };
     const renderKpiMigrationModal = () => {
       if (!kpiMigration) return null;
       const sourceKpi = findKpiByKey(kpiMigration.sourceKey);
       const targetKpi = findKpiByKey(kpiMigration.targetKey);
       const targetOptions = sourceKpi ? kpis.filter((item) => normalizedKpiText(item.team) === normalizedKpiText(sourceKpi.team) && kpiRuleKey(item) !== kpiRuleKey(sourceKpi)) : [];
-      const affectedTasks = sourceKpi ? adminTasks.filter((task) => taskMatchesKpiRule(task, sourceKpi)) : [];
+      const affectedTasks = sourceKpi ? kpiMigrationTasks.filter((task) => taskMatchesKpiRule(task, sourceKpi)) : [];
       const statusCounts = affectedTasks.reduce((acc, task) => {
         const status = task.status || "Unknown";
         acc[status] = (acc[status] || 0) + 1;
@@ -24343,7 +24364,10 @@ var MaxiwaKpiApp = (() => {
       }, {});
       const targetWeight = targetKpi ? kpiWeightValue(targetKpi) : "-";
       const targetDays = targetKpi ? targetKpi.days || "-" : "-";
-      return /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed inset-0 z-[101] grid place-items-center p-4 bg-[rgba(15,23,42,0.72)]", onClick: () => setKpiMigration(null) }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-shell-card rounded-[24px] w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-2xl", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-4 border-b border-[var(--mx-line)] bg-[var(--mx-panel)] p-5 md:p-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h3", { className: "m-0 text-2xl font-extrabold tracking-normal" }, "\u0E22\u0E49\u0E32\u0E22 KPI \u0E07\u0E32\u0E19\u0E40\u0E01\u0E48\u0E32"), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-1 mb-0 text-sm text-[var(--mx-muted)]" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01 KPI \u0E43\u0E2B\u0E21\u0E48\u0E41\u0E25\u0E49\u0E27\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E30\u0E22\u0E49\u0E32\u0E22 Main/Sub \u0E02\u0E2D\u0E07\u0E07\u0E32\u0E19\u0E40\u0E14\u0E34\u0E21\u0E43\u0E2B\u0E49 \u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E41\u0E01\u0E49 Data \u0E40\u0E2D\u0E07")), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !p-0 w-10 h-10 flex-shrink-0", onClick: () => setKpiMigration(null), "aria-label": "\u0E1B\u0E34\u0E14" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "p-5 md:p-6 grid gap-5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid md:grid-cols-2 gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-bold text-[var(--mx-muted)]" }, "KPI \u0E40\u0E14\u0E34\u0E21"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 font-extrabold break-words" }, sourceKpi ? kpiRuleLabel(sourceKpi) : "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-process" }, "\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E1E\u0E1A ", affectedTasks.length), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", sourceKpi ? kpiWeightValue(sourceKpi) : "-"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "KPI \u0E43\u0E2B\u0E21\u0E48", /* @__PURE__ */ import_react.default.createElement("select", { className: "mx-select", value: kpiMigration.targetKey, onChange: (e) => setKpiMigration((p) => ({ ...p, targetKey: e.target.value })) }, /* @__PURE__ */ import_react.default.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01 KPI \u0E43\u0E2B\u0E21\u0E48\u0E43\u0E19\u0E17\u0E35\u0E21\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19"), targetOptions.map((item) => /* @__PURE__ */ import_react.default.createElement("option", { key: kpiRuleKey(item), value: kpiRuleKey(item) }, kpiMainValue(item), " / ", kpiSubValue(item), " / Weight ", kpiWeightValue(item))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-completed" }, "Weight \u0E43\u0E2B\u0E21\u0E48 ", targetWeight), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-process" }, "SLA ", targetDays, " \u0E27\u0E31\u0E19")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col md:flex-row md:items-start md:justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold" }, "Preview \u0E01\u0E48\u0E2D\u0E19\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-1 text-xs text-[var(--mx-muted)]" }, "\u0E07\u0E32\u0E19\u0E40\u0E14\u0E34\u0E21\u0E08\u0E30\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E40\u0E09\u0E1E\u0E32\u0E30 Main/Sub KPI \u0E41\u0E25\u0E49\u0E27\u0E04\u0E30\u0E41\u0E19\u0E19\u0E08\u0E30\u0E2D\u0E34\u0E07 Weight \u0E02\u0E2D\u0E07 KPI \u0E43\u0E2B\u0E21\u0E48\u0E2B\u0E25\u0E31\u0E07\u0E04\u0E33\u0E19\u0E27\u0E13\u0E43\u0E2B\u0E21\u0E48")), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-process" }, affectedTasks.length, " tasks")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, Object.entries(statusCounts).map(([status, count]) => /* @__PURE__ */ import_react.default.createElement("span", { key: status, className: "mx-badge mx-status-cancelled" }, status, ": ", count)), affectedTasks.length === 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A KPI \u0E40\u0E14\u0E34\u0E21")), affectedTasks.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 max-h-44 overflow-y-auto rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)]" }, affectedTasks.slice(0, 8).map((task) => /* @__PURE__ */ import_react.default.createElement("div", { key: task.id, className: "flex items-start justify-between gap-3 border-b border-[var(--mx-line)] px-3 py-2 last:border-b-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-bold truncate" }, task.job || task.task || "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-[var(--mx-muted)]" }, task.assignee || task.assignedTo || task.name || "-", " / ", task.status || "-")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap justify-end gap-2 flex-shrink-0" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-process" }, task.team || "-"), task.deadline && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-cancelled" }, formatDate(task.deadline))))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft", onClick: () => setKpiMigration(null) }, "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01"), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary", onClick: migrateOldTasksToKpi, disabled: saving === "kpi-migration" || !targetKpi || affectedTasks.length === 0 }, saving === "kpi-migration" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E22\u0E49\u0E32\u0E22\u0E07\u0E32\u0E19..." : "\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E22\u0E49\u0E32\u0E22\u0E07\u0E32\u0E19\u0E40\u0E01\u0E48\u0E32")))));
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed inset-0 z-[101] grid place-items-center p-4 bg-[rgba(15,23,42,0.72)]", onClick: () => {
+        setKpiMigration(null);
+        setKpiMigrationTasks([]);
+      } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-shell-card rounded-[24px] w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-2xl", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-4 border-b border-[var(--mx-line)] bg-[var(--mx-panel)] p-5 md:p-6" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h3", { className: "m-0 text-2xl font-extrabold tracking-normal" }, "\u0E22\u0E49\u0E32\u0E22 KPI \u0E07\u0E32\u0E19\u0E40\u0E01\u0E48\u0E32"), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-1 mb-0 text-sm text-[var(--mx-muted)]" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01 KPI \u0E43\u0E2B\u0E21\u0E48\u0E41\u0E25\u0E49\u0E27\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E30\u0E22\u0E49\u0E32\u0E22 Main/Sub \u0E02\u0E2D\u0E07\u0E07\u0E32\u0E19\u0E40\u0E14\u0E34\u0E21\u0E43\u0E2B\u0E49 \u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E41\u0E01\u0E49 Data \u0E40\u0E2D\u0E07")), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !p-0 w-10 h-10 flex-shrink-0", onClick: () => setKpiMigration(null), "aria-label": "\u0E1B\u0E34\u0E14" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "p-5 md:p-6 grid gap-5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid md:grid-cols-2 gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs font-bold text-[var(--mx-muted)]" }, "KPI \u0E40\u0E14\u0E34\u0E21"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 font-extrabold break-words" }, sourceKpi ? kpiRuleLabel(sourceKpi) : "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-process" }, "\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E1E\u0E1A ", affectedTasks.length), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-cancelled" }, "Weight ", sourceKpi ? kpiWeightValue(sourceKpi) : "-"))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "grid gap-2 text-xs font-bold text-[var(--mx-muted)]" }, "KPI \u0E43\u0E2B\u0E21\u0E48", /* @__PURE__ */ import_react.default.createElement("select", { className: "mx-select", value: kpiMigration.targetKey, onChange: (e) => setKpiMigration((p) => ({ ...p, targetKey: e.target.value })) }, /* @__PURE__ */ import_react.default.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01 KPI \u0E43\u0E2B\u0E21\u0E48\u0E43\u0E19\u0E17\u0E35\u0E21\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19"), targetOptions.map((item) => /* @__PURE__ */ import_react.default.createElement("option", { key: kpiRuleKey(item), value: kpiRuleKey(item) }, kpiMainValue(item), " / ", kpiSubValue(item), " / Weight ", kpiWeightValue(item))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-completed" }, "Weight \u0E43\u0E2B\u0E21\u0E48 ", targetWeight), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-process" }, "SLA ", targetDays, " \u0E27\u0E31\u0E19")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-muted-card rounded-lg p-4" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col md:flex-row md:items-start md:justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold" }, "Preview \u0E01\u0E48\u0E2D\u0E19\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-1 text-xs text-[var(--mx-muted)]" }, "\u0E07\u0E32\u0E19\u0E40\u0E14\u0E34\u0E21\u0E08\u0E30\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E40\u0E09\u0E1E\u0E32\u0E30 Main/Sub KPI \u0E41\u0E25\u0E49\u0E27\u0E04\u0E30\u0E41\u0E19\u0E19\u0E08\u0E30\u0E2D\u0E34\u0E07 Weight \u0E02\u0E2D\u0E07 KPI \u0E43\u0E2B\u0E21\u0E48\u0E2B\u0E25\u0E31\u0E07\u0E04\u0E33\u0E19\u0E27\u0E13\u0E43\u0E2B\u0E21\u0E48")), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-process" }, affectedTasks.length, " tasks")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 flex flex-wrap gap-2" }, Object.entries(statusCounts).map(([status, count]) => /* @__PURE__ */ import_react.default.createElement("span", { key: status, className: "mx-badge mx-status-cancelled" }, status, ": ", count)), affectedTasks.length === 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A KPI \u0E40\u0E14\u0E34\u0E21")), affectedTasks.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 max-h-44 overflow-y-auto rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)]" }, affectedTasks.slice(0, 8).map((task) => /* @__PURE__ */ import_react.default.createElement("div", { key: task.id, className: "flex items-start justify-between gap-3 border-b border-[var(--mx-line)] px-3 py-2 last:border-b-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-bold truncate" }, task.job || task.task || "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-[var(--mx-muted)]" }, task.assignee || task.assignedTo || task.name || "-", " / ", task.status || "-")), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap justify-end gap-2 flex-shrink-0" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-process" }, task.team || "-"), task.deadline && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-cancelled" }, formatDate(task.deadline))))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid grid-cols-2 gap-3" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft", onClick: () => setKpiMigration(null) }, "\u0E22\u0E01\u0E40\u0E25\u0E34\u0E01"), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary", onClick: migrateOldTasksToKpi, disabled: saving === "kpi-migration" || kpiMigrationLoading || !targetKpi || affectedTasks.length === 0 }, saving === "kpi-migration" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E22\u0E49\u0E32\u0E22\u0E07\u0E32\u0E19..." : "\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E22\u0E49\u0E32\u0E22\u0E07\u0E32\u0E19\u0E40\u0E01\u0E48\u0E32")))));
     };
     const renderKpiEditModal = () => {
       if (!editingKpi) return null;

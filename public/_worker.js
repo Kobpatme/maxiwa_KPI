@@ -675,6 +675,16 @@ function taskPersonId(task) {
   return String(task.empId || task.empid || task.assignedToEmpId || "").trim();
 }
 
+function taskKpiText(value) {
+  return normalizeKeyPart(value).toLowerCase();
+}
+
+function taskMatchesKpiRule(task, rule = {}) {
+  return taskKpiText(task.team) === taskKpiText(rule.team)
+    && taskKpiText(task.mainkpi || task.mainKpi || task.main) === taskKpiText(rule.main)
+    && taskKpiText(task.subkpi || task.subKpi || task.sub) === taskKpiText(rule.sub);
+}
+
 function filterTasks(tasks, params = {}) {
   const month = Number(params.month || 0);
   const year = Number(params.year || 0);
@@ -1241,6 +1251,25 @@ async function handleApi(request, env, apiPath) {
   if (apiPath === "admin/getTeams") return jsonResponse(request, { teams: await readAll(env, "teams") }, 200, { "X-Maxiwa-Backend": "supabase" });
   if (apiPath === "admin/getHolidays") return jsonResponse(request, { holidays: await readAll(env, "holidays") }, 200, { "X-Maxiwa-Backend": "supabase" });
   if (apiPath === "admin/getAuditLogs") return jsonResponse(request, { logs: await readAll(env, "audit_log").catch(() => []) }, 200, { "X-Maxiwa-Backend": "supabase" });
+  if (apiPath === "admin/getTasksByKpiRule") {
+    const rule = {
+      team: url.searchParams.get("team") || "",
+      main: url.searchParams.get("main") || "",
+      sub: url.searchParams.get("sub") || "",
+    };
+    const filters = ["select=*"];
+    if (rule.team) filters.push(`team=eq.${encodeEq(rule.team)}`);
+    if (rule.main) filters.push(`mainkpi=eq.${encodeEq(rule.main)}`);
+    if (rule.sub) filters.push(`subkpi=eq.${encodeEq(rule.sub)}`);
+    let rows;
+    try {
+      rows = await readAll(env, "tasks", filters.join("&"));
+    } catch (error) {
+      if (error?.status !== 400 && error?.status !== 404) throw error;
+      rows = await readTasksForParams(env, { team: rule.team, allTime: "true" });
+    }
+    return jsonResponse(request, { tasks: rows.filter((task) => taskMatchesKpiRule(task, rule)) }, 200, { "X-Maxiwa-Backend": "supabase" });
+  }
 
   if (apiPath === "admin/saveUser" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));

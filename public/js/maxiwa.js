@@ -1712,12 +1712,12 @@ function useAppData(user, view) {
     if (!user) return;
     safeSet({ loading: true, error: '' });
     try {
-      const [logs, teams, holidays, staff, dashboardRes] = await Promise.all([
+      const [logs, teams, holidays, staff, kpisRes] = await Promise.all([
         adminGet('admin/getAuditLogs', userEmpId(user)),
         adminGet('admin/getTeams', userEmpId(user)),
         adminGet('admin/getHolidays', userEmpId(user)),
         API.getAllStaff(userEmpId(user)),
-        API.getDashboardData(),
+        API.getKPIsByTeam(''),
       ]);
       safeSet({
         admin: {
@@ -1725,8 +1725,7 @@ function useAppData(user, view) {
           teams: teams.teams || [],
           holidays: holidays.holidays || [],
           staff: staff.staff || [],
-          kpis: dashboardRes.kpis || [],
-          tasks: dashboardRes.tasks || [],
+          kpis: kpisRes.kpis || [],
         },
         holidays: holidays.holidays || [],
         loading: false,
@@ -3613,11 +3612,12 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const [selectedOverrideEmpId, setSelectedOverrideEmpId] = useState('');
   const [kpiOverrideDrafts, setKpiOverrideDrafts] = useState({});
   const [saving, setSaving] = useState('');
+  const [kpiMigrationTasks, setKpiMigrationTasks] = useState([]);
+  const [kpiMigrationLoading, setKpiMigrationLoading] = useState(false);
 
   const teams = adminData?.teams || [];
   const staff = adminData?.staff || [];
   const kpis = adminData?.kpis || [];
-  const adminTasks = adminData?.tasks || [];
   const holidays = adminData?.holidays || [];
   const logs = adminData?.logs || [];
   const q = adminSearch.trim().toLowerCase();
@@ -3684,16 +3684,11 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     if (!originalKpi?.id) return 0;
     const oldMain = originalKpi.main || originalKpi.mainkpi || '';
     const oldSub = originalKpi.sub || originalKpi.subkpi || '';
-    const oldTeam = originalKpi.team || '';
     const mainChanged = normalizedKpiText(oldMain) !== normalizedKpiText(nextKpi.main);
     const subChanged = normalizedKpiText(oldSub) !== normalizedKpiText(nextKpi.sub);
     if (!mainChanged && !subChanged) return 0;
 
-    const affectedTasks = adminTasks.filter((task) => (
-      normalizedKpiText(task.team) === normalizedKpiText(oldTeam) &&
-      normalizedKpiText(task.mainkpi || task.mainKpi || task.main) === normalizedKpiText(oldMain) &&
-      normalizedKpiText(task.subkpi || task.subKpi || task.sub) === normalizedKpiText(oldSub)
-    ));
+    const affectedTasks = await fetchTasksForKpiRule(originalKpi);
 
     for (const task of affectedTasks) {
       await API.updateTaskDetails({
@@ -3887,6 +3882,16 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     normalizedKpiText(task.mainkpi || task.mainKpi || task.main) === normalizedKpiText(kpiMainValue(kpi)) &&
     normalizedKpiText(task.subkpi || task.subKpi || task.sub) === normalizedKpiText(kpiSubValue(kpi))
   );
+  const fetchTasksForKpiRule = async (kpi) => {
+    if (!kpi) return [];
+    const params = new URLSearchParams({
+      team: kpi.team || '',
+      main: kpiMainValue(kpi),
+      sub: kpiSubValue(kpi),
+    });
+    const res = await adminGet(`admin/getTasksByKpiRule?${params.toString()}`, user.empId);
+    return (res.tasks || []).filter((task) => taskMatchesKpiRule(task, kpi));
+  };
   const selectedOverrideUser = staff.find((person) => String(person.empId || person.empid || '').trim().toUpperCase() === selectedOverrideEmpId);
   const selectedOverridePermissions = userPermissions(selectedOverrideUser);
   const selectedKpiOverrides = selectedOverridePermissions.kpiOverrides || {};
@@ -3943,8 +3948,17 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     setEditingKpi(kpiFormFromItem(item));
   };
 
-  const openKpiMigration = (item) => {
+  const openKpiMigration = async (item) => {
     setKpiMigration({ sourceKey: kpiRuleKey(item), targetKey: '' });
+    setKpiMigrationTasks([]);
+    setKpiMigrationLoading(true);
+    try {
+      setKpiMigrationTasks(await fetchTasksForKpiRule(item));
+    } catch (error) {
+      alert(`โหลดงานที่ตรงกับ KPI ไม่สำเร็จ: ${error.message || 'Request failed'}`);
+    } finally {
+      setKpiMigrationLoading(false);
+    }
   };
 
   const editHoliday = (item) => {
@@ -4196,7 +4210,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     const targetKpi = findKpiByKey(kpiMigration?.targetKey);
     if (!sourceKpi || !targetKpi) return alert('กรุณาเลือก KPI เดิมและ KPI ใหม่ให้ครบ');
     if (kpiRuleKey(sourceKpi) === kpiRuleKey(targetKpi)) return alert('กรุณาเลือก KPI ใหม่ที่ไม่ใช่รายการเดิม');
-    const affectedTasks = adminTasks.filter((task) => taskMatchesKpiRule(task, sourceKpi));
+    const affectedTasks = kpiMigrationTasks.length > 0 ? kpiMigrationTasks : await fetchTasksForKpiRule(sourceKpi);
     if (affectedTasks.length === 0) return alert('ไม่พบงานเก่าที่ตรงกับ KPI เดิม');
     if (!window.confirm(`ยืนยันการย้ายงานเก่า ${affectedTasks.length} รายการไปใช้ KPI ใหม่?`)) return;
 
@@ -4217,7 +4231,10 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
       succeeded = true;
       return { ok: true };
     }, `ย้ายงานเก่า ${affectedTasks.length} รายการสำเร็จ`);
-    if (succeeded) setKpiMigration(null);
+    if (succeeded) {
+      setKpiMigration(null);
+      setKpiMigrationTasks([]);
+    }
   };
 
   const renderKpiMigrationModal = () => {
@@ -4227,7 +4244,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     const targetOptions = sourceKpi
       ? kpis.filter((item) => normalizedKpiText(item.team) === normalizedKpiText(sourceKpi.team) && kpiRuleKey(item) !== kpiRuleKey(sourceKpi))
       : [];
-    const affectedTasks = sourceKpi ? adminTasks.filter((task) => taskMatchesKpiRule(task, sourceKpi)) : [];
+    const affectedTasks = sourceKpi ? kpiMigrationTasks.filter((task) => taskMatchesKpiRule(task, sourceKpi)) : [];
     const statusCounts = affectedTasks.reduce((acc, task) => {
       const status = task.status || 'Unknown';
       acc[status] = (acc[status] || 0) + 1;
@@ -4236,7 +4253,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
     const targetWeight = targetKpi ? kpiWeightValue(targetKpi) : '-';
     const targetDays = targetKpi ? (targetKpi.days || '-') : '-';
     return (
-      <div className="fixed inset-0 z-[101] grid place-items-center p-4 bg-[rgba(15,23,42,0.72)]" onClick={() => setKpiMigration(null)}>
+      <div className="fixed inset-0 z-[101] grid place-items-center p-4 bg-[rgba(15,23,42,0.72)]" onClick={() => { setKpiMigration(null); setKpiMigrationTasks([]); }}>
         <div className="mx-shell-card rounded-[24px] w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-start justify-between gap-4 border-b border-[var(--mx-line)] bg-[var(--mx-panel)] p-5 md:p-6">
             <div>
@@ -4310,7 +4327,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
 
             <div className="grid grid-cols-2 gap-3">
               <button className="mx-btn mx-btn-soft" onClick={() => setKpiMigration(null)}>ยกเลิก</button>
-              <button className="mx-btn mx-btn-primary" onClick={migrateOldTasksToKpi} disabled={saving === 'kpi-migration' || !targetKpi || affectedTasks.length === 0}>
+              <button className="mx-btn mx-btn-primary" onClick={migrateOldTasksToKpi} disabled={saving === 'kpi-migration' || kpiMigrationLoading || !targetKpi || affectedTasks.length === 0}>
                 {saving === 'kpi-migration' ? 'กำลังย้ายงาน...' : 'ยืนยันย้ายงานเก่า'}
               </button>
             </div>
