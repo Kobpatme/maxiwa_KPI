@@ -5,7 +5,8 @@ const READ_TIMEOUT_MS = 15000;
 const WRITE_TIMEOUT_MS = 20000;
 const PROXY_TIMEOUT_MS = 25000;
 const READ_RETRY_DELAYS_MS = [500, 1200];
-const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log", "app_system_links"];
+const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log", "app_system_links", "app_system_settings"];
+const ADMIN_ANNOUNCEMENT_SETTING_KEY = "admin_announcement";
 const SERVER_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
@@ -1668,6 +1669,48 @@ async function readSystemLinks(env) {
     .sort((a, b) => (a.sortOrder || 100) - (b.sortOrder || 100) || String(a.name || "").localeCompare(String(b.name || "")));
 }
 
+function normalizeAdminAnnouncement(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  return {
+    message: String(raw.message || "").trim(),
+    isActive: raw.isActive === true || raw.is_active === true || String(raw.isActive ?? raw.is_active).toLowerCase() === "true",
+    updatedAt: raw.updatedAt || raw.updated_at || "",
+    updatedBy: raw.updatedBy || raw.updated_by || "",
+  };
+}
+
+async function readAdminAnnouncement(env) {
+  const rows = await supabaseFetch(
+    env,
+    "app_system_settings",
+    `select=*&key=eq.${encodeEq(ADMIN_ANNOUNCEMENT_SETTING_KEY)}&limit=1`
+  ).catch(() => []);
+  const row = rows[0] || null;
+  return normalizeAdminAnnouncement(row?.value || {});
+}
+
+async function saveAdminAnnouncement(env, announcement, changedBy = "") {
+  const normalized = normalizeAdminAnnouncement(announcement);
+  const next = {
+    ...normalized,
+    updatedAt: normalized.updatedAt || new Date().toISOString(),
+    updatedBy: normalized.updatedBy || changedBy || "",
+  };
+  const row = await shapeForTable(env, "app_system_settings", {
+    key: ADMIN_ANNOUNCEMENT_SETTING_KEY,
+    value: next,
+    description: "Header announcement shown to all signed-in users",
+    is_public: true,
+    updated_by_emp_id: changedBy || next.updatedBy || "",
+  });
+  await supabaseWrite(env, "app_system_settings", {
+    query: "on_conflict=key",
+    body: row,
+    prefer: "resolution=merge-duplicates,return=representation",
+  });
+  return next;
+}
+
 async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = "" } = {}) {
   const [tasks, kpis, holidays] = await Promise.all([
     readAll(env, "tasks").catch(() => []),
@@ -1984,6 +2027,18 @@ async function handleApi(request, env, apiPath) {
 
   if (apiPath === "systemLinks") {
     return jsonResponse(request, { systemLinks: await readSystemLinks(env) }, 200, { "X-Maxiwa-Backend": "supabase" });
+  }
+
+  if (apiPath === "adminAnnouncement") {
+    return jsonResponse(request, { announcement: await readAdminAnnouncement(env) }, 200, { "X-Maxiwa-Backend": "supabase" });
+  }
+
+  if (apiPath === "admin/saveAnnouncement" && request.method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    const changedBy = request.headers.get("x-admin-empid") || body.updatedBy || "";
+    const announcement = await saveAdminAnnouncement(env, body.announcement || body, changedBy);
+    await writeAudit(env, { action: "save_admin_announcement", changedBy, details: { isActive: announcement.isActive } });
+    return jsonResponse(request, { ok: true, announcement }, 200, { "X-Maxiwa-Backend": "supabase" });
   }
 
   if (apiPath === "admin/saveSystemLinks" && request.method === "POST") {

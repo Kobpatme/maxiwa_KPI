@@ -331,6 +331,18 @@ function cacheAdminAnnouncement(nextAnnouncement) {
   return normalized;
 }
 
+async function fetchAdminAnnouncementFromApi() {
+  if (!window.API?.getAdminAnnouncement) throw new Error('Admin announcement API is not available');
+  const data = await window.API.getAdminAnnouncement();
+  return normalizeAdminAnnouncement(data?.announcement || data);
+}
+
+async function saveAdminAnnouncementToApi(nextAnnouncement, empId) {
+  if (!window.API?.saveAdminAnnouncement) throw new Error('Admin announcement API is not available');
+  const data = await window.API.saveAdminAnnouncement(nextAnnouncement, { 'x-admin-empid': empId || '' });
+  return normalizeAdminAnnouncement(data?.announcement || nextAnnouncement);
+}
+
 const NAV_BY_ROLE = {
   Staff: [
     { id: 'dashboard', label: 'My Dashboard', icon: 'fa-chart-line', group: 'งานของฉัน' },
@@ -4179,27 +4191,48 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
     setAnnouncementDraft(normalizeAdminAnnouncement(adminAnnouncement));
   }, [adminAnnouncement]);
 
-  const saveAdminAnnouncement = () => {
+  const saveAdminAnnouncement = async () => {
     const nextAnnouncement = {
       ...announcementDraft,
       message: String(announcementDraft.message || '').trim(),
       updatedAt: new Date().toISOString(),
       updatedBy: user?.empId || user?.name || '',
     };
-    const saved = cacheAdminAnnouncement(nextAnnouncement);
-    setAnnouncementDraft(saved);
-    onAdminAnnouncementChange?.(saved);
+    try {
+      setSaving('announcement');
+      const saved = cacheAdminAnnouncement(await saveAdminAnnouncementToApi(nextAnnouncement, user?.empId));
+      setAnnouncementDraft(saved);
+      onAdminAnnouncementChange?.(saved);
+    } catch (error) {
+      const saved = cacheAdminAnnouncement(nextAnnouncement);
+      setAnnouncementDraft(saved);
+      onAdminAnnouncementChange?.(saved);
+      alert(`บันทึกประกาศบน Server ไม่สำเร็จ: ${error.message || 'ตรวจสอบตาราง app_system_settings'}`);
+    } finally {
+      setSaving('');
+    }
   };
 
-  const clearAdminAnnouncement = () => {
-    const saved = cacheAdminAnnouncement({
+  const clearAdminAnnouncement = async () => {
+    const nextAnnouncement = {
       message: '',
       isActive: false,
       updatedAt: new Date().toISOString(),
       updatedBy: user?.empId || user?.name || '',
-    });
-    setAnnouncementDraft(saved);
-    onAdminAnnouncementChange?.(saved);
+    };
+    try {
+      setSaving('announcement');
+      const saved = cacheAdminAnnouncement(await saveAdminAnnouncementToApi(nextAnnouncement, user?.empId));
+      setAnnouncementDraft(saved);
+      onAdminAnnouncementChange?.(saved);
+    } catch (error) {
+      const saved = cacheAdminAnnouncement(nextAnnouncement);
+      setAnnouncementDraft(saved);
+      onAdminAnnouncementChange?.(saved);
+      alert(`ล้างประกาศบน Server ไม่สำเร็จ: ${error.message || 'ตรวจสอบตาราง app_system_settings'}`);
+    } finally {
+      setSaving('');
+    }
   };
   const filteredSystems = normalizedSystemLinks.filter((s) => matches(s.name, s.description, s.url, s.status, s.allowedRoles.join(' '), s.allowedTeams.join(' '), s.allowedEmpIds.join(' ')));
   const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
@@ -5631,10 +5664,10 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
               </label>
               <div className="flex flex-wrap gap-2">
                 <button className="mx-btn mx-btn-primary !py-2" onClick={saveAdminAnnouncement}>
-                  <i className="fa-solid fa-floppy-disk mr-2"></i>บันทึกข้อความ
+                  <i className="fa-solid fa-floppy-disk mr-2"></i>{saving === 'announcement' ? 'กำลังบันทึก...' : 'บันทึกข้อความ'}
                 </button>
                 <button className="mx-btn mx-btn-soft !py-2" onClick={clearAdminAnnouncement}>
-                  <i className="fa-solid fa-xmark mr-2"></i>ล้างข้อความ
+                  <i className="fa-solid fa-xmark mr-2"></i>{saving === 'announcement' ? 'กำลังบันทึก...' : 'ล้างข้อความ'}
                 </button>
               </div>
             </div>
@@ -5787,6 +5820,28 @@ function App() {
         if (!cancelled) setSystemLinks(loadSystemLinks());
       });
     return () => { cancelled = true; };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    let cancelled = false;
+    const loadAnnouncement = () => {
+      fetchAdminAnnouncementFromApi()
+        .then((announcement) => {
+          if (cancelled) return;
+          const normalized = cacheAdminAnnouncement(announcement);
+          setAdminAnnouncement(normalized);
+        })
+        .catch(() => {
+          if (!cancelled) setAdminAnnouncement(loadAdminAnnouncement());
+        });
+    };
+    loadAnnouncement();
+    const timer = setInterval(loadAnnouncement, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [user]);
 
   useEffect(() => {

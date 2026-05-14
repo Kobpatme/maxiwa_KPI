@@ -21754,6 +21754,18 @@ var MaxiwaKpiApp = (() => {
     safeLocalSet(ADMIN_ANNOUNCEMENT_KEY, JSON.stringify(normalized));
     return normalized;
   }
+  async function fetchAdminAnnouncementFromApi() {
+    var _a;
+    if (!((_a = window.API) == null ? void 0 : _a.getAdminAnnouncement)) throw new Error("Admin announcement API is not available");
+    const data = await window.API.getAdminAnnouncement();
+    return normalizeAdminAnnouncement((data == null ? void 0 : data.announcement) || data);
+  }
+  async function saveAdminAnnouncementToApi(nextAnnouncement, empId) {
+    var _a;
+    if (!((_a = window.API) == null ? void 0 : _a.saveAdminAnnouncement)) throw new Error("Admin announcement API is not available");
+    const data = await window.API.saveAdminAnnouncement(nextAnnouncement, { "x-admin-empid": empId || "" });
+    return normalizeAdminAnnouncement((data == null ? void 0 : data.announcement) || nextAnnouncement);
+  }
   var NAV_BY_ROLE = {
     Staff: [
       { id: "dashboard", label: "My Dashboard", icon: "fa-chart-line", group: "\u0E07\u0E32\u0E19\u0E02\u0E2D\u0E07\u0E09\u0E31\u0E19" },
@@ -24229,26 +24241,47 @@ var MaxiwaKpiApp = (() => {
     useEffect(() => {
       setAnnouncementDraft(normalizeAdminAnnouncement(adminAnnouncement));
     }, [adminAnnouncement]);
-    const saveAdminAnnouncement = () => {
+    const saveAdminAnnouncement = async () => {
       const nextAnnouncement = {
         ...announcementDraft,
         message: String(announcementDraft.message || "").trim(),
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         updatedBy: (user == null ? void 0 : user.empId) || (user == null ? void 0 : user.name) || ""
       };
-      const saved = cacheAdminAnnouncement(nextAnnouncement);
-      setAnnouncementDraft(saved);
-      onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
+      try {
+        setSaving("announcement");
+        const saved = cacheAdminAnnouncement(await saveAdminAnnouncementToApi(nextAnnouncement, user == null ? void 0 : user.empId));
+        setAnnouncementDraft(saved);
+        onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
+      } catch (error) {
+        const saved = cacheAdminAnnouncement(nextAnnouncement);
+        setAnnouncementDraft(saved);
+        onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
+        alert(`\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E1A\u0E19 Server \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08: ${error.message || "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E15\u0E32\u0E23\u0E32\u0E07 app_system_settings"}`);
+      } finally {
+        setSaving("");
+      }
     };
-    const clearAdminAnnouncement = () => {
-      const saved = cacheAdminAnnouncement({
+    const clearAdminAnnouncement = async () => {
+      const nextAnnouncement = {
         message: "",
         isActive: false,
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         updatedBy: (user == null ? void 0 : user.empId) || (user == null ? void 0 : user.name) || ""
-      });
-      setAnnouncementDraft(saved);
-      onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
+      };
+      try {
+        setSaving("announcement");
+        const saved = cacheAdminAnnouncement(await saveAdminAnnouncementToApi(nextAnnouncement, user == null ? void 0 : user.empId));
+        setAnnouncementDraft(saved);
+        onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
+      } catch (error) {
+        const saved = cacheAdminAnnouncement(nextAnnouncement);
+        setAnnouncementDraft(saved);
+        onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
+        alert(`\u0E25\u0E49\u0E32\u0E07\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E1A\u0E19 Server \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08: ${error.message || "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E15\u0E32\u0E23\u0E32\u0E07 app_system_settings"}`);
+      } finally {
+        setSaving("");
+      }
     };
     const filteredSystems = normalizedSystemLinks.filter((s) => matches(s.name, s.description, s.url, s.status, s.allowedRoles.join(" "), s.allowedTeams.join(" "), s.allowedEmpIds.join(" ")));
     const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
@@ -24974,7 +25007,7 @@ var MaxiwaKpiApp = (() => {
           checked: announcementDraft.isActive,
           onChange: (e) => setAnnouncementDraft((prev) => ({ ...prev, isActive: e.target.checked }))
         }
-      ), "\u0E40\u0E1B\u0E34\u0E14\u0E41\u0E2A\u0E14\u0E07\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E19\u0E35\u0E49\u0E1A\u0E19\u0E0A\u0E48\u0E2D\u0E07\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary !py-2", onClick: saveAdminAnnouncement }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-floppy-disk mr-2" }), "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21"), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: clearAdminAnnouncement }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark mr-2" }), "\u0E25\u0E49\u0E32\u0E07\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21"))), announcementDraft.updatedAt && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-[var(--mx-muted)]" }, "\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14: ", formatDate(announcementDraft.updatedAt, true), " ", announcementDraft.updatedBy ? `/ ${announcementDraft.updatedBy}` : ""))), /* @__PURE__ */ import_react.default.createElement(Panel, { title: "\u0E17\u0E32\u0E07\u0E25\u0E31\u0E14\u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E30\u0E1A\u0E1A", subtitle: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E21\u0E27\u0E14\u0E17\u0E35\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E30\u0E41\u0E22\u0E01\u0E07\u0E32\u0E19 setup, SLA \u0E41\u0E25\u0E30 audit \u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E01\u0E31\u0E19\u0E0A\u0E31\u0E14\u0E40\u0E08\u0E19" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid md:grid-cols-2 xl:grid-cols-3 gap-3" }, setupItems.map((item) => /* @__PURE__ */ import_react.default.createElement(
+      ), "\u0E40\u0E1B\u0E34\u0E14\u0E41\u0E2A\u0E14\u0E07\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E19\u0E35\u0E49\u0E1A\u0E19\u0E0A\u0E48\u0E2D\u0E07\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary !py-2", onClick: saveAdminAnnouncement }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-floppy-disk mr-2" }), saving === "announcement" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21"), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: clearAdminAnnouncement }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark mr-2" }), saving === "announcement" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E25\u0E49\u0E32\u0E07\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21"))), announcementDraft.updatedAt && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-[var(--mx-muted)]" }, "\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14: ", formatDate(announcementDraft.updatedAt, true), " ", announcementDraft.updatedBy ? `/ ${announcementDraft.updatedBy}` : ""))), /* @__PURE__ */ import_react.default.createElement(Panel, { title: "\u0E17\u0E32\u0E07\u0E25\u0E31\u0E14\u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E30\u0E1A\u0E1A", subtitle: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E21\u0E27\u0E14\u0E17\u0E35\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E30\u0E41\u0E22\u0E01\u0E07\u0E32\u0E19 setup, SLA \u0E41\u0E25\u0E30 audit \u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E01\u0E31\u0E19\u0E0A\u0E31\u0E14\u0E40\u0E08\u0E19" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid md:grid-cols-2 xl:grid-cols-3 gap-3" }, setupItems.map((item) => /* @__PURE__ */ import_react.default.createElement(
         "button",
         {
           key: item.id,
@@ -25063,6 +25096,25 @@ var MaxiwaKpiApp = (() => {
       });
       return () => {
         cancelled = true;
+      };
+    }, [user]);
+    useEffect(() => {
+      if (!user) return void 0;
+      let cancelled = false;
+      const loadAnnouncement = () => {
+        fetchAdminAnnouncementFromApi().then((announcement) => {
+          if (cancelled) return;
+          const normalized = cacheAdminAnnouncement(announcement);
+          setAdminAnnouncement(normalized);
+        }).catch(() => {
+          if (!cancelled) setAdminAnnouncement(loadAdminAnnouncement());
+        });
+      };
+      loadAnnouncement();
+      const timer = setInterval(loadAnnouncement, 3e4);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
       };
     }, [user]);
     useEffect(() => {

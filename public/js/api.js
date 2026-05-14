@@ -202,6 +202,8 @@ const API = (() => {
     getAuditLogsByTask: (taskId) => get("getAuditLogsByTask", { taskId }),
     getSystemLinks: (requesterEmpId) => get("systemLinks", { requesterEmpId }),
     saveSystemLinks: (systemLinks, headers = {}) => post("admin/saveSystemLinks", { systemLinks }, headers),
+    getAdminAnnouncement: () => get("adminAnnouncement"),
+    saveAdminAnnouncement: (announcement, headers = {}) => post("admin/saveAnnouncement", { announcement }, headers),
   };
 })();
 
