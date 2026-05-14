@@ -1308,6 +1308,15 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
   const isLong = String(text || '').length > 55;
   const [detailOpen, setDetailOpen] = useState(false);
   const marqueeName = 'mx-alert-inline-marquee';
+
+  useEffect(() => {
+    if (!detailOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setDetailOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [detailOpen]);
   const noticeStyle = {
     width: 'fit-content',
     maxWidth: '100%',
@@ -1390,10 +1399,13 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
         </div>
       </button>
       {detailOpen && (
+        <div className="fixed inset-0 z-[119]" onClick={() => setDetailOpen(false)} aria-hidden="true"></div>
+      )}
+      {detailOpen && (
         <div className="absolute left-0 top-[calc(100%+8px)] z-[120] w-[min(720px,calc(100vw-2rem))] rounded-lg border border-[var(--mx-line-strong)] bg-[var(--mx-panel-strong)] p-4 text-[var(--mx-text)] shadow-2xl">
           <div className="flex items-start justify-between gap-3">
             <div className="text-sm font-extrabold">{sourceLabel || 'รายละเอียดประกาศ'}</div>
-            <button className="text-[var(--mx-muted)] hover:text-[var(--mx-text)]" type="button" onClick={() => setDetailOpen(false)} aria-label="ปิดรายละเอียดประกาศ">
+            <button className="mx-btn mx-btn-soft !p-0 w-8 h-8 grid place-items-center" type="button" onClick={() => setDetailOpen(false)} aria-label="ปิดรายละเอียดประกาศ" title="ปิด">
               <i className="fa-solid fa-xmark"></i>
             </button>
           </div>
