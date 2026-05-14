@@ -22488,8 +22488,9 @@ var MaxiwaKpiApp = (() => {
     return title || description;
   }
   function AlertNoticeBox({ text, icon = "fa-triangle-exclamation", title, fullText = "", sourceLabel = "", link = "" }) {
-    const isLong = String(text || "").length > 90;
+    const isLong = String(text || "").length > 55;
     const [detailOpen, setDetailOpen] = useState(false);
+    const marqueeName = "mx-alert-inline-marquee";
     const noticeStyle = {
       width: "fit-content",
       maxWidth: "100%",
@@ -22500,14 +22501,20 @@ var MaxiwaKpiApp = (() => {
       gap: 10,
       overflow: "hidden",
       borderRadius: 8,
-      whiteSpace: "nowrap"
+      whiteSpace: "nowrap",
+      border: "1px solid color-mix(in srgb, var(--mx-warning) 36%, var(--mx-line-strong))",
+      background: "color-mix(in srgb, var(--mx-warning-bg) 78%, var(--mx-panel-strong))",
+      color: "var(--mx-text)"
     };
     const iconStyle = {
       width: 38,
       minHeight: 40,
       display: "grid",
       placeItems: "center",
-      flex: "0 0 38px"
+      flex: "0 0 38px",
+      color: "var(--mx-warning)",
+      background: "color-mix(in srgb, var(--mx-warning-bg) 80%, transparent)",
+      borderRight: "1px solid color-mix(in srgb, var(--mx-warning) 24%, transparent)"
     };
     const viewportStyle = {
       minWidth: 0,
@@ -22523,7 +22530,9 @@ var MaxiwaKpiApp = (() => {
       maxWidth: isLong ? "none" : "100%",
       fontSize: 13,
       fontWeight: 800,
-      lineHeight: 1.35
+      lineHeight: 1.35,
+      animation: isLong ? `${marqueeName} 42s linear infinite` : void 0,
+      willChange: isLong ? "transform" : void 0
     };
     const textStyle = {
       minWidth: 0,
@@ -22531,7 +22540,15 @@ var MaxiwaKpiApp = (() => {
       textOverflow: isLong ? "clip" : "ellipsis",
       whiteSpace: "nowrap"
     };
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement(
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, isLong && /* @__PURE__ */ import_react.default.createElement("style", null, `
+          @keyframes ${marqueeName} {
+            from { transform: translateX(0); }
+            to { transform: translateX(calc(-50% - 20px)); }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .mx-weather-ticker__track { animation: none !important; }
+          }
+        `), /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         className: cn("mx-weather-ticker text-left", isLong && "mx-weather-ticker--marquee"),

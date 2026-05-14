@@ -1305,8 +1305,9 @@ function officialAlertText(alert = {}, options = {}) {
 }
 
 function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullText = '', sourceLabel = '', link = '' }) {
-  const isLong = String(text || '').length > 90;
+  const isLong = String(text || '').length > 55;
   const [detailOpen, setDetailOpen] = useState(false);
+  const marqueeName = 'mx-alert-inline-marquee';
   const noticeStyle = {
     width: 'fit-content',
     maxWidth: '100%',
@@ -1318,6 +1319,9 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
     overflow: 'hidden',
     borderRadius: 8,
     whiteSpace: 'nowrap',
+    border: '1px solid color-mix(in srgb, var(--mx-warning) 36%, var(--mx-line-strong))',
+    background: 'color-mix(in srgb, var(--mx-warning-bg) 78%, var(--mx-panel-strong))',
+    color: 'var(--mx-text)',
   };
   const iconStyle = {
     width: 38,
@@ -1325,6 +1329,9 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
     display: 'grid',
     placeItems: 'center',
     flex: '0 0 38px',
+    color: 'var(--mx-warning)',
+    background: 'color-mix(in srgb, var(--mx-warning-bg) 80%, transparent)',
+    borderRight: '1px solid color-mix(in srgb, var(--mx-warning) 24%, transparent)',
   };
   const viewportStyle = {
     minWidth: 0,
@@ -1341,6 +1348,8 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
     fontSize: 13,
     fontWeight: 800,
     lineHeight: 1.35,
+    animation: isLong ? `${marqueeName} 42s linear infinite` : undefined,
+    willChange: isLong ? 'transform' : undefined,
   };
   const textStyle = {
     minWidth: 0,
@@ -1351,6 +1360,17 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
 
   return (
     <div className="relative">
+      {isLong && (
+        <style>{`
+          @keyframes ${marqueeName} {
+            from { transform: translateX(0); }
+            to { transform: translateX(calc(-50% - 20px)); }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .mx-weather-ticker__track { animation: none !important; }
+          }
+        `}</style>
+      )}
       <button
         className={cn('mx-weather-ticker text-left', isLong && 'mx-weather-ticker--marquee')}
         style={noticeStyle}
