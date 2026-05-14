@@ -22605,7 +22605,7 @@ var MaxiwaKpiApp = (() => {
           sourceLabel: "\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E08\u0E32\u0E01\u0E41\u0E2D\u0E14\u0E21\u0E34\u0E19"
         }
       ) : null,
-      tickerText ? /* @__PURE__ */ import_react.default.createElement(
+      !adminText && tickerText ? /* @__PURE__ */ import_react.default.createElement(
         AlertNoticeBox,
         {
           key: "weather",

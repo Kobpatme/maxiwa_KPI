@@ -1462,7 +1462,7 @@ function WeatherAlertTicker({ weather, adminAnnouncement }) {
         sourceLabel="ประกาศจากแอดมิน"
       />
     ) : null,
-    tickerText ? (
+    !adminText && tickerText ? (
       <AlertNoticeBox
         key="weather"
         text={tickerText}
