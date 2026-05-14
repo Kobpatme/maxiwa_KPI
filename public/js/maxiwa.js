@@ -1318,9 +1318,9 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [detailOpen]);
   const noticeStyle = {
-    width: 'fit-content',
+    width: '100%',
     maxWidth: '100%',
-    minWidth: 'min(420px, 100%)',
+    minWidth: 0,
     minHeight: 40,
     display: 'flex',
     alignItems: 'center',
@@ -1368,7 +1368,7 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
   };
 
   return (
-    <div className="relative">
+    <div className="relative w-full min-w-0">
       {isLong && (
         <style>{`
           @keyframes ${marqueeName} {
@@ -1476,7 +1476,7 @@ function WeatherAlertTicker({ weather, adminAnnouncement }) {
 
   if (!notices.length) return null;
 
-  return <div className="grid gap-2">{notices}</div>;
+  return <div className="grid w-full min-w-0 gap-2">{notices}</div>;
 }
 
 function WeatherWidget({ onWeatherChange }) {
@@ -6108,11 +6108,11 @@ function App() {
         <main className="grid content-start gap-5">
             <header className="relative z-[80] mx-shell-card overflow-visible">
             <div className="px-5 py-5 md:px-6 md:py-6">
-              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px_auto] xl:items-start">
+              <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_390px_auto] 2xl:items-start">
                 <div className="min-w-0">
                   <div className="grid gap-3 md:grid-cols-[auto_minmax(0,1fr)] md:items-center">
                     <span className="mx-badge mx-status-completed"><i className="fa-solid fa-building-user"></i>{user.team}</span>
-                    <div className="min-w-0 md:justify-self-center md:w-fit md:max-w-[min(100%,720px)]">
+                    <div className="min-w-0 w-full md:justify-self-stretch md:max-w-[min(100%,760px)]">
                       <WeatherAlertTicker weather={headerWeather} adminAnnouncement={adminAnnouncement} />
                     </div>
                   </div>
@@ -6124,11 +6124,11 @@ function App() {
                   </p>
                 </div>
 
-                <div className="xl:justify-self-end">
+                <div className="min-w-0 2xl:justify-self-end">
                   <WeatherWidget onWeatherChange={setHeaderWeather} />
                 </div>
 
-                <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2 2xl:justify-end">
                   {canOpenExecutiveView(user.role) && (
                     <button className="mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2" onClick={openExecutiveView} title="Open Performance View">
                       <i className="fa-solid fa-display"></i>
