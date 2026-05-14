@@ -1206,17 +1206,20 @@ async function fetchWeatherSnapshot(selectedLocation) {
   const params = new URLSearchParams({
     lat: String(location.latitude),
     lon: String(location.longitude),
+    label: location.label || '',
     province: location.province || location.label || '',
   });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch(`${apiBase()}/tmd/weather?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
-    if (!res.ok) throw new Error(`Weather HTTP ${res.status}`);
+    const res = await fetch(`${apiBase()}/openmeteo/weather?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
     const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || `Weather HTTP ${res.status}`);
     const current = data.weather || {};
     const conditionText = String(current.description || '').toLowerCase();
-    const meta = conditionText.includes('ฝน') || conditionText.includes('rain')
+    const meta = current.icon
+      ? { icon: current.icon, label: current.description || 'Weather' }
+      : conditionText.includes('ฝน') || conditionText.includes('rain')
       ? { icon: 'fa-cloud-showers-heavy', label: current.description || 'Rain' }
       : weatherMeta(Number.NaN);
     return {
@@ -1226,7 +1229,7 @@ async function fetchWeatherSnapshot(selectedLocation) {
       rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,
       humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
       wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
-      source: data.source || 'TMD',
+      source: data.source || 'Open-Meteo',
       ...meta,
     };
   } finally {
@@ -1249,12 +1252,14 @@ function WeatherWidget() {
   const [locationQuery, setLocationQuery] = useState('');
   const [locationResults, setLocationResults] = useState([]);
   const [locationSearching, setLocationSearching] = useState(false);
+  const [locationError, setLocationError] = useState('');
 
   const pickLocation = useCallback((location) => {
     setSelectedLocation(location);
     setMenuOpen(false);
     setLocationQuery('');
     setLocationResults([]);
+    setLocationError('');
   }, []);
 
   const loadWeather = useCallback(async (cancelledRef = { current: false }) => {
@@ -1262,8 +1267,8 @@ function WeatherWidget() {
     try {
       const snapshot = await fetchWeatherSnapshot(selectedLocation);
       if (!cancelledRef.current) setWeather({ loading: false, error: false, ...snapshot });
-    } catch {
-      if (!cancelledRef.current) setWeather({ loading: false, error: true });
+    } catch (error) {
+      if (!cancelledRef.current) setWeather({ loading: false, error: true, errorMessage: error?.message || '' });
     }
   }, [selectedLocation]);
 
@@ -1282,6 +1287,7 @@ function WeatherWidget() {
     if (!menuOpen || query.length < 2) {
       setLocationResults([]);
       setLocationSearching(false);
+      setLocationError('');
       return undefined;
     }
     let cancelled = false;
@@ -1289,20 +1295,24 @@ function WeatherWidget() {
       setLocationSearching(true);
       try {
         const params = new URLSearchParams({ query });
-        const res = await fetch(`${apiBase()}/tmd/provinces?${params.toString()}`, { headers: sessionHeaders() });
-        if (!res.ok) throw new Error(`TMD province HTTP ${res.status}`);
+        const res = await fetch(`${apiBase()}/openmeteo/places?${params.toString()}`, { headers: sessionHeaders() });
         const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || `Open-Meteo places HTTP ${res.status}`);
         if (!cancelled) {
-          setLocationResults((data.provinces || []).slice(0, 8).map((item) => ({
+          setLocationResults((data.places || []).slice(0, 8).map((item) => ({
             id: item.id,
             latitude: item.latitude,
             longitude: item.longitude,
             label: item.label,
             province: item.province || item.label,
           })));
+          setLocationError('');
         }
-      } catch {
-        if (!cancelled) setLocationResults([]);
+      } catch (error) {
+        if (!cancelled) {
+          setLocationResults([]);
+          setLocationError(error?.message || '');
+        }
       } finally {
         if (!cancelled) setLocationSearching(false);
       }
@@ -1317,7 +1327,7 @@ function WeatherWidget() {
     return (
       <div className="min-w-[320px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 py-2 flex items-center gap-2 text-[var(--mx-muted)]">
         <i className="fa-solid fa-cloud"></i>
-        <span className="text-sm font-extrabold">Weather offline</span>
+        <span className="text-sm font-extrabold">{weather.errorMessage || 'Weather offline'}</span>
         <button className="ml-auto text-xs font-bold text-[var(--mx-accent)]" type="button" onClick={() => loadWeather()}>Retry</button>
       </div>
     );
@@ -1377,7 +1387,7 @@ function WeatherWidget() {
               <div className="px-3 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">ผลการค้นหา</div>
               {locationSearching && <div className="px-3 py-2 text-sm text-slate-300">กำลังค้นหา...</div>}
               {!locationSearching && locationResults.length === 0 && locationQuery.trim().length >= 2 && (
-                <div className="px-3 py-2 text-sm text-slate-300">ไม่พบพื้นที่</div>
+                <div className="px-3 py-2 text-sm text-slate-300">{locationError || 'ไม่พบพื้นที่'}</div>
               )}
               {!locationSearching && locationResults.map((location) => (
                 <button
@@ -1405,7 +1415,7 @@ function WeatherWidget() {
           <div>ฝนสะสม: {weather.loading ? '-' : weather.rainfall ?? '-'} มม.</div>
           <div>ความชื้น: {weather.loading ? '-' : weather.humidity ?? '-'}%</div>
           <div>ลม: {weather.loading ? '-' : weather.wind ?? '-'} กม./ชม.</div>
-          <div className="text-[10px] text-slate-400">ที่มา: {weather.source || 'TMD'}</div>
+          <div className="text-[10px] text-slate-400">ที่มา: {weather.source || 'Open-Meteo'}</div>
         </div>
       </div>
     </div>

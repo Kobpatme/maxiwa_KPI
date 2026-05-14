@@ -7,6 +7,12 @@ const PROXY_TIMEOUT_MS = 25000;
 const READ_RETRY_DELAYS_MS = [500, 1200];
 const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log", "app_system_links"];
 const SERVER_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
+const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
+const OPEN_METEO_TIMEOUT_MS = 8000;
+const GOOGLE_GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json";
+const GOOGLE_WEATHER_CURRENT_URL = "https://weather.googleapis.com/v1/currentConditions:lookup";
+const GOOGLE_WEATHER_TIMEOUT_MS = 8000;
 const TMD_WEATHER_TODAY_URL = "https://data.tmd.go.th/api/WeatherToday/V2/";
 const TMD_AWS_WEATHER_URL = "https://www.tmd.go.th/api/weather/get-aws-weather-by-province";
 const TMD_PROVINCE_SEARCH_URL = "https://www.tmd.go.th/api/Province/getProvinces";
@@ -103,6 +109,252 @@ function numberValue(value) {
   const raw = typeof value === "object" && value !== null ? firstValue(value, ["Value", "value", "_text", "#text"]) : value;
   const num = Number.parseFloat(String(raw ?? "").replace(/[^\d.-]/g, ""));
   return Number.isFinite(num) ? num : null;
+}
+
+function openMeteoWeatherMeta(code) {
+  const weatherCode = Number(code);
+  if (weatherCode === 0) return { description: "ท้องฟ้าแจ่มใส", icon: "fa-sun" };
+  if ([1, 2, 3].includes(weatherCode)) return { description: "มีเมฆบางส่วน", icon: "fa-cloud-sun" };
+  if ([45, 48].includes(weatherCode)) return { description: "หมอก", icon: "fa-smog" };
+  if ([51, 53, 55, 56, 57].includes(weatherCode)) return { description: "ฝนปรอย", icon: "fa-cloud-rain" };
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(weatherCode)) return { description: "ฝนตก", icon: "fa-cloud-showers-heavy" };
+  if ([95, 96, 99].includes(weatherCode)) return { description: "ฝนฟ้าคะนอง", icon: "fa-cloud-bolt" };
+  return { description: "สภาพอากาศ", icon: "fa-cloud-sun" };
+}
+
+function normalizeOpenMeteoPlace(item = {}) {
+  const label = [item.name, item.admin2, item.admin1, item.country].filter(Boolean);
+  return {
+    id: `openmeteo-${item.id || `${item.latitude},${item.longitude}`}`,
+    label: Array.from(new Set(label)).join(", "),
+    province: item.admin1 || item.name || "",
+    latitude: numberValue(item.latitude),
+    longitude: numberValue(item.longitude),
+    timezone: item.timezone || "",
+    country: item.country || "",
+  };
+}
+
+async function fetchOpenMeteoPlaces(request, url) {
+  const query = String(url.searchParams.get("query") || "").trim();
+  if (query.length < 2) return jsonResponse(request, { places: [] }, 200, { "X-Maxiwa-Backend": "open-meteo-geocoding" });
+  try {
+    const params = new URLSearchParams({
+      name: query,
+      count: "8",
+      language: "th",
+      format: "json",
+    });
+    const res = await fetchWithTimeout(`${OPEN_METEO_GEOCODING_URL}?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+    }, OPEN_METEO_TIMEOUT_MS);
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(`Open-Meteo Geocoding HTTP ${res.status}`);
+    const places = (data?.results || [])
+      .map(normalizeOpenMeteoPlace)
+      .filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude));
+    return jsonResponse(request, { places }, 200, {
+      "Cache-Control": "public, max-age=3600",
+      "X-Maxiwa-Backend": "open-meteo-geocoding",
+    });
+  } catch (error) {
+    return jsonResponse(request, {
+      error: error?.message || "Open-Meteo location search is unavailable",
+      places: [],
+    }, 502, { "X-Maxiwa-Backend": "open-meteo-geocoding-error" });
+  }
+}
+
+async function fetchOpenMeteoWeather(request, url) {
+  try {
+    const lat = Number(url.searchParams.get("lat"));
+    const lon = Number(url.searchParams.get("lon"));
+    const label = String(url.searchParams.get("label") || url.searchParams.get("province") || "").trim();
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return jsonResponse(request, { error: "Weather location is missing latitude/longitude" }, 400, { "X-Maxiwa-Backend": "open-meteo" });
+    }
+    const params = new URLSearchParams({
+      latitude: String(lat),
+      longitude: String(lon),
+      current: "temperature_2m,relative_humidity_2m,precipitation,rain,weather_code,wind_speed_10m",
+      timezone: "auto",
+      forecast_days: "1",
+    });
+    const res = await fetchWithTimeout(`${OPEN_METEO_FORECAST_URL}?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+    }, OPEN_METEO_TIMEOUT_MS);
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.reason || `Open-Meteo HTTP ${res.status}`);
+    const current = data?.current || {};
+    const meta = openMeteoWeatherMeta(current.weather_code);
+    return jsonResponse(request, {
+      source: "Open-Meteo",
+      sourceUrl: "https://open-meteo.com/",
+      weather: {
+        location: label || `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+        stationName: "",
+        temp: numberValue(current.temperature_2m),
+        humidity: numberValue(current.relative_humidity_2m),
+        wind: numberValue(current.wind_speed_10m),
+        rainfall: numberValue(current.precipitation ?? current.rain),
+        description: meta.description,
+        observedAt: current.time || "",
+        icon: meta.icon,
+      },
+    }, 200, {
+      "Cache-Control": "public, max-age=300",
+      "X-Maxiwa-Backend": "open-meteo",
+    });
+  } catch (error) {
+    return jsonResponse(request, {
+      error: error?.message || "Open-Meteo weather is unavailable",
+      source: "Open-Meteo",
+    }, 502, { "X-Maxiwa-Backend": "open-meteo-error" });
+  }
+}
+
+function googleMapsApiKey(env) {
+  return env.GOOGLE_MAPS_API_KEY
+    || env.GOOGLE_WEATHER_API_KEY
+    || env.GOOGLE_API_KEY
+    || env.MAXIWA_GOOGLE_MAPS_API_KEY
+    || env.MAXIWA_GOOGLE_WEATHER_API_KEY
+    || "";
+}
+
+function googleConfigError(request) {
+  return jsonResponse(request, {
+    error: "Google Weather API key is not configured",
+    expected: ["GOOGLE_MAPS_API_KEY", "GOOGLE_WEATHER_API_KEY", "GOOGLE_API_KEY", "MAXIWA_GOOGLE_MAPS_API_KEY"],
+  }, 503, { "X-Maxiwa-Backend": "google-weather-config" });
+}
+
+function googleAddressPart(result, type) {
+  return (result?.address_components || []).find((part) => (part.types || []).includes(type))?.long_name || "";
+}
+
+function normalizeGooglePlace(result = {}) {
+  const location = result.geometry?.location || {};
+  const district = googleAddressPart(result, "sublocality_level_1")
+    || googleAddressPart(result, "administrative_area_level_2")
+    || googleAddressPart(result, "locality");
+  const province = googleAddressPart(result, "administrative_area_level_1") || district;
+  const labelParts = [district, province].filter(Boolean);
+  const label = labelParts.length > 0
+    ? Array.from(new Set(labelParts)).join(", ")
+    : String(result.formatted_address || "").replace(/,\s*Thailand$/i, "");
+  return {
+    id: `google-${result.place_id || `${location.lat},${location.lng}`}`,
+    label,
+    province,
+    latitude: numberValue(location.lat),
+    longitude: numberValue(location.lng),
+    placeId: result.place_id || "",
+    formattedAddress: result.formatted_address || "",
+  };
+}
+
+async function geocodeGoogleLocation(env, query) {
+  const key = googleMapsApiKey(env);
+  if (!key) throw new Error("Google Weather API key is not configured");
+  const params = new URLSearchParams({
+    address: `${query}, Thailand`,
+    components: "country:TH",
+    language: "th",
+    region: "th",
+    key,
+  });
+  const res = await fetchWithTimeout(`${GOOGLE_GEOCODING_URL}?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+  }, GOOGLE_WEATHER_TIMEOUT_MS);
+  const data = await res.json().catch(() => null);
+  if (!res.ok || data?.status !== "OK") throw new Error(data?.error_message || `Google Geocoding ${data?.status || res.status}`);
+  return (data.results || []).map(normalizeGooglePlace).filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude));
+}
+
+async function fetchGooglePlaces(request, url, env) {
+  const query = String(url.searchParams.get("query") || "").trim();
+  if (query.length < 2) return jsonResponse(request, { places: [] }, 200, { "X-Maxiwa-Backend": "google-geocoding" });
+  if (!googleMapsApiKey(env)) return googleConfigError(request);
+  try {
+    const places = await geocodeGoogleLocation(env, query);
+    return jsonResponse(request, { places: places.slice(0, 8) }, 200, {
+      "Cache-Control": "public, max-age=3600",
+      "X-Maxiwa-Backend": "google-geocoding",
+    });
+  } catch (error) {
+    return jsonResponse(request, {
+      error: error?.message || "Google location search is unavailable",
+      places: [],
+    }, 502, { "X-Maxiwa-Backend": "google-geocoding-error" });
+  }
+}
+
+function googleWeatherIcon(type = "") {
+  const key = String(type || "").toUpperCase();
+  if (key.includes("THUNDER")) return "fa-cloud-bolt";
+  if (key.includes("RAIN") || key.includes("DRIZZLE") || key.includes("SHOWERS")) return "fa-cloud-showers-heavy";
+  if (key.includes("CLOUD")) return "fa-cloud-sun";
+  if (key.includes("FOG") || key.includes("HAZE") || key.includes("MIST")) return "fa-smog";
+  if (key.includes("CLEAR") || key.includes("SUN")) return "fa-sun";
+  return "fa-cloud-sun";
+}
+
+async function fetchGoogleWeather(request, url, env) {
+  if (!googleMapsApiKey(env)) return googleConfigError(request);
+  try {
+    let lat = Number(url.searchParams.get("lat"));
+    let lon = Number(url.searchParams.get("lon"));
+    let label = String(url.searchParams.get("label") || url.searchParams.get("province") || "").trim();
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      const places = await geocodeGoogleLocation(env, label || "กรุงเทพมหานคร");
+      const first = places[0];
+      lat = first?.latitude;
+      lon = first?.longitude;
+      label = first?.label || label;
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return jsonResponse(request, { error: "Weather location is missing latitude/longitude" }, 400, { "X-Maxiwa-Backend": "google-weather" });
+    }
+    const params = new URLSearchParams({
+      key: googleMapsApiKey(env),
+      "location.latitude": String(lat),
+      "location.longitude": String(lon),
+      unitsSystem: "METRIC",
+      languageCode: "th",
+    });
+    const res = await fetchWithTimeout(`${GOOGLE_WEATHER_CURRENT_URL}?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+    }, GOOGLE_WEATHER_TIMEOUT_MS);
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error?.message || `Google Weather HTTP ${res.status}`);
+    const condition = data?.weatherCondition || {};
+    const description = condition.description?.text || condition.type || "";
+    return jsonResponse(request, {
+      source: "Google Weather",
+      sourceUrl: "https://developers.google.com/maps/documentation/weather",
+      weather: {
+        location: label || `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+        stationName: "",
+        temp: numberValue(data?.temperature?.degrees),
+        humidity: numberValue(data?.relativeHumidity),
+        wind: numberValue(data?.wind?.speed?.value),
+        rainfall: numberValue(data?.currentConditionsHistory?.qpf?.quantity ?? data?.precipitation?.qpf?.quantity),
+        precipitationProbability: numberValue(data?.precipitation?.probability?.percent),
+        description,
+        observedAt: data?.currentTime || "",
+        icon: googleWeatherIcon(condition.type || description),
+      },
+    }, 200, {
+      "Cache-Control": "public, max-age=300",
+      "X-Maxiwa-Backend": "google-weather",
+    });
+  } catch (error) {
+    return jsonResponse(request, {
+      error: error?.message || "Google Weather is unavailable",
+      source: "Google Weather",
+    }, 502, { "X-Maxiwa-Backend": "google-weather-error" });
+  }
 }
 
 function provinceForTmd(value = "") {
@@ -1375,6 +1627,18 @@ async function syncKpiRuleToTasks(env, beforeKpi, afterKpi) {
 
 async function handleApi(request, env, apiPath) {
   const url = new URL(request.url);
+  if (apiPath === "openmeteo/weather") {
+    return fetchOpenMeteoWeather(request, url);
+  }
+  if (apiPath === "openmeteo/places") {
+    return fetchOpenMeteoPlaces(request, url);
+  }
+  if (apiPath === "google/weather") {
+    return fetchGoogleWeather(request, url, env);
+  }
+  if (apiPath === "google/places") {
+    return fetchGooglePlaces(request, url, env);
+  }
   if (apiPath === "tmd/weather") {
     return fetchTmdWeather(request, url);
   }

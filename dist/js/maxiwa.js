@@ -22405,17 +22405,18 @@ var MaxiwaKpiApp = (() => {
     const params = new URLSearchParams({
       lat: String(location.latitude),
       lon: String(location.longitude),
+      label: location.label || "",
       province: location.province || location.label || ""
     });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8e3);
     try {
-      const res = await fetch(`${apiBase()}/tmd/weather?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
-      if (!res.ok) throw new Error(`Weather HTTP ${res.status}`);
+      const res = await fetch(`${apiBase()}/openmeteo/weather?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
       const data = await res.json();
+      if (!res.ok) throw new Error((data == null ? void 0 : data.error) || `Weather HTTP ${res.status}`);
       const current = data.weather || {};
       const conditionText = String(current.description || "").toLowerCase();
-      const meta = conditionText.includes("\u0E1D\u0E19") || conditionText.includes("rain") ? { icon: "fa-cloud-showers-heavy", label: current.description || "Rain" } : weatherMeta(Number.NaN);
+      const meta = current.icon ? { icon: current.icon, label: current.description || "Weather" } : conditionText.includes("\u0E1D\u0E19") || conditionText.includes("rain") ? { icon: "fa-cloud-showers-heavy", label: current.description || "Rain" } : weatherMeta(Number.NaN);
       return {
         location: current.location || location.label,
         stationName: current.stationName || "",
@@ -22423,7 +22424,7 @@ var MaxiwaKpiApp = (() => {
         rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,
         humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
         wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
-        source: data.source || "TMD",
+        source: data.source || "Open-Meteo",
         ...meta
       };
     } finally {
@@ -22441,19 +22442,21 @@ var MaxiwaKpiApp = (() => {
     const [locationQuery, setLocationQuery] = useState("");
     const [locationResults, setLocationResults] = useState([]);
     const [locationSearching, setLocationSearching] = useState(false);
+    const [locationError, setLocationError] = useState("");
     const pickLocation = useCallback((location) => {
       setSelectedLocation(location);
       setMenuOpen(false);
       setLocationQuery("");
       setLocationResults([]);
+      setLocationError("");
     }, []);
     const loadWeather = useCallback(async (cancelledRef = { current: false }) => {
       setWeather((prev) => ({ ...prev, loading: true, error: false }));
       try {
         const snapshot = await fetchWeatherSnapshot(selectedLocation);
         if (!cancelledRef.current) setWeather({ loading: false, error: false, ...snapshot });
-      } catch {
-        if (!cancelledRef.current) setWeather({ loading: false, error: true });
+      } catch (error) {
+        if (!cancelledRef.current) setWeather({ loading: false, error: true, errorMessage: (error == null ? void 0 : error.message) || "" });
       }
     }, [selectedLocation]);
     useEffect(() => {
@@ -22470,6 +22473,7 @@ var MaxiwaKpiApp = (() => {
       if (!menuOpen || query.length < 2) {
         setLocationResults([]);
         setLocationSearching(false);
+        setLocationError("");
         return void 0;
       }
       let cancelled = false;
@@ -22477,20 +22481,24 @@ var MaxiwaKpiApp = (() => {
         setLocationSearching(true);
         try {
           const params = new URLSearchParams({ query });
-          const res = await fetch(`${apiBase()}/tmd/provinces?${params.toString()}`, { headers: sessionHeaders() });
-          if (!res.ok) throw new Error(`TMD province HTTP ${res.status}`);
+          const res = await fetch(`${apiBase()}/openmeteo/places?${params.toString()}`, { headers: sessionHeaders() });
           const data = await res.json();
+          if (!res.ok) throw new Error((data == null ? void 0 : data.error) || `Open-Meteo places HTTP ${res.status}`);
           if (!cancelled) {
-            setLocationResults((data.provinces || []).slice(0, 8).map((item) => ({
+            setLocationResults((data.places || []).slice(0, 8).map((item) => ({
               id: item.id,
               latitude: item.latitude,
               longitude: item.longitude,
               label: item.label,
               province: item.province || item.label
             })));
+            setLocationError("");
           }
-        } catch {
-          if (!cancelled) setLocationResults([]);
+        } catch (error) {
+          if (!cancelled) {
+            setLocationResults([]);
+            setLocationError((error == null ? void 0 : error.message) || "");
+          }
         } finally {
           if (!cancelled) setLocationSearching(false);
         }
@@ -22501,7 +22509,7 @@ var MaxiwaKpiApp = (() => {
       };
     }, [locationQuery, menuOpen]);
     if (weather.error) {
-      return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-[320px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 py-2 flex items-center gap-2 text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-cloud" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, "Weather offline"), /* @__PURE__ */ import_react.default.createElement("button", { className: "ml-auto text-xs font-bold text-[var(--mx-accent)]", type: "button", onClick: () => loadWeather() }, "Retry"));
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-[320px] rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] px-3 py-2 flex items-center gap-2 text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-cloud" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "text-sm font-extrabold" }, weather.errorMessage || "Weather offline"), /* @__PURE__ */ import_react.default.createElement("button", { className: "ml-auto text-xs font-bold text-[var(--mx-accent)]", type: "button", onClick: () => loadWeather() }, "Retry"));
     }
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative z-[120] w-full max-w-[390px] min-w-0 rounded-lg bg-[#20232a] text-white px-4 py-3 shadow-sm border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between gap-3 text-[12px] leading-none" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 flex items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-location-dot text-slate-200" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "font-extrabold truncate max-w-[170px]" }, weather.location || selectedLocation.label), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[#78b7ff] font-bold whitespace-nowrap hover:underline", onClick: () => setMenuOpen((value) => !value), type: "button" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E37\u0E49\u0E19\u0E17\u0E35\u0E48")), /* @__PURE__ */ import_react.default.createElement("button", { className: "w-7 h-7 grid place-items-center rounded-md text-slate-300 hover:bg-white/10", onClick: () => loadWeather(), title: "Refresh weather", type: "button" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-ellipsis-vertical" }))), menuOpen && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute right-0 top-[calc(100%+8px)] z-[130] w-[min(20rem,calc(100vw-2rem))] max-h-[min(420px,62vh)] overflow-y-auto rounded-lg border border-white/10 bg-[#2a2e38] p-2 shadow-2xl" }, /* @__PURE__ */ import_react.default.createElement(
       "input",
@@ -22534,7 +22542,7 @@ var MaxiwaKpiApp = (() => {
         }
       },
       location.label
-    ))), (locationSearching || locationResults.length > 0 || locationQuery.trim().length >= 2) && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 border-t border-white/10 pt-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "px-3 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400" }, "\u0E1C\u0E25\u0E01\u0E32\u0E23\u0E04\u0E49\u0E19\u0E2B\u0E32"), locationSearching && /* @__PURE__ */ import_react.default.createElement("div", { className: "px-3 py-2 text-sm text-slate-300" }, "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E04\u0E49\u0E19\u0E2B\u0E32..."), !locationSearching && locationResults.length === 0 && locationQuery.trim().length >= 2 && /* @__PURE__ */ import_react.default.createElement("div", { className: "px-3 py-2 text-sm text-slate-300" }, "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1E\u0E37\u0E49\u0E19\u0E17\u0E35\u0E48"), !locationSearching && locationResults.map((location) => /* @__PURE__ */ import_react.default.createElement(
+    ))), (locationSearching || locationResults.length > 0 || locationQuery.trim().length >= 2) && /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 border-t border-white/10 pt-2" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "px-3 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400" }, "\u0E1C\u0E25\u0E01\u0E32\u0E23\u0E04\u0E49\u0E19\u0E2B\u0E32"), locationSearching && /* @__PURE__ */ import_react.default.createElement("div", { className: "px-3 py-2 text-sm text-slate-300" }, "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E04\u0E49\u0E19\u0E2B\u0E32..."), !locationSearching && locationResults.length === 0 && locationQuery.trim().length >= 2 && /* @__PURE__ */ import_react.default.createElement("div", { className: "px-3 py-2 text-sm text-slate-300" }, locationError || "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E1E\u0E37\u0E49\u0E19\u0E17\u0E35\u0E48"), !locationSearching && locationResults.map((location) => /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         key: location.id,
@@ -22545,7 +22553,7 @@ var MaxiwaKpiApp = (() => {
         }
       },
       location.label
-    )))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 grid grid-cols-[56px_auto_1fr] items-center gap-4" }, /* @__PURE__ */ import_react.default.createElement(WeatherGlyph, { loading: weather.loading, icon: weather.icon }), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[44px] leading-none font-light tracking-normal" }, weather.loading ? "--" : (_a = weather.temp) != null ? _a : "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 text-sm font-bold whitespace-nowrap" }, "\xB0C | \xB0F")), /* @__PURE__ */ import_react.default.createElement("div", { className: "ml-auto text-[12px] leading-[1.45] text-slate-300 whitespace-nowrap text-left" }, /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E1D\u0E19\u0E2A\u0E30\u0E2A\u0E21: ", weather.loading ? "-" : (_b = weather.rainfall) != null ? _b : "-", " \u0E21\u0E21."), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E04\u0E27\u0E32\u0E21\u0E0A\u0E37\u0E49\u0E19: ", weather.loading ? "-" : (_c = weather.humidity) != null ? _c : "-", "%"), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E25\u0E21: ", weather.loading ? "-" : (_d = weather.wind) != null ? _d : "-", " \u0E01\u0E21./\u0E0A\u0E21."), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[10px] text-slate-400" }, "\u0E17\u0E35\u0E48\u0E21\u0E32: ", weather.source || "TMD"))));
+    )))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 grid grid-cols-[56px_auto_1fr] items-center gap-4" }, /* @__PURE__ */ import_react.default.createElement(WeatherGlyph, { loading: weather.loading, icon: weather.icon }), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[44px] leading-none font-light tracking-normal" }, weather.loading ? "--" : (_a = weather.temp) != null ? _a : "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 text-sm font-bold whitespace-nowrap" }, "\xB0C | \xB0F")), /* @__PURE__ */ import_react.default.createElement("div", { className: "ml-auto text-[12px] leading-[1.45] text-slate-300 whitespace-nowrap text-left" }, /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E1D\u0E19\u0E2A\u0E30\u0E2A\u0E21: ", weather.loading ? "-" : (_b = weather.rainfall) != null ? _b : "-", " \u0E21\u0E21."), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E04\u0E27\u0E32\u0E21\u0E0A\u0E37\u0E49\u0E19: ", weather.loading ? "-" : (_c = weather.humidity) != null ? _c : "-", "%"), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E25\u0E21: ", weather.loading ? "-" : (_d = weather.wind) != null ? _d : "-", " \u0E01\u0E21./\u0E0A\u0E21."), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[10px] text-slate-400" }, "\u0E17\u0E35\u0E48\u0E21\u0E32: ", weather.source || "Open-Meteo"))));
   }
   function normalizePhotoUrl(value) {
     const src = String(value || "").trim();
