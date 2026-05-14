@@ -24208,6 +24208,7 @@ var MaxiwaKpiApp = (() => {
     const emptySystemForm = { id: "", name: "", description: "", url: "", icon: "fa-up-right-from-square", status: "Active", visibleToAll: false, allowedRoles: [], allowedTeams: [], allowedEmpIds: "", isActive: true };
     const [systemForm, setSystemForm] = useState(emptySystemForm);
     const [announcementDraft, setAnnouncementDraft] = useState(() => normalizeAdminAnnouncement(adminAnnouncement));
+    const [announcementDirty, setAnnouncementDirty] = useState(false);
     const [previewEmpId, setPreviewEmpId] = useState("");
     const [adminSearch, setAdminSearch] = useState("");
     const [kpiSearch, setKpiSearch] = useState("");
@@ -24239,8 +24240,9 @@ var MaxiwaKpiApp = (() => {
     const thaiPublicHolidays = filteredHolidays.filter((holiday) => isThaiPublicHoliday(holiday));
     const normalizedSystemLinks = normalizeSystemLinks(systemLinks);
     useEffect(() => {
+      if (announcementDirty) return;
       setAnnouncementDraft(normalizeAdminAnnouncement(adminAnnouncement));
-    }, [adminAnnouncement]);
+    }, [adminAnnouncement, announcementDirty]);
     const saveAdminAnnouncement = async () => {
       const nextAnnouncement = {
         ...announcementDraft,
@@ -24252,10 +24254,12 @@ var MaxiwaKpiApp = (() => {
         setSaving("announcement");
         const saved = cacheAdminAnnouncement(await saveAdminAnnouncementToApi(nextAnnouncement, user == null ? void 0 : user.empId));
         setAnnouncementDraft(saved);
+        setAnnouncementDirty(false);
         onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
       } catch (error) {
         const saved = cacheAdminAnnouncement(nextAnnouncement);
         setAnnouncementDraft(saved);
+        setAnnouncementDirty(false);
         onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
         alert(`\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E1A\u0E19 Server \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08: ${error.message || "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E15\u0E32\u0E23\u0E32\u0E07 app_system_settings"}`);
       } finally {
@@ -24273,10 +24277,12 @@ var MaxiwaKpiApp = (() => {
         setSaving("announcement");
         const saved = cacheAdminAnnouncement(await saveAdminAnnouncementToApi(nextAnnouncement, user == null ? void 0 : user.empId));
         setAnnouncementDraft(saved);
+        setAnnouncementDirty(false);
         onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
       } catch (error) {
         const saved = cacheAdminAnnouncement(nextAnnouncement);
         setAnnouncementDraft(saved);
+        setAnnouncementDirty(false);
         onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
         alert(`\u0E25\u0E49\u0E32\u0E07\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E1A\u0E19 Server \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08: ${error.message || "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A\u0E15\u0E32\u0E23\u0E32\u0E07 app_system_settings"}`);
       } finally {
@@ -24998,14 +25004,20 @@ var MaxiwaKpiApp = (() => {
           maxLength: 180,
           placeholder: "\u0E40\u0E0A\u0E48\u0E19 \u0E27\u0E31\u0E19\u0E19\u0E35\u0E49\u0E21\u0E35\u0E0B\u0E49\u0E2D\u0E21\u0E2D\u0E1E\u0E22\u0E1E\u0E40\u0E27\u0E25\u0E32 15:00 \u0E19. \u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E1C\u0E37\u0E48\u0E2D\u0E40\u0E27\u0E25\u0E32\u0E01\u0E32\u0E23\u0E40\u0E14\u0E34\u0E19\u0E17\u0E32\u0E07",
           value: announcementDraft.message,
-          onChange: (e) => setAnnouncementDraft((prev) => ({ ...prev, message: e.target.value }))
+          onChange: (e) => {
+            setAnnouncementDirty(true);
+            setAnnouncementDraft((prev) => ({ ...prev, message: e.target.value }));
+          }
         }
       )), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "inline-flex items-center gap-2 text-sm font-bold text-[var(--mx-text)]" }, /* @__PURE__ */ import_react.default.createElement(
         "input",
         {
           type: "checkbox",
           checked: announcementDraft.isActive,
-          onChange: (e) => setAnnouncementDraft((prev) => ({ ...prev, isActive: e.target.checked }))
+          onChange: (e) => {
+            setAnnouncementDirty(true);
+            setAnnouncementDraft((prev) => ({ ...prev, isActive: e.target.checked }));
+          }
         }
       ), "\u0E40\u0E1B\u0E34\u0E14\u0E41\u0E2A\u0E14\u0E07\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E19\u0E35\u0E49\u0E1A\u0E19\u0E0A\u0E48\u0E2D\u0E07\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary !py-2", onClick: saveAdminAnnouncement }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-floppy-disk mr-2" }), saving === "announcement" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21"), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: clearAdminAnnouncement }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark mr-2" }), saving === "announcement" ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01..." : "\u0E25\u0E49\u0E32\u0E07\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21"))), announcementDraft.updatedAt && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-[var(--mx-muted)]" }, "\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14: ", formatDate(announcementDraft.updatedAt, true), " ", announcementDraft.updatedBy ? `/ ${announcementDraft.updatedBy}` : ""))), /* @__PURE__ */ import_react.default.createElement(Panel, { title: "\u0E17\u0E32\u0E07\u0E25\u0E31\u0E14\u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E30\u0E1A\u0E1A", subtitle: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E21\u0E27\u0E14\u0E17\u0E35\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E30\u0E41\u0E22\u0E01\u0E07\u0E32\u0E19 setup, SLA \u0E41\u0E25\u0E30 audit \u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E01\u0E31\u0E19\u0E0A\u0E31\u0E14\u0E40\u0E08\u0E19" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid md:grid-cols-2 xl:grid-cols-3 gap-3" }, setupItems.map((item) => /* @__PURE__ */ import_react.default.createElement(
         "button",

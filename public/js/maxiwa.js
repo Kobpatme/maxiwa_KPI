@@ -4148,6 +4148,7 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
   const emptySystemForm = { id: '', name: '', description: '', url: '', icon: 'fa-up-right-from-square', status: 'Active', visibleToAll: false, allowedRoles: [], allowedTeams: [], allowedEmpIds: '', isActive: true };
   const [systemForm, setSystemForm] = useState(emptySystemForm);
   const [announcementDraft, setAnnouncementDraft] = useState(() => normalizeAdminAnnouncement(adminAnnouncement));
+  const [announcementDirty, setAnnouncementDirty] = useState(false);
   const [previewEmpId, setPreviewEmpId] = useState('');
   const [adminSearch, setAdminSearch] = useState('');
   const [kpiSearch, setKpiSearch] = useState('');
@@ -4188,8 +4189,9 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
   const normalizedSystemLinks = normalizeSystemLinks(systemLinks);
 
   useEffect(() => {
+    if (announcementDirty) return;
     setAnnouncementDraft(normalizeAdminAnnouncement(adminAnnouncement));
-  }, [adminAnnouncement]);
+  }, [adminAnnouncement, announcementDirty]);
 
   const saveAdminAnnouncement = async () => {
     const nextAnnouncement = {
@@ -4202,10 +4204,12 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
       setSaving('announcement');
       const saved = cacheAdminAnnouncement(await saveAdminAnnouncementToApi(nextAnnouncement, user?.empId));
       setAnnouncementDraft(saved);
+      setAnnouncementDirty(false);
       onAdminAnnouncementChange?.(saved);
     } catch (error) {
       const saved = cacheAdminAnnouncement(nextAnnouncement);
       setAnnouncementDraft(saved);
+      setAnnouncementDirty(false);
       onAdminAnnouncementChange?.(saved);
       alert(`บันทึกประกาศบน Server ไม่สำเร็จ: ${error.message || 'ตรวจสอบตาราง app_system_settings'}`);
     } finally {
@@ -4224,10 +4228,12 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
       setSaving('announcement');
       const saved = cacheAdminAnnouncement(await saveAdminAnnouncementToApi(nextAnnouncement, user?.empId));
       setAnnouncementDraft(saved);
+      setAnnouncementDirty(false);
       onAdminAnnouncementChange?.(saved);
     } catch (error) {
       const saved = cacheAdminAnnouncement(nextAnnouncement);
       setAnnouncementDraft(saved);
+      setAnnouncementDirty(false);
       onAdminAnnouncementChange?.(saved);
       alert(`ล้างประกาศบน Server ไม่สำเร็จ: ${error.message || 'ตรวจสอบตาราง app_system_settings'}`);
     } finally {
@@ -5650,7 +5656,10 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
                 maxLength={180}
                 placeholder="เช่น วันนี้มีซ้อมอพยพเวลา 15:00 น. กรุณาเผื่อเวลาการเดินทาง"
                 value={announcementDraft.message}
-                onChange={(e) => setAnnouncementDraft((prev) => ({ ...prev, message: e.target.value }))}
+                onChange={(e) => {
+                  setAnnouncementDirty(true);
+                  setAnnouncementDraft((prev) => ({ ...prev, message: e.target.value }));
+                }}
               />
             </label>
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -5658,7 +5667,10 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
                 <input
                   type="checkbox"
                   checked={announcementDraft.isActive}
-                  onChange={(e) => setAnnouncementDraft((prev) => ({ ...prev, isActive: e.target.checked }))}
+                  onChange={(e) => {
+                    setAnnouncementDirty(true);
+                    setAnnouncementDraft((prev) => ({ ...prev, isActive: e.target.checked }));
+                  }}
                 />
                 เปิดแสดงข้อความนี้บนช่องประกาศ
               </label>
