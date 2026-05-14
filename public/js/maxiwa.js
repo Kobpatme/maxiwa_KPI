@@ -5968,9 +5968,9 @@ function App() {
             <div className="px-5 py-5 md:px-6 md:py-6">
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px_auto] xl:items-start">
                 <div className="min-w-0">
-                  <div className="grid gap-3 md:grid-cols-[auto_minmax(280px,680px)] md:items-center">
+                  <div className="grid gap-3 md:grid-cols-[auto_minmax(0,1fr)] md:items-center">
                     <span className="mx-badge mx-status-completed"><i className="fa-solid fa-building-user"></i>{user.team}</span>
-                    <div className="min-w-0">
+                    <div className="min-w-0 md:justify-self-center md:w-fit md:max-w-[min(100%,720px)]">
                       <WeatherAlertTicker weather={headerWeather} adminAnnouncement={adminAnnouncement} />
                     </div>
                   </div>
