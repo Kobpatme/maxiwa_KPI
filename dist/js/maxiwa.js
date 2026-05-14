@@ -25098,7 +25098,7 @@ var MaxiwaKpiApp = (() => {
         onChange: (e) => setFilterYear(Number(e.target.value))
       },
       availableYears.map((y) => /* @__PURE__ */ import_react.default.createElement("option", { key: y, value: y }, y))
-    ))))), state.error && /* @__PURE__ */ import_react.default.createElement("div", { className: "px-5 pb-4 md:px-6 text-sm text-[#ffb7b7] font-bold" }, state.error)), showDashboardCreate && /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed inset-0 z-50 flex items-center justify-center p-4", style: { background: "rgba(15, 23, 42, 0.56)" } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "relative w-full max-w-3xl max-h-[92vh] overflow-y-auto" }, /* @__PURE__ */ import_react.default.createElement(
+    ))))), state.error && /* @__PURE__ */ import_react.default.createElement("div", { className: "px-5 pb-4 md:px-6 text-sm text-[#ffb7b7] font-bold" }, state.error)), showDashboardCreate && /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed inset-0 z-[140] flex items-center justify-center p-4", style: { background: "rgba(15, 23, 42, 0.56)" } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "relative w-full max-w-3xl max-h-[92vh] overflow-y-auto" }, /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         className: "mx-btn mx-btn-soft !p-0 absolute right-4 top-4 z-10 w-10 h-10 grid place-items-center",

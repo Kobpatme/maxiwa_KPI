@@ -5893,7 +5893,7 @@ function App() {
           </header>
 
           {showDashboardCreate && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15, 23, 42, 0.56)' }}>
+            <div className="fixed inset-0 z-[140] flex items-center justify-center p-4" style={{ background: 'rgba(15, 23, 42, 0.56)' }}>
               <div className="relative w-full max-w-3xl max-h-[92vh] overflow-y-auto">
                 <button
                   className="mx-btn mx-btn-soft !p-0 absolute right-4 top-4 z-10 w-10 h-10 grid place-items-center"
