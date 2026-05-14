@@ -1176,6 +1176,7 @@ const WEATHER_LOCATIONS = [
   { id: 'current', latitude: null, longitude: null, label: 'ตำแหน่งปัจจุบัน' },
 ];
 const WEATHER_FALLBACK_LOCATION = WEATHER_LOCATIONS[0];
+const TMD_WARNING_PAGE_URL = 'https://www.tmd.go.th/forecast/forecastWarning';
 
 function weatherMeta(code) {
   if (code === 0) return { icon: 'fa-sun', label: 'Clear' };
@@ -1251,6 +1252,7 @@ async function fetchWeatherSnapshot(selectedLocation) {
       humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
       wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
       shortTerm: current.shortTerm || null,
+      province: location.province || '',
       source: data.source || 'Open-Meteo',
       ...meta,
     };
@@ -1267,73 +1269,133 @@ function WeatherGlyph({ loading, icon }) {
   );
 }
 
-function buildWeatherAlertMessages(weather = {}) {
-  const location = weather.location || WEATHER_FALLBACK_LOCATION.label;
-  if (weather.loading || weather.error) return [];
-
-  const rainfall = Number(weather.rainfall);
-  const wind = Number(weather.wind);
-  const shortTerm = weather.shortTerm || {};
-  const shortTermHours = Number(shortTerm.hours) || 3;
-  const shortTermRain = Number(shortTerm.precipitation);
-  const shortTermProbability = Number(shortTerm.precipitationProbability);
-  const shortTermWind = Number(shortTerm.wind);
-  const label = String(weather.label || '').toLowerCase();
-  const hasRain = Number.isFinite(rainfall) && rainfall > 0;
-  const rainSoon = (Number.isFinite(shortTermRain) && shortTermRain > 0) || (Number.isFinite(shortTermProbability) && shortTermProbability >= 50);
-  const hasStorm = weather.icon === 'fa-cloud-bolt' || shortTerm.stormSoon || label.includes('storm') || label.includes('พายุ');
-
-  if (hasStorm && shortTermHours <= 2) {
-    return [`${location}: ในช่วง ${shortTermHours} ชม. ข้างหน้า มีโอกาสเกิดพายุฝนฟ้าคะนอง`];
+async function fetchOfficialWeatherAlerts(weather = {}) {
+  const params = new URLSearchParams({
+    location: weather.location || WEATHER_FALLBACK_LOCATION.label,
+    province: weather.province || weather.location || '',
+    _: String(Date.now()),
+  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`${apiBase()}/tmd/official-alerts?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || `TMD alerts HTTP ${res.status}`);
+    return Array.isArray(data.alerts) ? data.alerts : [];
+  } finally {
+    clearTimeout(timer);
   }
-  if (hasStorm) {
-    return [`${location}: มีโอกาสเกิดพายุฝนฟ้าคะนองระยะใกล้`];
-  }
-  if (rainSoon && Number.isFinite(shortTermProbability) && shortTermProbability >= 70) {
-    return [`${location}: ในช่วง ${shortTermHours} ชม. ข้างหน้า มีโอกาสเกิดฝน ${Number.isFinite(shortTermProbability) ? shortTermProbability : '-'}%`];
-  }
-  if ((Number.isFinite(shortTermWind) && shortTermWind >= 25) || (Number.isFinite(wind) && wind >= 25)) {
-    return [`${location}: ในช่วง ${shortTermHours} ชม. ข้างหน้า ลมค่อนข้างแรง ${Math.round(Number.isFinite(shortTermWind) ? shortTermWind : wind)} กม./ชม.`];
-  }
-  if ((hasRain && rainfall >= 1) || weather.icon === 'fa-cloud-showers-heavy') {
-    return [`${location}: ขณะนี้มีฝน ฝนสะสมล่าสุด ${Number.isFinite(rainfall) ? rainfall : '-'} มม.`];
-  }
-  return [];
 }
 
-function WeatherAlertTicker({ weather, adminAnnouncement }) {
-  if (adminAnnouncement?.isActive && adminAnnouncement.message) {
-    const adminText = adminAnnouncement.message;
-    return (
-      <div className="mx-weather-ticker" role="status" aria-live="polite" title={adminText}>
+function normalizeAlertText(value = '') {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function compactAlertDetail(value = '', limit = 260) {
+  const text = normalizeAlertText(value);
+  return text.length > limit ? `${text.slice(0, limit).trim()}...` : text;
+}
+
+function officialAlertText(alert = {}, options = {}) {
+  const limit = options.full ? Number.POSITIVE_INFINITY : 420;
+  const title = compactAlertDetail(alert.title || '', options.full ? Number.POSITIVE_INFINITY : 120);
+  const description = compactAlertDetail(alert.description || '', limit);
+  if (title && description) return `${title}: ${description}`;
+  return title || description;
+}
+
+function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullText = '', sourceLabel = '', link = '' }) {
+  const isLong = String(text || '').length > 90;
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        className={cn('mx-weather-ticker text-left', isLong && 'mx-weather-ticker--marquee')}
+        type="button"
+        onClick={() => setDetailOpen((open) => !open)}
+        aria-expanded={detailOpen}
+        title={title || text}
+      >
         <span className="mx-weather-ticker__icon" aria-hidden="true">
-          <i className="fa-solid fa-bullhorn"></i>
+          <i className={`fa-solid ${icon}`}></i>
         </span>
         <div className="mx-weather-ticker__viewport">
           <div className="mx-weather-ticker__track">
-            <span>{adminText}</span>
+            <span>{text}</span>
+            {isLong && <span aria-hidden="true">{text}</span>}
           </div>
         </div>
-      </div>
-    );
+      </button>
+      {detailOpen && (
+        <div className="absolute left-0 top-[calc(100%+8px)] z-[120] w-[min(720px,calc(100vw-2rem))] rounded-lg border border-[var(--mx-line-strong)] bg-[var(--mx-panel-strong)] p-4 text-[var(--mx-text)] shadow-2xl">
+          <div className="flex items-start justify-between gap-3">
+            <div className="text-sm font-extrabold">{sourceLabel || 'รายละเอียดประกาศ'}</div>
+            <button className="text-[var(--mx-muted)] hover:text-[var(--mx-text)]" type="button" onClick={() => setDetailOpen(false)} aria-label="ปิดรายละเอียดประกาศ">
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div className="mt-3 max-h-[48vh] overflow-y-auto whitespace-pre-wrap text-sm leading-6">
+            {fullText || text}
+          </div>
+          {link && (
+            <a className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-[var(--mx-info)]" href={link} target="_blank" rel="noopener noreferrer">
+              <i className="fa-solid fa-up-right-from-square"></i>
+              เปิดหน้าประกาศกรมอุตุฯ
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WeatherAlertTicker({ weather, adminAnnouncement }) {
+  const [officialAlerts, setOfficialAlerts] = useState([]);
+
+  useEffect(() => {
+    if (adminAnnouncement?.isActive && adminAnnouncement.message) {
+      setOfficialAlerts([]);
+      return undefined;
+    }
+    if (!weather || weather.loading || weather.error) {
+      setOfficialAlerts([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const loadAlerts = () => fetchOfficialWeatherAlerts(weather)
+      .then((alerts) => {
+        if (!cancelled) setOfficialAlerts(alerts);
+      })
+      .catch(() => {
+        if (!cancelled) setOfficialAlerts([]);
+      });
+    loadAlerts();
+    const refreshTimer = setInterval(loadAlerts, 10 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(refreshTimer);
+    };
+  }, [adminAnnouncement?.isActive, adminAnnouncement?.message, weather?.location, weather?.province]);
+
+  if (adminAnnouncement?.isActive && adminAnnouncement.message) {
+    const adminText = adminAnnouncement.message;
+    return <AlertNoticeBox text={adminText} icon="fa-bullhorn" fullText={adminText} sourceLabel="ประกาศจากแอดมิน" />;
   }
-  const messages = [];
-  messages.push(...buildWeatherAlertMessages(weather || { loading: true }));
-  const tickerText = messages.join(' • ');
+  const activeAlert = officialAlerts[0] || null;
+  const tickerText = activeAlert ? officialAlertText(activeAlert) : '';
+  const fullText = activeAlert ? officialAlertText(activeAlert, { full: true }) : '';
 
   if (!tickerText) return null;
 
   return (
-    <div className="mx-weather-ticker" role="status" aria-live="polite" title={`อ้างอิงพื้นที่จากการ์ดอากาศด้านบน: ${tickerText}`}>
-      <span className="mx-weather-ticker__icon" aria-hidden="true">
-        <i className="fa-solid fa-cloud-sun-rain"></i>
-      </span>
-      <div className="mx-weather-ticker__viewport">
-        <div className="mx-weather-ticker__track">
-          <span>{tickerText}</span>
-        </div>
-      </div>
-    </div>
+    <AlertNoticeBox
+      text={tickerText}
+      title={`ประกาศเตือนภัยจากกรมอุตุนิยมวิทยา: ${fullText}`}
+      fullText={fullText}
+      sourceLabel="ประกาศเตือนภัยจากกรมอุตุนิยมวิทยา"
+      link={TMD_WARNING_PAGE_URL}
+    />
   );
 }
 

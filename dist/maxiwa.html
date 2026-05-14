@@ -200,7 +200,7 @@
     .mx-weather-ticker {
       width: fit-content;
       max-width: 100%;
-      min-width: min(280px, 100%);
+      min-width: min(420px, 100%);
       min-height: 40px;
       display: flex;
       align-items: center;
@@ -231,6 +231,7 @@
     .mx-weather-ticker__track {
       display: flex;
       align-items: center;
+      gap: 40px;
       min-width: 0;
       font-size: 13px;
       font-weight: 800;
@@ -242,6 +243,23 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       min-width: 0;
+    }
+    .mx-weather-ticker--marquee .mx-weather-ticker__track {
+      min-width: max-content;
+      max-width: none;
+      animation: mx-alert-marquee 42s linear infinite;
+      will-change: transform;
+    }
+    .mx-weather-ticker--marquee:hover .mx-weather-ticker__track {
+      animation-play-state: paused;
+    }
+    .mx-weather-ticker--marquee .mx-weather-ticker__track span {
+      overflow: visible;
+      text-overflow: clip;
+    }
+    @keyframes mx-alert-marquee {
+      from { transform: translateX(0); }
+      to { transform: translateX(calc(-50% - 20px)); }
     }
     .mx-action-success { background: var(--mx-success-bg); color: var(--mx-success); border-color: color-mix(in srgb, var(--mx-success) 24%, transparent); }
     .mx-action-success:hover { background: color-mix(in srgb, var(--mx-success-bg) 70%, var(--mx-surface-hover)); }
@@ -270,6 +288,14 @@
         animation-iteration-count: 1 !important;
         scroll-behavior: auto !important;
         transition-duration: 0.01ms !important;
+      }
+      .mx-weather-ticker--marquee .mx-weather-ticker__track {
+        animation: none !important;
+        min-width: 0;
+      }
+      .mx-weather-ticker--marquee .mx-weather-ticker__track span {
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
     }
   </style>

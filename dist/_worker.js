@@ -10,6 +10,9 @@ const SERVER_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const OPEN_METEO_TIMEOUT_MS = 8000;
+const TMD_WARNING_NEWS_URL = "https://www.tmd.go.th/api/xml/warning-news";
+const TMD_CAP_WARNING_URL = "https://www.tmd.go.th/api/xml/CAP";
+const TMD_WARNING_STORM_PAGE_URL = "https://www5.tmd.go.th/warning-and-events/warning-storm";
 const GOOGLE_GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 const GOOGLE_WEATHER_CURRENT_URL = "https://weather.googleapis.com/v1/currentConditions:lookup";
 const GOOGLE_WEATHER_TIMEOUT_MS = 8000;
@@ -109,6 +112,134 @@ function numberValue(value) {
   const raw = typeof value === "object" && value !== null ? firstValue(value, ["Value", "value", "_text", "#text"]) : value;
   const num = Number.parseFloat(String(raw ?? "").replace(/[^\d.-]/g, ""));
   return Number.isFinite(num) ? num : null;
+}
+
+function decodeTmdAlertText(value = "") {
+  return String(value || "")
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tmdAlertTagText(xml, tag) {
+  const match = String(xml || "").match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return match ? decodeTmdAlertText(match[1]) : "";
+}
+
+function parseTmdWarningXml(xml) {
+  const text = String(xml || "");
+  const itemMatches = text.match(/<item\b[\s\S]*?<\/item>/gi) || [];
+  const entries = itemMatches.length ? itemMatches : (text.match(/<entry\b[\s\S]*?<\/entry>/gi) || []);
+  return entries.map((entry, index) => ({
+    id: tmdAlertTagText(entry, "guid") || tmdAlertTagText(entry, "id") || `tmd-warning-${index}`,
+    title: tmdAlertTagText(entry, "title"),
+    description: tmdAlertTagText(entry, "description") || tmdAlertTagText(entry, "summary"),
+    link: tmdAlertTagText(entry, "link"),
+    publishedAt: tmdAlertTagText(entry, "pubDate") || tmdAlertTagText(entry, "published") || tmdAlertTagText(entry, "updated"),
+    source: "กรมอุตุนิยมวิทยา",
+  })).filter((item) => item.title || item.description);
+}
+
+function parseTmdWarningPage(html) {
+  const alerts = [];
+  const text = String(html || "");
+  const linkRe = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = linkRe.exec(text))) {
+    const title = decodeTmdAlertText(match[2]);
+    if (!title || title.length < 18) continue;
+    if (!/(ฉบับ|เตือน|พายุ|ฝน|อากาศ|คลื่น|ลม|warning|storm)/i.test(title)) continue;
+    const href = String(match[1] || "").trim();
+    const link = href.startsWith("http") ? href : new URL(href, TMD_WARNING_STORM_PAGE_URL).toString();
+    alerts.push({
+      id: `tmd-page-${alerts.length + 1}-${title.slice(0, 24)}`,
+      title,
+      description: "",
+      link,
+      publishedAt: "",
+      source: "กรมอุตุนิยมวิทยา",
+    });
+  }
+  return alerts.filter((alert, index, list) => list.findIndex((item) => item.title === alert.title) === index);
+}
+
+function tmdAlertLooksFresh(alert) {
+  const text = `${alert.title || ""} ${alert.description || ""} ${alert.publishedAt || ""}`;
+  const yearMatch = text.match(/\b(25\d{2}|20\d{2})\b/);
+  if (!yearMatch) return true;
+  const rawYear = Number(yearMatch[1]);
+  const currentYear = new Date().getFullYear();
+  const currentThaiYear = currentYear + 543;
+  if (rawYear >= 2500) return rawYear >= currentThaiYear - 1;
+  return rawYear >= currentYear - 1;
+}
+
+function alertAreaTerms(location = "", province = "") {
+  const joined = `${location} ${province}`.toLowerCase();
+  const terms = new Set();
+  for (const value of [location, province]) {
+    String(value || "")
+      .split(/[,\s/()]+/)
+      .map((part) => part.trim())
+      .filter((part) => part.length >= 3)
+      .forEach((part) => terms.add(part.toLowerCase()));
+  }
+  if (joined.includes("กรุงเทพ") || joined.includes("bangkok")) {
+    ["กรุงเทพ", "กรุงเทพมหานคร", "กรุงเทพฯ", "ปริมณฑล", "ภาคกลาง"].forEach((term) => terms.add(term));
+  }
+  return Array.from(terms);
+}
+
+function officialAlertMatchesArea(alert, location = "", province = "") {
+  const body = `${alert.title || ""} ${alert.description || ""}`.toLowerCase();
+  if (!body) return false;
+  const broadTerms = ["ประเทศไทย", "ทั่วประเทศ", "ตอนบน", "ภาคกลาง", "กรุงเทพมหานครและปริมณฑล"];
+  if (broadTerms.some((term) => body.includes(term.toLowerCase()))) return true;
+  return alertAreaTerms(location, province).some((term) => body.includes(term));
+}
+
+async function fetchTmdOfficialAlerts(request, url) {
+  const location = String(url.searchParams.get("location") || "").trim();
+  const province = String(url.searchParams.get("province") || "").trim();
+  try {
+    const sources = await Promise.allSettled([
+      fetchWithTimeout(TMD_WARNING_STORM_PAGE_URL, { headers: { Accept: "text/html" } }, TMD_WEATHER_TIMEOUT_MS),
+      fetchWithTimeout(TMD_WARNING_NEWS_URL, { headers: { Accept: "application/rss+xml, application/xml, text/xml" } }, TMD_WEATHER_TIMEOUT_MS),
+      fetchWithTimeout(TMD_CAP_WARNING_URL, { headers: { Accept: "application/rss+xml, application/xml, text/xml" } }, TMD_WEATHER_TIMEOUT_MS),
+    ]);
+    const parsedAlerts = [];
+    for (const [index, result] of sources.entries()) {
+      if (result.status !== "fulfilled" || !result.value.ok) continue;
+      const body = await result.value.text();
+      parsedAlerts.push(...(index === 0 ? parseTmdWarningPage(body) : parseTmdWarningXml(body)));
+    }
+    const alerts = parsedAlerts
+      .filter((alert, index, list) => list.findIndex((item) => item.title === alert.title) === index)
+      .filter(tmdAlertLooksFresh)
+      .filter((alert) => officialAlertMatchesArea(alert, location, province))
+      .slice(0, 3);
+    return jsonResponse(request, {
+      source: "กรมอุตุนิยมวิทยา",
+      sourceUrl: "https://www.tmd.go.th/forecast/forecastWarning",
+      alerts,
+    }, 200, {
+      "Cache-Control": "public, max-age=600",
+      "X-Maxiwa-Backend": "tmd-official-alerts",
+    });
+  } catch (error) {
+    return jsonResponse(request, {
+      error: error?.message || "TMD official alerts are unavailable",
+      source: "กรมอุตุนิยมวิทยา",
+      alerts: [],
+    }, 502, { "X-Maxiwa-Backend": "tmd-official-alerts-error" });
+  }
 }
 
 function openMeteoWeatherMeta(code) {
@@ -1686,6 +1817,9 @@ async function handleApi(request, env, apiPath) {
   }
   if (apiPath === "tmd/weather") {
     return fetchTmdWeather(request, url);
+  }
+  if (apiPath === "tmd/official-alerts") {
+    return fetchTmdOfficialAlerts(request, url);
   }
   if (apiPath === "tmd/provinces") {
     return fetchTmdProvinces(request, url);

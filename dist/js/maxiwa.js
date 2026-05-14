@@ -22377,6 +22377,7 @@ var MaxiwaKpiApp = (() => {
     { id: "current", latitude: null, longitude: null, label: "\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19" }
   ];
   var WEATHER_FALLBACK_LOCATION = WEATHER_LOCATIONS[0];
+  var TMD_WARNING_PAGE_URL = "https://www.tmd.go.th/forecast/forecastWarning";
   function weatherMeta(code) {
     if (code === 0) return { icon: "fa-sun", label: "Clear" };
     if ([1, 2, 3].includes(code)) return { icon: "fa-cloud-sun", label: "Cloudy" };
@@ -22444,6 +22445,7 @@ var MaxiwaKpiApp = (() => {
         humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
         wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
         shortTerm: current.shortTerm || null,
+        province: location.province || "",
         source: data.source || "Open-Meteo",
         ...meta
       };
@@ -22454,47 +22456,95 @@ var MaxiwaKpiApp = (() => {
   function WeatherGlyph({ loading, icon }) {
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "w-14 h-14 rounded-2xl bg-gradient-to-br from-[#334155] to-[#111827] border border-white/10 grid place-items-center flex-shrink-0 shadow-inner", "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${loading ? "fa-rotate-right fa-spin" : icon || "fa-cloud-sun"} text-[32px] ${icon === "fa-sun" ? "text-[#f6c453]" : icon === "fa-cloud-bolt" ? "text-[#f59e0b]" : icon === "fa-cloud-showers-heavy" ? "text-[#60a5fa]" : "text-[#dbeafe]"}` }));
   }
-  function buildWeatherAlertMessages(weather = {}) {
-    const location = weather.location || WEATHER_FALLBACK_LOCATION.label;
-    if (weather.loading || weather.error) return [];
-    const rainfall = Number(weather.rainfall);
-    const wind = Number(weather.wind);
-    const shortTerm = weather.shortTerm || {};
-    const shortTermHours = Number(shortTerm.hours) || 3;
-    const shortTermRain = Number(shortTerm.precipitation);
-    const shortTermProbability = Number(shortTerm.precipitationProbability);
-    const shortTermWind = Number(shortTerm.wind);
-    const label = String(weather.label || "").toLowerCase();
-    const hasRain = Number.isFinite(rainfall) && rainfall > 0;
-    const rainSoon = Number.isFinite(shortTermRain) && shortTermRain > 0 || Number.isFinite(shortTermProbability) && shortTermProbability >= 50;
-    const hasStorm = weather.icon === "fa-cloud-bolt" || shortTerm.stormSoon || label.includes("storm") || label.includes("\u0E1E\u0E32\u0E22\u0E38");
-    if (hasStorm && shortTermHours <= 2) {
-      return [`${location}: \u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07 ${shortTermHours} \u0E0A\u0E21. \u0E02\u0E49\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32 \u0E21\u0E35\u0E42\u0E2D\u0E01\u0E32\u0E2A\u0E40\u0E01\u0E34\u0E14\u0E1E\u0E32\u0E22\u0E38\u0E1D\u0E19\u0E1F\u0E49\u0E32\u0E04\u0E30\u0E19\u0E2D\u0E07`];
+  async function fetchOfficialWeatherAlerts(weather = {}) {
+    const params = new URLSearchParams({
+      location: weather.location || WEATHER_FALLBACK_LOCATION.label,
+      province: weather.province || weather.location || "",
+      _: String(Date.now())
+    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8e3);
+    try {
+      const res = await fetch(`${apiBase()}/tmd/official-alerts?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
+      const data = await res.json();
+      if (!res.ok) throw new Error((data == null ? void 0 : data.error) || `TMD alerts HTTP ${res.status}`);
+      return Array.isArray(data.alerts) ? data.alerts : [];
+    } finally {
+      clearTimeout(timer);
     }
-    if (hasStorm) {
-      return [`${location}: \u0E21\u0E35\u0E42\u0E2D\u0E01\u0E32\u0E2A\u0E40\u0E01\u0E34\u0E14\u0E1E\u0E32\u0E22\u0E38\u0E1D\u0E19\u0E1F\u0E49\u0E32\u0E04\u0E30\u0E19\u0E2D\u0E07\u0E23\u0E30\u0E22\u0E30\u0E43\u0E01\u0E25\u0E49`];
-    }
-    if (rainSoon && Number.isFinite(shortTermProbability) && shortTermProbability >= 70) {
-      return [`${location}: \u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07 ${shortTermHours} \u0E0A\u0E21. \u0E02\u0E49\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32 \u0E21\u0E35\u0E42\u0E2D\u0E01\u0E32\u0E2A\u0E40\u0E01\u0E34\u0E14\u0E1D\u0E19 ${Number.isFinite(shortTermProbability) ? shortTermProbability : "-"}%`];
-    }
-    if (Number.isFinite(shortTermWind) && shortTermWind >= 25 || Number.isFinite(wind) && wind >= 25) {
-      return [`${location}: \u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07 ${shortTermHours} \u0E0A\u0E21. \u0E02\u0E49\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32 \u0E25\u0E21\u0E04\u0E48\u0E2D\u0E19\u0E02\u0E49\u0E32\u0E07\u0E41\u0E23\u0E07 ${Math.round(Number.isFinite(shortTermWind) ? shortTermWind : wind)} \u0E01\u0E21./\u0E0A\u0E21.`];
-    }
-    if (hasRain && rainfall >= 1 || weather.icon === "fa-cloud-showers-heavy") {
-      return [`${location}: \u0E02\u0E13\u0E30\u0E19\u0E35\u0E49\u0E21\u0E35\u0E1D\u0E19 \u0E1D\u0E19\u0E2A\u0E30\u0E2A\u0E21\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14 ${Number.isFinite(rainfall) ? rainfall : "-"} \u0E21\u0E21.`];
-    }
-    return [];
+  }
+  function normalizeAlertText(value = "") {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+  function compactAlertDetail(value = "", limit = 260) {
+    const text = normalizeAlertText(value);
+    return text.length > limit ? `${text.slice(0, limit).trim()}...` : text;
+  }
+  function officialAlertText(alert2 = {}, options = {}) {
+    const limit = options.full ? Number.POSITIVE_INFINITY : 420;
+    const title = compactAlertDetail(alert2.title || "", options.full ? Number.POSITIVE_INFINITY : 120);
+    const description = compactAlertDetail(alert2.description || "", limit);
+    if (title && description) return `${title}: ${description}`;
+    return title || description;
+  }
+  function AlertNoticeBox({ text, icon = "fa-triangle-exclamation", title, fullText = "", sourceLabel = "", link = "" }) {
+    const isLong = String(text || "").length > 90;
+    const [detailOpen, setDetailOpen] = useState(false);
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        className: cn("mx-weather-ticker text-left", isLong && "mx-weather-ticker--marquee"),
+        type: "button",
+        onClick: () => setDetailOpen((open) => !open),
+        "aria-expanded": detailOpen,
+        title: title || text
+      },
+      /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-weather-ticker__icon", "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${icon}` })),
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__viewport" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__track" }, /* @__PURE__ */ import_react.default.createElement("span", null, text), isLong && /* @__PURE__ */ import_react.default.createElement("span", { "aria-hidden": "true" }, text)))
+    ), detailOpen && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute left-0 top-[calc(100%+8px)] z-[120] w-[min(720px,calc(100vw-2rem))] rounded-lg border border-[var(--mx-line-strong)] bg-[var(--mx-panel-strong)] p-4 text-[var(--mx-text)] shadow-2xl" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold" }, sourceLabel || "\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28"), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", type: "button", onClick: () => setDetailOpen(false), "aria-label": "\u0E1B\u0E34\u0E14\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 max-h-[48vh] overflow-y-auto whitespace-pre-wrap text-sm leading-6" }, fullText || text), link && /* @__PURE__ */ import_react.default.createElement("a", { className: "mt-3 inline-flex items-center gap-2 text-sm font-bold text-[var(--mx-info)]", href: link, target: "_blank", rel: "noopener noreferrer" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-up-right-from-square" }), "\u0E40\u0E1B\u0E34\u0E14\u0E2B\u0E19\u0E49\u0E32\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E2F")));
   }
   function WeatherAlertTicker({ weather, adminAnnouncement }) {
+    const [officialAlerts, setOfficialAlerts] = useState([]);
+    useEffect(() => {
+      if ((adminAnnouncement == null ? void 0 : adminAnnouncement.isActive) && adminAnnouncement.message) {
+        setOfficialAlerts([]);
+        return void 0;
+      }
+      if (!weather || weather.loading || weather.error) {
+        setOfficialAlerts([]);
+        return void 0;
+      }
+      let cancelled = false;
+      const loadAlerts = () => fetchOfficialWeatherAlerts(weather).then((alerts) => {
+        if (!cancelled) setOfficialAlerts(alerts);
+      }).catch(() => {
+        if (!cancelled) setOfficialAlerts([]);
+      });
+      loadAlerts();
+      const refreshTimer = setInterval(loadAlerts, 10 * 60 * 1e3);
+      return () => {
+        cancelled = true;
+        clearInterval(refreshTimer);
+      };
+    }, [adminAnnouncement == null ? void 0 : adminAnnouncement.isActive, adminAnnouncement == null ? void 0 : adminAnnouncement.message, weather == null ? void 0 : weather.location, weather == null ? void 0 : weather.province]);
     if ((adminAnnouncement == null ? void 0 : adminAnnouncement.isActive) && adminAnnouncement.message) {
       const adminText = adminAnnouncement.message;
-      return /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker", role: "status", "aria-live": "polite", title: adminText }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-weather-ticker__icon", "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bullhorn" })), /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__viewport" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__track" }, /* @__PURE__ */ import_react.default.createElement("span", null, adminText))));
+      return /* @__PURE__ */ import_react.default.createElement(AlertNoticeBox, { text: adminText, icon: "fa-bullhorn", fullText: adminText, sourceLabel: "\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E08\u0E32\u0E01\u0E41\u0E2D\u0E14\u0E21\u0E34\u0E19" });
     }
-    const messages = [];
-    messages.push(...buildWeatherAlertMessages(weather || { loading: true }));
-    const tickerText = messages.join(" \u2022 ");
+    const activeAlert = officialAlerts[0] || null;
+    const tickerText = activeAlert ? officialAlertText(activeAlert) : "";
+    const fullText = activeAlert ? officialAlertText(activeAlert, { full: true }) : "";
     if (!tickerText) return null;
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker", role: "status", "aria-live": "polite", title: `\u0E2D\u0E49\u0E32\u0E07\u0E2D\u0E34\u0E07\u0E1E\u0E37\u0E49\u0E19\u0E17\u0E35\u0E48\u0E08\u0E32\u0E01\u0E01\u0E32\u0E23\u0E4C\u0E14\u0E2D\u0E32\u0E01\u0E32\u0E28\u0E14\u0E49\u0E32\u0E19\u0E1A\u0E19: ${tickerText}` }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-weather-ticker__icon", "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-cloud-sun-rain" })), /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__viewport" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__track" }, /* @__PURE__ */ import_react.default.createElement("span", null, tickerText))));
+    return /* @__PURE__ */ import_react.default.createElement(
+      AlertNoticeBox,
+      {
+        text: tickerText,
+        title: `\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E40\u0E15\u0E37\u0E2D\u0E19\u0E20\u0E31\u0E22\u0E08\u0E32\u0E01\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E19\u0E34\u0E22\u0E21\u0E27\u0E34\u0E17\u0E22\u0E32: ${fullText}`,
+        fullText,
+        sourceLabel: "\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E40\u0E15\u0E37\u0E2D\u0E19\u0E20\u0E31\u0E22\u0E08\u0E32\u0E01\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E19\u0E34\u0E22\u0E21\u0E27\u0E34\u0E17\u0E22\u0E32",
+        link: TMD_WARNING_PAGE_URL
+      }
+    );
   }
   function WeatherWidget({ onWeatherChange }) {
     var _a, _b, _c, _d;
