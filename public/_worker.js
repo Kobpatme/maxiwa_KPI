@@ -177,8 +177,10 @@ async function fetchOpenMeteoWeather(request, url) {
       latitude: String(lat),
       longitude: String(lon),
       current: "temperature_2m,relative_humidity_2m,precipitation,rain,weather_code,wind_speed_10m",
+      hourly: "precipitation_probability,precipitation,rain,showers,weather_code,wind_speed_10m",
       timezone: "auto",
       forecast_days: "1",
+      forecast_hours: "6",
     });
     const res = await fetchWithTimeout(`${OPEN_METEO_FORECAST_URL}?${params.toString()}`, {
       headers: { Accept: "application/json" },
@@ -186,6 +188,40 @@ async function fetchOpenMeteoWeather(request, url) {
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(data?.reason || `Open-Meteo HTTP ${res.status}`);
     const current = data?.current || {};
+    const hourly = data?.hourly || {};
+    const hourlyRows = Array.isArray(hourly.time)
+      ? hourly.time.map((time, index) => ({
+        time,
+        precipitationProbability: numberValue(hourly.precipitation_probability?.[index]),
+        precipitation: numberValue(hourly.precipitation?.[index]),
+        rain: numberValue(hourly.rain?.[index]),
+        showers: numberValue(hourly.showers?.[index]),
+        weatherCode: numberValue(hourly.weather_code?.[index]),
+        wind: numberValue(hourly.wind_speed_10m?.[index]),
+      }))
+      : [];
+    const nextHours = hourlyRows
+      .filter((row) => !current.time || String(row.time || "") >= String(current.time))
+      .slice(0, 3);
+    const shortTermRows = nextHours.length ? nextHours : hourlyRows.slice(0, 3);
+    const shortTermPrecip = shortTermRows.reduce((sum, row) => {
+      const value = Number(row.precipitation ?? row.rain ?? row.showers);
+      return sum + (Number.isFinite(value) ? value : 0);
+    }, 0);
+    const shortTermProbability = shortTermRows.reduce((max, row) => {
+      const value = Number(row.precipitationProbability);
+      return Number.isFinite(value) ? Math.max(max, value) : max;
+    }, 0);
+    const shortTermWind = shortTermRows.reduce((max, row) => {
+      const value = Number(row.wind);
+      return Number.isFinite(value) ? Math.max(max, value) : max;
+    }, 0);
+    const stormSoon = shortTermRows.some((row) => [95, 96, 99].includes(Number(row.weatherCode)));
+    const firstRainRow = shortTermRows.find((row) => {
+      const precipitation = Number(row.precipitation ?? row.rain ?? row.showers);
+      const probability = Number(row.precipitationProbability);
+      return (Number.isFinite(precipitation) && precipitation > 0) || (Number.isFinite(probability) && probability >= 50);
+    });
     const meta = openMeteoWeatherMeta(current.weather_code);
     return jsonResponse(request, {
       source: "Open-Meteo",
@@ -200,6 +236,15 @@ async function fetchOpenMeteoWeather(request, url) {
         description: meta.description,
         observedAt: current.time || "",
         icon: meta.icon,
+        shortTerm: {
+          hours: shortTermRows.length,
+          precipitation: Math.round(shortTermPrecip * 10) / 10,
+          precipitationProbability: Math.round(shortTermProbability),
+          wind: Math.round(shortTermWind),
+          stormSoon,
+          firstRainTime: firstRainRow?.time || "",
+          source: "Open-Meteo hourly forecast",
+        },
       },
     }, 200, {
       "Cache-Control": "public, max-age=300",

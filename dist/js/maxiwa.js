@@ -21478,6 +21478,7 @@ var MaxiwaKpiApp = (() => {
   var SESSION_LOCK_TTL = 45e3;
   var THEME_KEY = "maxiwa-kpi-theme";
   var SYSTEM_LINKS_KEY = "maxiwa-system-links";
+  var ADMIN_ANNOUNCEMENT_KEY = "maxiwa-admin-announcement";
   var RUNTIME_SESSION_ID = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   var APP_NAME = "METRIX Verity";
   var APP_TAGLINE = "Performance System";
@@ -21734,6 +21735,24 @@ var MaxiwaKpiApp = (() => {
   }
   function visibleSystemLinksForUser(links, user) {
     return normalizeSystemLinks(links).filter((item) => systemVisibleToUser(item, user));
+  }
+  function normalizeAdminAnnouncement(value) {
+    var _a;
+    const raw = typeof value === "string" ? parseJsonSafe(value, {}) : value || {};
+    return {
+      message: String(raw.message || "").trim(),
+      isActive: raw.isActive === true || raw.is_active === true || String((_a = raw.isActive) != null ? _a : raw.is_active).toLowerCase() === "true",
+      updatedAt: raw.updatedAt || raw.updated_at || "",
+      updatedBy: raw.updatedBy || raw.updated_by || ""
+    };
+  }
+  function loadAdminAnnouncement() {
+    return normalizeAdminAnnouncement(safeLocalGet(ADMIN_ANNOUNCEMENT_KEY));
+  }
+  function cacheAdminAnnouncement(nextAnnouncement) {
+    const normalized = normalizeAdminAnnouncement(nextAnnouncement);
+    safeLocalSet(ADMIN_ANNOUNCEMENT_KEY, JSON.stringify(normalized));
+    return normalized;
   }
   var NAV_BY_ROLE = {
     Staff: [
@@ -22424,6 +22443,7 @@ var MaxiwaKpiApp = (() => {
         rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,
         humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
         wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
+        shortTerm: current.shortTerm || null,
         source: data.source || "Open-Meteo",
         ...meta
       };
@@ -22434,7 +22454,49 @@ var MaxiwaKpiApp = (() => {
   function WeatherGlyph({ loading, icon }) {
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "w-14 h-14 rounded-2xl bg-gradient-to-br from-[#334155] to-[#111827] border border-white/10 grid place-items-center flex-shrink-0 shadow-inner", "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${loading ? "fa-rotate-right fa-spin" : icon || "fa-cloud-sun"} text-[32px] ${icon === "fa-sun" ? "text-[#f6c453]" : icon === "fa-cloud-bolt" ? "text-[#f59e0b]" : icon === "fa-cloud-showers-heavy" ? "text-[#60a5fa]" : "text-[#dbeafe]"}` }));
   }
-  function WeatherWidget() {
+  function buildWeatherAlertMessages(weather = {}) {
+    const location = weather.location || WEATHER_FALLBACK_LOCATION.label;
+    if (weather.loading || weather.error) return [];
+    const rainfall = Number(weather.rainfall);
+    const wind = Number(weather.wind);
+    const shortTerm = weather.shortTerm || {};
+    const shortTermHours = Number(shortTerm.hours) || 3;
+    const shortTermRain = Number(shortTerm.precipitation);
+    const shortTermProbability = Number(shortTerm.precipitationProbability);
+    const shortTermWind = Number(shortTerm.wind);
+    const label = String(weather.label || "").toLowerCase();
+    const hasRain = Number.isFinite(rainfall) && rainfall > 0;
+    const rainSoon = Number.isFinite(shortTermRain) && shortTermRain > 0 || Number.isFinite(shortTermProbability) && shortTermProbability >= 50;
+    const hasStorm = weather.icon === "fa-cloud-bolt" || shortTerm.stormSoon || label.includes("storm") || label.includes("\u0E1E\u0E32\u0E22\u0E38");
+    if (hasStorm && shortTermHours <= 2) {
+      return [`${location}: \u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07 ${shortTermHours} \u0E0A\u0E21. \u0E02\u0E49\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32 \u0E21\u0E35\u0E42\u0E2D\u0E01\u0E32\u0E2A\u0E40\u0E01\u0E34\u0E14\u0E1E\u0E32\u0E22\u0E38\u0E1D\u0E19\u0E1F\u0E49\u0E32\u0E04\u0E30\u0E19\u0E2D\u0E07`];
+    }
+    if (hasStorm) {
+      return [`${location}: \u0E21\u0E35\u0E42\u0E2D\u0E01\u0E32\u0E2A\u0E40\u0E01\u0E34\u0E14\u0E1E\u0E32\u0E22\u0E38\u0E1D\u0E19\u0E1F\u0E49\u0E32\u0E04\u0E30\u0E19\u0E2D\u0E07\u0E23\u0E30\u0E22\u0E30\u0E43\u0E01\u0E25\u0E49`];
+    }
+    if (rainSoon && Number.isFinite(shortTermProbability) && shortTermProbability >= 70) {
+      return [`${location}: \u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07 ${shortTermHours} \u0E0A\u0E21. \u0E02\u0E49\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32 \u0E21\u0E35\u0E42\u0E2D\u0E01\u0E32\u0E2A\u0E40\u0E01\u0E34\u0E14\u0E1D\u0E19 ${Number.isFinite(shortTermProbability) ? shortTermProbability : "-"}%`];
+    }
+    if (Number.isFinite(shortTermWind) && shortTermWind >= 25 || Number.isFinite(wind) && wind >= 25) {
+      return [`${location}: \u0E43\u0E19\u0E0A\u0E48\u0E27\u0E07 ${shortTermHours} \u0E0A\u0E21. \u0E02\u0E49\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32 \u0E25\u0E21\u0E04\u0E48\u0E2D\u0E19\u0E02\u0E49\u0E32\u0E07\u0E41\u0E23\u0E07 ${Math.round(Number.isFinite(shortTermWind) ? shortTermWind : wind)} \u0E01\u0E21./\u0E0A\u0E21.`];
+    }
+    if (hasRain && rainfall >= 1 || weather.icon === "fa-cloud-showers-heavy") {
+      return [`${location}: \u0E02\u0E13\u0E30\u0E19\u0E35\u0E49\u0E21\u0E35\u0E1D\u0E19 \u0E1D\u0E19\u0E2A\u0E30\u0E2A\u0E21\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14 ${Number.isFinite(rainfall) ? rainfall : "-"} \u0E21\u0E21.`];
+    }
+    return [];
+  }
+  function WeatherAlertTicker({ weather, adminAnnouncement }) {
+    if ((adminAnnouncement == null ? void 0 : adminAnnouncement.isActive) && adminAnnouncement.message) {
+      const adminText = adminAnnouncement.message;
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker", role: "status", "aria-live": "polite", title: adminText }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-weather-ticker__icon", "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bullhorn" })), /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__viewport" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__track" }, /* @__PURE__ */ import_react.default.createElement("span", null, adminText))));
+    }
+    const messages = [];
+    messages.push(...buildWeatherAlertMessages(weather || { loading: true }));
+    const tickerText = messages.join(" \u2022 ");
+    if (!tickerText) return null;
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker", role: "status", "aria-live": "polite", title: `\u0E2D\u0E49\u0E32\u0E07\u0E2D\u0E34\u0E07\u0E1E\u0E37\u0E49\u0E19\u0E17\u0E35\u0E48\u0E08\u0E32\u0E01\u0E01\u0E32\u0E23\u0E4C\u0E14\u0E2D\u0E32\u0E01\u0E32\u0E28\u0E14\u0E49\u0E32\u0E19\u0E1A\u0E19: ${tickerText}` }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-weather-ticker__icon", "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-cloud-sun-rain" })), /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__viewport" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__track" }, /* @__PURE__ */ import_react.default.createElement("span", null, tickerText))));
+  }
+  function WeatherWidget({ onWeatherChange }) {
     var _a, _b, _c, _d;
     const [weather, setWeather] = useState({ loading: true, error: false });
     const [selectedLocation, setSelectedLocation] = useState(WEATHER_FALLBACK_LOCATION);
@@ -22451,14 +22513,33 @@ var MaxiwaKpiApp = (() => {
       setLocationError("");
     }, []);
     const loadWeather = useCallback(async (cancelledRef = { current: false }) => {
-      setWeather((prev) => ({ ...prev, loading: true, error: false }));
+      const loadingSnapshot = {
+        loading: true,
+        error: false,
+        location: (selectedLocation == null ? void 0 : selectedLocation.label) || WEATHER_FALLBACK_LOCATION.label
+      };
+      setWeather((prev) => ({ ...prev, ...loadingSnapshot }));
+      onWeatherChange == null ? void 0 : onWeatherChange(loadingSnapshot);
       try {
         const snapshot = await fetchWeatherSnapshot(selectedLocation);
-        if (!cancelledRef.current) setWeather({ loading: false, error: false, ...snapshot });
+        const nextWeather = { loading: false, error: false, ...snapshot };
+        if (!cancelledRef.current) {
+          setWeather(nextWeather);
+          onWeatherChange == null ? void 0 : onWeatherChange(nextWeather);
+        }
       } catch (error) {
-        if (!cancelledRef.current) setWeather({ loading: false, error: true, errorMessage: (error == null ? void 0 : error.message) || "" });
+        const errorWeather = {
+          loading: false,
+          error: true,
+          errorMessage: (error == null ? void 0 : error.message) || "",
+          location: (selectedLocation == null ? void 0 : selectedLocation.label) || WEATHER_FALLBACK_LOCATION.label
+        };
+        if (!cancelledRef.current) {
+          setWeather(errorWeather);
+          onWeatherChange == null ? void 0 : onWeatherChange(errorWeather);
+        }
       }
-    }, [selectedLocation]);
+    }, [selectedLocation, onWeatherChange]);
     useEffect(() => {
       const cancelledRef = { current: false };
       loadWeather(cancelledRef);
@@ -23976,7 +24057,7 @@ var MaxiwaKpiApp = (() => {
       }), systems.length === 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E21\u0E35\u0E23\u0E30\u0E1A\u0E1A\u0E07\u0E32\u0E19\u0E17\u0E35\u0E48\u0E40\u0E1B\u0E34\u0E14\u0E43\u0E2B\u0E49\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E19\u0E35\u0E49\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19"))
     );
   }
-  function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefresh, adminSection = "overview", setAdminSection = () => {
+  function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminAnnouncementChange, onSystemLinksChange, onRefresh, adminSection = "overview", setAdminSection = () => {
   } }) {
     var _a;
     const [userForm, setUserForm] = useState({ empid: "", name: "", department: "", team: "", role: "Staff", accessScope: "Self", pigurl: "" });
@@ -23989,6 +24070,7 @@ var MaxiwaKpiApp = (() => {
     const [holidayForm, setHolidayForm] = useState(emptyHolidayForm);
     const emptySystemForm = { id: "", name: "", description: "", url: "", icon: "fa-up-right-from-square", status: "Active", visibleToAll: false, allowedRoles: [], allowedTeams: [], allowedEmpIds: "", isActive: true };
     const [systemForm, setSystemForm] = useState(emptySystemForm);
+    const [announcementDraft, setAnnouncementDraft] = useState(() => normalizeAdminAnnouncement(adminAnnouncement));
     const [previewEmpId, setPreviewEmpId] = useState("");
     const [adminSearch, setAdminSearch] = useState("");
     const [kpiSearch, setKpiSearch] = useState("");
@@ -24019,6 +24101,30 @@ var MaxiwaKpiApp = (() => {
     const companyHolidays = filteredHolidays.filter((holiday) => !isThaiPublicHoliday(holiday));
     const thaiPublicHolidays = filteredHolidays.filter((holiday) => isThaiPublicHoliday(holiday));
     const normalizedSystemLinks = normalizeSystemLinks(systemLinks);
+    useEffect(() => {
+      setAnnouncementDraft(normalizeAdminAnnouncement(adminAnnouncement));
+    }, [adminAnnouncement]);
+    const saveAdminAnnouncement = () => {
+      const nextAnnouncement = {
+        ...announcementDraft,
+        message: String(announcementDraft.message || "").trim(),
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        updatedBy: (user == null ? void 0 : user.empId) || (user == null ? void 0 : user.name) || ""
+      };
+      const saved = cacheAdminAnnouncement(nextAnnouncement);
+      setAnnouncementDraft(saved);
+      onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
+    };
+    const clearAdminAnnouncement = () => {
+      const saved = cacheAdminAnnouncement({
+        message: "",
+        isActive: false,
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        updatedBy: (user == null ? void 0 : user.empId) || (user == null ? void 0 : user.name) || ""
+      });
+      setAnnouncementDraft(saved);
+      onAdminAnnouncementChange == null ? void 0 : onAdminAnnouncementChange(saved);
+    };
     const filteredSystems = normalizedSystemLinks.filter((s) => matches(s.name, s.description, s.url, s.status, s.allowedRoles.join(" "), s.allowedTeams.join(" "), s.allowedEmpIds.join(" ")));
     const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
     const selectedRoleNeedsDepartment = roleRequiresDepartment(userForm.role);
@@ -24727,7 +24833,23 @@ var MaxiwaKpiApp = (() => {
         { id: "calendar", label: "\u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 SLA", value: holidays.length, icon: "fa-calendar-days", detail: "\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14\u0E41\u0E25\u0E30 recalculation" },
         { id: "audit", label: "\u0E1B\u0E23\u0E30\u0E27\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02", value: logs.length, icon: "fa-shield-halved", detail: "\u0E15\u0E23\u0E27\u0E08\u0E2A\u0E2D\u0E1A action \u0E17\u0E35\u0E48\u0E40\u0E01\u0E34\u0E14\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A" }
       ];
-      return /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-grid-auto" }, /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49", value: staff.length, sub: "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E17\u0E35\u0E48\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A", icon: "fa-users" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "\u0E17\u0E35\u0E21", value: teams.length, sub: "\u0E01\u0E25\u0E38\u0E48\u0E21\u0E07\u0E32\u0E19\u0E1B\u0E0F\u0E34\u0E1A\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23", icon: "fa-people-group", accent: "var(--mx-teal)" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "\u0E01\u0E0E KPI/SLA", value: kpis.length, sub: "\u0E27\u0E31\u0E19 SLA \u0E41\u0E25\u0E30\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E04\u0E30\u0E41\u0E19\u0E19", icon: "fa-scale-balanced", accent: "var(--mx-indigo)" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14", value: holidays.length, sub: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E43\u0E19\u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 SLA", icon: "fa-calendar-days", accent: "var(--mx-amber)" })), /* @__PURE__ */ import_react.default.createElement(Panel, { title: "\u0E17\u0E32\u0E07\u0E25\u0E31\u0E14\u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E30\u0E1A\u0E1A", subtitle: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E21\u0E27\u0E14\u0E17\u0E35\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E30\u0E41\u0E22\u0E01\u0E07\u0E32\u0E19 setup, SLA \u0E41\u0E25\u0E30 audit \u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E01\u0E31\u0E19\u0E0A\u0E31\u0E14\u0E40\u0E08\u0E19" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid md:grid-cols-2 xl:grid-cols-3 gap-3" }, setupItems.map((item) => /* @__PURE__ */ import_react.default.createElement(
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-grid-auto" }, /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49", value: staff.length, sub: "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E17\u0E35\u0E48\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A", icon: "fa-users" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "\u0E17\u0E35\u0E21", value: teams.length, sub: "\u0E01\u0E25\u0E38\u0E48\u0E21\u0E07\u0E32\u0E19\u0E1B\u0E0F\u0E34\u0E1A\u0E31\u0E15\u0E34\u0E01\u0E32\u0E23", icon: "fa-people-group", accent: "var(--mx-teal)" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "\u0E01\u0E0E KPI/SLA", value: kpis.length, sub: "\u0E27\u0E31\u0E19 SLA \u0E41\u0E25\u0E30\u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01\u0E04\u0E30\u0E41\u0E19\u0E19", icon: "fa-scale-balanced", accent: "var(--mx-indigo)" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "\u0E27\u0E31\u0E19\u0E2B\u0E22\u0E38\u0E14", value: holidays.length, sub: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E43\u0E19\u0E1B\u0E0F\u0E34\u0E17\u0E34\u0E19 SLA", icon: "fa-calendar-days", accent: "var(--mx-amber)" })), /* @__PURE__ */ import_react.default.createElement(Panel, { title: "\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E14\u0E49\u0E32\u0E19\u0E1A\u0E19", subtitle: "\u0E41\u0E2D\u0E14\u0E21\u0E34\u0E19\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E43\u0E2A\u0E48\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E2A\u0E31\u0E49\u0E19\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E41\u0E2A\u0E14\u0E07\u0E43\u0E19\u0E0A\u0E48\u0E2D\u0E07\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E1A\u0E1E\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C\u0E2D\u0E32\u0E01\u0E32\u0E28\u0E14\u0E49\u0E32\u0E19\u0E1A\u0E19" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-4" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "grid gap-2 text-sm font-bold text-[var(--mx-muted)]" }, "\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28", /* @__PURE__ */ import_react.default.createElement(
+        "textarea",
+        {
+          className: "mx-textarea min-h-[84px]",
+          maxLength: 180,
+          placeholder: "\u0E40\u0E0A\u0E48\u0E19 \u0E27\u0E31\u0E19\u0E19\u0E35\u0E49\u0E21\u0E35\u0E0B\u0E49\u0E2D\u0E21\u0E2D\u0E1E\u0E22\u0E1E\u0E40\u0E27\u0E25\u0E32 15:00 \u0E19. \u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E1C\u0E37\u0E48\u0E2D\u0E40\u0E27\u0E25\u0E32\u0E01\u0E32\u0E23\u0E40\u0E14\u0E34\u0E19\u0E17\u0E32\u0E07",
+          value: announcementDraft.message,
+          onChange: (e) => setAnnouncementDraft((prev) => ({ ...prev, message: e.target.value }))
+        }
+      )), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "inline-flex items-center gap-2 text-sm font-bold text-[var(--mx-text)]" }, /* @__PURE__ */ import_react.default.createElement(
+        "input",
+        {
+          type: "checkbox",
+          checked: announcementDraft.isActive,
+          onChange: (e) => setAnnouncementDraft((prev) => ({ ...prev, isActive: e.target.checked }))
+        }
+      ), "\u0E40\u0E1B\u0E34\u0E14\u0E41\u0E2A\u0E14\u0E07\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E19\u0E35\u0E49\u0E1A\u0E19\u0E0A\u0E48\u0E2D\u0E07\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28"), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary !py-2", onClick: saveAdminAnnouncement }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-floppy-disk mr-2" }), "\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21"), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: clearAdminAnnouncement }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark mr-2" }), "\u0E25\u0E49\u0E32\u0E07\u0E02\u0E49\u0E2D\u0E04\u0E27\u0E32\u0E21"))), announcementDraft.updatedAt && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-xs text-[var(--mx-muted)]" }, "\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14: ", formatDate(announcementDraft.updatedAt, true), " ", announcementDraft.updatedBy ? `/ ${announcementDraft.updatedBy}` : ""))), /* @__PURE__ */ import_react.default.createElement(Panel, { title: "\u0E17\u0E32\u0E07\u0E25\u0E31\u0E14\u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E23\u0E30\u0E1A\u0E1A", subtitle: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E21\u0E27\u0E14\u0E17\u0E35\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E41\u0E01\u0E49\u0E44\u0E02 \u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E30\u0E41\u0E22\u0E01\u0E07\u0E32\u0E19 setup, SLA \u0E41\u0E25\u0E30 audit \u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E01\u0E31\u0E19\u0E0A\u0E31\u0E14\u0E40\u0E08\u0E19" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid md:grid-cols-2 xl:grid-cols-3 gap-3" }, setupItems.map((item) => /* @__PURE__ */ import_react.default.createElement(
         "button",
         {
           key: item.id,
@@ -24769,6 +24891,8 @@ var MaxiwaKpiApp = (() => {
     const [showDashboardCreate, setShowDashboardCreate] = useState(false);
     const [adminSection, setAdminSection] = useState("overview");
     const [systemLinks, setSystemLinks] = useState(loadSystemLinks);
+    const [adminAnnouncement, setAdminAnnouncement] = useState(loadAdminAnnouncement);
+    const [headerWeather, setHeaderWeather] = useState({ loading: true, location: WEATHER_FALLBACK_LOCATION.label });
     const forceLogoutForSupersededSession = useCallback(() => {
       safeSessionRemove(SESSION_KEY);
       clearActiveSessionLock();
@@ -24816,6 +24940,13 @@ var MaxiwaKpiApp = (() => {
         cancelled = true;
       };
     }, [user]);
+    useEffect(() => {
+      const handleStorage = (event) => {
+        if (event.key === ADMIN_ANNOUNCEMENT_KEY) setAdminAnnouncement(loadAdminAnnouncement());
+      };
+      window.addEventListener("storage", handleStorage);
+      return () => window.removeEventListener("storage", handleStorage);
+    }, []);
     const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
     const availableYears = useMemo(() => {
       const y = (/* @__PURE__ */ new Date()).getFullYear();
@@ -25081,7 +25212,7 @@ var MaxiwaKpiApp = (() => {
         adminSection,
         setAdminSection
       }
-    ), /* @__PURE__ */ import_react.default.createElement("main", { className: "grid content-start gap-5" }, /* @__PURE__ */ import_react.default.createElement("header", { className: "relative z-[80] mx-shell-card overflow-visible" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "px-5 py-5 md:px-6 md:py-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px_auto] xl:items-start" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement(BrandPill, { className: "px-3 py-2 text-[11px] tracking-[0.16em]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-completed" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-building-user" }), user.team)), /* @__PURE__ */ import_react.default.createElement("h1", { className: "mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal" }, pageTitle), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]" }, pageSubtitle)), /* @__PURE__ */ import_react.default.createElement("div", { className: "xl:justify-self-end" }, /* @__PURE__ */ import_react.default.createElement(WeatherWidget, null)), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center justify-end gap-2" }, canOpenExecutiveView(user.role) && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2", onClick: openExecutiveView, title: "Open Performance View" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-display" }), /* @__PURE__ */ import_react.default.createElement("span", null, "Performance View")), /* @__PURE__ */ import_react.default.createElement(ThemeToggle, { theme, onToggle: toggleTheme }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3 relative", onClick: () => setShowNotif((v) => !v), title: "Notifications", "aria-label": "Notifications" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bell" }), notifications.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center" }, notifications.length > 9 ? "9+" : notifications.length)), showNotif && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold mb-3 flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", onClick: () => setShowNotif(false) }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), notifications.length === 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-2 max-h-72 overflow-y-auto" }, notifications.slice(0, 10).map((n) => /* @__PURE__ */ import_react.default.createElement("div", { key: n.id, className: "rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-2 text-sm" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${n.icon} mt-0.5 flex-shrink-0`, style: { color: n.color } }), /* @__PURE__ */ import_react.default.createElement("span", null, n.message))))))), ["tasks", "my-tasks"].includes(view) && state.tasks.length > 0 && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: downloadCSV, title: "Export CSV" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-file-csv mr-1" }), "CSV"), (state.loading || actionLoading) && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-pending" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-rotate-right fa-spin" }), "Loading")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col md:flex-row md:items-center md:justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "w-9 h-9 rounded-lg mx-brand-mark grid place-items-center" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-calendar-check text-[var(--mx-accent)]" })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[11px] uppercase tracking-[0.14em] font-extrabold" }, "Current Scope"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-0.5 text-[var(--mx-text)] font-bold" }, activePeriodLabel))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-2" }, showFilterBar && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement(
+    ), /* @__PURE__ */ import_react.default.createElement("main", { className: "grid content-start gap-5" }, /* @__PURE__ */ import_react.default.createElement("header", { className: "relative z-[80] mx-shell-card overflow-visible" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "px-5 py-5 md:px-6 md:py-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px_auto] xl:items-start" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-2" }, /* @__PURE__ */ import_react.default.createElement(BrandPill, { className: "px-3 py-2 text-[11px] tracking-[0.16em]" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-completed" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-building-user" }), user.team), /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-[260px] flex-1 max-w-[760px]" }, /* @__PURE__ */ import_react.default.createElement(WeatherAlertTicker, { weather: headerWeather, adminAnnouncement }))), /* @__PURE__ */ import_react.default.createElement("h1", { className: "mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal" }, pageTitle), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]" }, pageSubtitle)), /* @__PURE__ */ import_react.default.createElement("div", { className: "xl:justify-self-end" }, /* @__PURE__ */ import_react.default.createElement(WeatherWidget, { onWeatherChange: setHeaderWeather })), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center justify-end gap-2" }, canOpenExecutiveView(user.role) && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2", onClick: openExecutiveView, title: "Open Performance View" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-display" }), /* @__PURE__ */ import_react.default.createElement("span", null, "Performance View")), /* @__PURE__ */ import_react.default.createElement(ThemeToggle, { theme, onToggle: toggleTheme }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3 relative", onClick: () => setShowNotif((v) => !v), title: "Notifications", "aria-label": "Notifications" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bell" }), notifications.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center" }, notifications.length > 9 ? "9+" : notifications.length)), showNotif && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold mb-3 flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", onClick: () => setShowNotif(false) }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), notifications.length === 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-2 max-h-72 overflow-y-auto" }, notifications.slice(0, 10).map((n) => /* @__PURE__ */ import_react.default.createElement("div", { key: n.id, className: "rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-2 text-sm" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${n.icon} mt-0.5 flex-shrink-0`, style: { color: n.color } }), /* @__PURE__ */ import_react.default.createElement("span", null, n.message))))))), ["tasks", "my-tasks"].includes(view) && state.tasks.length > 0 && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: downloadCSV, title: "Export CSV" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-file-csv mr-1" }), "CSV"), (state.loading || actionLoading) && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-pending" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-rotate-right fa-spin" }), "Loading")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 lg:grid-cols-[minmax(210px,auto)_minmax(260px,1fr)_auto] lg:items-center" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "w-9 h-9 rounded-lg mx-brand-mark grid place-items-center" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-calendar-check text-[var(--mx-accent)]" })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[11px] uppercase tracking-[0.14em] font-extrabold" }, "Current Scope"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-0.5 text-[var(--mx-text)] font-bold" }, activePeriodLabel))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-2 lg:justify-end" }, showFilterBar && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement(
       "select",
       {
         className: "mx-select !w-[160px] !py-2 !text-sm",
@@ -25183,6 +25314,8 @@ var MaxiwaKpiApp = (() => {
         user,
         adminData: state.admin,
         systemLinks,
+        adminAnnouncement,
+        onAdminAnnouncementChange: setAdminAnnouncement,
         onSystemLinksChange: setSystemLinks,
         onRefresh: reloadAdmin,
         adminSection,

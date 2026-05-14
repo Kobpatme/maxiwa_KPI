@@ -6,6 +6,7 @@ const SESSION_LOCK_KEY = 'maxiwa-kpi-active-session';
 const SESSION_LOCK_TTL = 45000;
 const THEME_KEY = 'maxiwa-kpi-theme';
 const SYSTEM_LINKS_KEY = 'maxiwa-system-links';
+const ADMIN_ANNOUNCEMENT_KEY = 'maxiwa-admin-announcement';
 const RUNTIME_SESSION_ID = (typeof crypto !== 'undefined' && crypto.randomUUID)
   ? crypto.randomUUID()
   : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -308,6 +309,26 @@ function systemVisibleToUser(system, user) {
 
 function visibleSystemLinksForUser(links, user) {
   return normalizeSystemLinks(links).filter((item) => systemVisibleToUser(item, user));
+}
+
+function normalizeAdminAnnouncement(value) {
+  const raw = typeof value === 'string' ? parseJsonSafe(value, {}) : (value || {});
+  return {
+    message: String(raw.message || '').trim(),
+    isActive: raw.isActive === true || raw.is_active === true || String(raw.isActive ?? raw.is_active).toLowerCase() === 'true',
+    updatedAt: raw.updatedAt || raw.updated_at || '',
+    updatedBy: raw.updatedBy || raw.updated_by || '',
+  };
+}
+
+function loadAdminAnnouncement() {
+  return normalizeAdminAnnouncement(safeLocalGet(ADMIN_ANNOUNCEMENT_KEY));
+}
+
+function cacheAdminAnnouncement(nextAnnouncement) {
+  const normalized = normalizeAdminAnnouncement(nextAnnouncement);
+  safeLocalSet(ADMIN_ANNOUNCEMENT_KEY, JSON.stringify(normalized));
+  return normalized;
 }
 
 const NAV_BY_ROLE = {
@@ -1229,6 +1250,7 @@ async function fetchWeatherSnapshot(selectedLocation) {
       rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,
       humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
       wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
+      shortTerm: current.shortTerm || null,
       source: data.source || 'Open-Meteo',
       ...meta,
     };
@@ -1245,7 +1267,77 @@ function WeatherGlyph({ loading, icon }) {
   );
 }
 
-function WeatherWidget() {
+function buildWeatherAlertMessages(weather = {}) {
+  const location = weather.location || WEATHER_FALLBACK_LOCATION.label;
+  if (weather.loading || weather.error) return [];
+
+  const rainfall = Number(weather.rainfall);
+  const wind = Number(weather.wind);
+  const shortTerm = weather.shortTerm || {};
+  const shortTermHours = Number(shortTerm.hours) || 3;
+  const shortTermRain = Number(shortTerm.precipitation);
+  const shortTermProbability = Number(shortTerm.precipitationProbability);
+  const shortTermWind = Number(shortTerm.wind);
+  const label = String(weather.label || '').toLowerCase();
+  const hasRain = Number.isFinite(rainfall) && rainfall > 0;
+  const rainSoon = (Number.isFinite(shortTermRain) && shortTermRain > 0) || (Number.isFinite(shortTermProbability) && shortTermProbability >= 50);
+  const hasStorm = weather.icon === 'fa-cloud-bolt' || shortTerm.stormSoon || label.includes('storm') || label.includes('พายุ');
+
+  if (hasStorm && shortTermHours <= 2) {
+    return [`${location}: ในช่วง ${shortTermHours} ชม. ข้างหน้า มีโอกาสเกิดพายุฝนฟ้าคะนอง`];
+  }
+  if (hasStorm) {
+    return [`${location}: มีโอกาสเกิดพายุฝนฟ้าคะนองระยะใกล้`];
+  }
+  if (rainSoon && Number.isFinite(shortTermProbability) && shortTermProbability >= 70) {
+    return [`${location}: ในช่วง ${shortTermHours} ชม. ข้างหน้า มีโอกาสเกิดฝน ${Number.isFinite(shortTermProbability) ? shortTermProbability : '-'}%`];
+  }
+  if ((Number.isFinite(shortTermWind) && shortTermWind >= 25) || (Number.isFinite(wind) && wind >= 25)) {
+    return [`${location}: ในช่วง ${shortTermHours} ชม. ข้างหน้า ลมค่อนข้างแรง ${Math.round(Number.isFinite(shortTermWind) ? shortTermWind : wind)} กม./ชม.`];
+  }
+  if ((hasRain && rainfall >= 1) || weather.icon === 'fa-cloud-showers-heavy') {
+    return [`${location}: ขณะนี้มีฝน ฝนสะสมล่าสุด ${Number.isFinite(rainfall) ? rainfall : '-'} มม.`];
+  }
+  return [];
+}
+
+function WeatherAlertTicker({ weather, adminAnnouncement }) {
+  if (adminAnnouncement?.isActive && adminAnnouncement.message) {
+    const adminText = adminAnnouncement.message;
+    return (
+      <div className="mx-weather-ticker" role="status" aria-live="polite" title={adminText}>
+        <span className="mx-weather-ticker__icon" aria-hidden="true">
+          <i className="fa-solid fa-bullhorn"></i>
+        </span>
+        <div className="mx-weather-ticker__viewport">
+          <div className="mx-weather-ticker__track">
+            <span>{adminText}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const messages = [];
+  messages.push(...buildWeatherAlertMessages(weather || { loading: true }));
+  const tickerText = messages.join(' • ');
+
+  if (!tickerText) return null;
+
+  return (
+    <div className="mx-weather-ticker" role="status" aria-live="polite" title={`อ้างอิงพื้นที่จากการ์ดอากาศด้านบน: ${tickerText}`}>
+      <span className="mx-weather-ticker__icon" aria-hidden="true">
+        <i className="fa-solid fa-cloud-sun-rain"></i>
+      </span>
+      <div className="mx-weather-ticker__viewport">
+        <div className="mx-weather-ticker__track">
+          <span>{tickerText}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WeatherWidget({ onWeatherChange }) {
   const [weather, setWeather] = useState({ loading: true, error: false });
   const [selectedLocation, setSelectedLocation] = useState(WEATHER_FALLBACK_LOCATION);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1263,14 +1355,33 @@ function WeatherWidget() {
   }, []);
 
   const loadWeather = useCallback(async (cancelledRef = { current: false }) => {
-    setWeather((prev) => ({ ...prev, loading: true, error: false }));
+    const loadingSnapshot = {
+      loading: true,
+      error: false,
+      location: selectedLocation?.label || WEATHER_FALLBACK_LOCATION.label,
+    };
+    setWeather((prev) => ({ ...prev, ...loadingSnapshot }));
+    onWeatherChange?.(loadingSnapshot);
     try {
       const snapshot = await fetchWeatherSnapshot(selectedLocation);
-      if (!cancelledRef.current) setWeather({ loading: false, error: false, ...snapshot });
+      const nextWeather = { loading: false, error: false, ...snapshot };
+      if (!cancelledRef.current) {
+        setWeather(nextWeather);
+        onWeatherChange?.(nextWeather);
+      }
     } catch (error) {
-      if (!cancelledRef.current) setWeather({ loading: false, error: true, errorMessage: error?.message || '' });
+      const errorWeather = {
+        loading: false,
+        error: true,
+        errorMessage: error?.message || '',
+        location: selectedLocation?.label || WEATHER_FALLBACK_LOCATION.label,
+      };
+      if (!cancelledRef.current) {
+        setWeather(errorWeather);
+        onWeatherChange?.(errorWeather);
+      }
     }
-  }, [selectedLocation]);
+  }, [selectedLocation, onWeatherChange]);
 
   useEffect(() => {
     const cancelledRef = { current: false };
@@ -3870,7 +3981,7 @@ function SystemsView({ user, systemLinks }) {
   );
 }
 
-function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefresh, adminSection = 'overview', setAdminSection = () => {} }) {
+function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminAnnouncementChange, onSystemLinksChange, onRefresh, adminSection = 'overview', setAdminSection = () => {} }) {
   const [userForm, setUserForm] = useState({ empid: '', name: '', department: '', team: '', role: 'Staff', accessScope: 'Self', pigurl: '' });
   const [teamForm, setTeamForm] = useState({ id: '', name: '' });
   const [kpiForm, setKpiForm] = useState({ main: '', sub: '', team: '', days: 1, main_weight: 1 });
@@ -3881,6 +3992,7 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const [holidayForm, setHolidayForm] = useState(emptyHolidayForm);
   const emptySystemForm = { id: '', name: '', description: '', url: '', icon: 'fa-up-right-from-square', status: 'Active', visibleToAll: false, allowedRoles: [], allowedTeams: [], allowedEmpIds: '', isActive: true };
   const [systemForm, setSystemForm] = useState(emptySystemForm);
+  const [announcementDraft, setAnnouncementDraft] = useState(() => normalizeAdminAnnouncement(adminAnnouncement));
   const [previewEmpId, setPreviewEmpId] = useState('');
   const [adminSearch, setAdminSearch] = useState('');
   const [kpiSearch, setKpiSearch] = useState('');
@@ -3919,6 +4031,33 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
   const companyHolidays = filteredHolidays.filter((holiday) => !isThaiPublicHoliday(holiday));
   const thaiPublicHolidays = filteredHolidays.filter((holiday) => isThaiPublicHoliday(holiday));
   const normalizedSystemLinks = normalizeSystemLinks(systemLinks);
+
+  useEffect(() => {
+    setAnnouncementDraft(normalizeAdminAnnouncement(adminAnnouncement));
+  }, [adminAnnouncement]);
+
+  const saveAdminAnnouncement = () => {
+    const nextAnnouncement = {
+      ...announcementDraft,
+      message: String(announcementDraft.message || '').trim(),
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.empId || user?.name || '',
+    };
+    const saved = cacheAdminAnnouncement(nextAnnouncement);
+    setAnnouncementDraft(saved);
+    onAdminAnnouncementChange?.(saved);
+  };
+
+  const clearAdminAnnouncement = () => {
+    const saved = cacheAdminAnnouncement({
+      message: '',
+      isActive: false,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.empId || user?.name || '',
+    });
+    setAnnouncementDraft(saved);
+    onAdminAnnouncementChange?.(saved);
+  };
   const filteredSystems = normalizedSystemLinks.filter((s) => matches(s.name, s.description, s.url, s.status, s.allowedRoles.join(' '), s.allowedTeams.join(' '), s.allowedEmpIds.join(' ')));
   const selectedRoleNeedsTeam = roleRequiresTeam(userForm.role);
   const selectedRoleNeedsDepartment = roleRequiresDepartment(userForm.role);
@@ -5326,6 +5465,44 @@ function AdminStudio({ user, adminData, systemLinks, onSystemLinksChange, onRefr
           <MetricCard label="วันหยุด" value={holidays.length} sub="ข้อมูลในปฏิทิน SLA" icon="fa-calendar-days" accent="var(--mx-amber)" />
         </div>
 
+        <Panel title="ข้อความประกาศด้านบน" subtitle="แอดมินสามารถใส่ข้อความสั้นเพื่อแสดงในช่องประกาศเดียวกับพยากรณ์อากาศด้านบน">
+          <div className="grid gap-4">
+            <label className="grid gap-2 text-sm font-bold text-[var(--mx-muted)]">
+              ข้อความประกาศ
+              <textarea
+                className="mx-textarea min-h-[84px]"
+                maxLength={180}
+                placeholder="เช่น วันนี้มีซ้อมอพยพเวลา 15:00 น. กรุณาเผื่อเวลาการเดินทาง"
+                value={announcementDraft.message}
+                onChange={(e) => setAnnouncementDraft((prev) => ({ ...prev, message: e.target.value }))}
+              />
+            </label>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <label className="inline-flex items-center gap-2 text-sm font-bold text-[var(--mx-text)]">
+                <input
+                  type="checkbox"
+                  checked={announcementDraft.isActive}
+                  onChange={(e) => setAnnouncementDraft((prev) => ({ ...prev, isActive: e.target.checked }))}
+                />
+                เปิดแสดงข้อความนี้บนช่องประกาศ
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button className="mx-btn mx-btn-primary !py-2" onClick={saveAdminAnnouncement}>
+                  <i className="fa-solid fa-floppy-disk mr-2"></i>บันทึกข้อความ
+                </button>
+                <button className="mx-btn mx-btn-soft !py-2" onClick={clearAdminAnnouncement}>
+                  <i className="fa-solid fa-xmark mr-2"></i>ล้างข้อความ
+                </button>
+              </div>
+            </div>
+            {announcementDraft.updatedAt && (
+              <div className="text-xs text-[var(--mx-muted)]">
+                อัปเดตล่าสุด: {formatDate(announcementDraft.updatedAt, true)} {announcementDraft.updatedBy ? `/ ${announcementDraft.updatedBy}` : ''}
+              </div>
+            )}
+          </div>
+        </Panel>
+
         <Panel title="ทางลัดการจัดการระบบ" subtitle="เลือกหมวดที่ต้องการแก้ไข ระบบจะแยกงาน setup, SLA และ audit ออกจากกันชัดเจน">
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
             {setupItems.map((item) => (
@@ -5422,6 +5599,8 @@ function App() {
   const [showDashboardCreate, setShowDashboardCreate] = useState(false);
   const [adminSection, setAdminSection] = useState('overview');
   const [systemLinks, setSystemLinks] = useState(loadSystemLinks);
+  const [adminAnnouncement, setAdminAnnouncement] = useState(loadAdminAnnouncement);
+  const [headerWeather, setHeaderWeather] = useState({ loading: true, location: WEATHER_FALLBACK_LOCATION.label });
 
   const forceLogoutForSupersededSession = useCallback(() => {
     safeSessionRemove(SESSION_KEY);
@@ -5466,6 +5645,14 @@ function App() {
       });
     return () => { cancelled = true; };
   }, [user]);
+
+  useEffect(() => {
+    const handleStorage = (event) => {
+      if (event.key === ADMIN_ANNOUNCEMENT_KEY) setAdminAnnouncement(loadAdminAnnouncement());
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   const toggleTheme = () => setTheme((current) => current === 'dark' ? 'light' : 'dark');
 
@@ -5784,6 +5971,9 @@ function App() {
                   <div className="flex flex-wrap items-center gap-2">
                     <BrandPill className="px-3 py-2 text-[11px] tracking-[0.16em]" />
                     <span className="mx-badge mx-status-completed"><i className="fa-solid fa-building-user"></i>{user.team}</span>
+                    <div className="min-w-[260px] flex-1 max-w-[760px]">
+                      <WeatherAlertTicker weather={headerWeather} adminAnnouncement={adminAnnouncement} />
+                    </div>
                   </div>
                   <h1 className="mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal">
                     {pageTitle}
@@ -5794,7 +5984,7 @@ function App() {
                 </div>
 
                 <div className="xl:justify-self-end">
-                  <WeatherWidget />
+                  <WeatherWidget onWeatherChange={setHeaderWeather} />
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -5851,7 +6041,7 @@ function App() {
             </div>
 
             <div className="border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="grid gap-3 lg:grid-cols-[minmax(210px,auto)_minmax(260px,1fr)_auto] lg:items-center">
                 <div className="flex items-center gap-3 text-sm text-[var(--mx-muted)]">
                   <span className="w-9 h-9 rounded-lg mx-brand-mark grid place-items-center">
                     <i className="fa-solid fa-calendar-check text-[var(--mx-accent)]"></i>
@@ -5862,7 +6052,7 @@ function App() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                   {showFilterBar && (
                     <>
                       <select
@@ -5989,6 +6179,8 @@ function App() {
               user={user}
               adminData={state.admin}
               systemLinks={systemLinks}
+              adminAnnouncement={adminAnnouncement}
+              onAdminAnnouncementChange={setAdminAnnouncement}
               onSystemLinksChange={setSystemLinks}
               onRefresh={reloadAdmin}
               adminSection={adminSection}
