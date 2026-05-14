@@ -5968,10 +5968,9 @@ function App() {
             <div className="px-5 py-5 md:px-6 md:py-6">
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px_auto] xl:items-start">
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <BrandPill className="px-3 py-2 text-[11px] tracking-[0.16em]" />
+                  <div className="grid gap-3 md:grid-cols-[auto_minmax(280px,680px)] md:items-center">
                     <span className="mx-badge mx-status-completed"><i className="fa-solid fa-building-user"></i>{user.team}</span>
-                    <div className="min-w-[260px] flex-1 max-w-[760px]">
+                    <div className="min-w-0">
                       <WeatherAlertTicker weather={headerWeather} adminAnnouncement={adminAnnouncement} />
                     </div>
                   </div>
