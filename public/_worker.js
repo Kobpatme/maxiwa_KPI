@@ -13,6 +13,11 @@ const TMD_PROVINCE_SEARCH_URL = "https://www.tmd.go.th/api/Province/getProvinces
 const TMD_WEATHER_TIMEOUT_MS = 6500;
 const TMD_PROVINCE_ALIASES = [
   { keys: ["กรุงเทพ", "bangkok", "ลาดยาว", "จตุจักร", "บางนา"], province: "กรุงเทพมหานคร" },
+  { keys: ["ปทุมธานี", "pathum", "ธัญบุรี", "รังสิต", "ลำลูกกา", "คลองหลวง", "หนองเสือ"], province: "ปทุมธานี" },
+  { keys: ["นนทบุรี", "nonthaburi", "ปากเกร็ด", "บางใหญ่", "บางบัวทอง", "เมืองทอง"], province: "นนทบุรี" },
+  { keys: ["สมุทรปราการ", "samut prakan", "บางพลี", "บางเสาธง", "พระประแดง"], province: "สมุทรปราการ" },
+  { keys: ["นครปฐม", "nakhon pathom", "สามพราน", "พุทธมณฑล"], province: "นครปฐม" },
+  { keys: ["อยุธยา", "ayutthaya", "พระนครศรีอยุธยา", "วังน้อย", "บางปะอิน"], province: "พระนครศรีอยุธยา" },
   { keys: ["ชลบุรี", "chonburi"], province: "ชลบุรี" },
   { keys: ["ระยอง", "rayong"], province: "ระยอง" },
 ];
@@ -98,6 +103,30 @@ function provinceForTmd(value = "") {
   return match?.province || String(value || "").split(",")[0].trim() || "กรุงเทพมหานคร";
 }
 
+function normalizeSearchText(value = "") {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function localTmdProvinceMatches(query) {
+  const key = normalizeSearchText(query);
+  if (key.length < 2) return [];
+  return TMD_PROVINCE_ALIASES.filter((item) => {
+    const province = normalizeSearchText(item.province);
+    return province.includes(key)
+      || item.keys.some((alias) => {
+        const aliasKey = normalizeSearchText(alias);
+        return aliasKey.includes(key) || key.includes(aliasKey);
+      });
+  }).map((item) => ({
+    id: `tmd-local-${encodeURIComponent(item.province)}`,
+    label: normalizeSearchText(item.province).includes(key) ? item.province : `${query} (${item.province})`,
+    province: item.province,
+    latitude: null,
+    longitude: null,
+    localMatch: true,
+  }));
+}
+
 function tmdWeatherDescription(weatherType) {
   const code = String(weatherType ?? "").padStart(2, "0");
   const descriptions = {
@@ -129,12 +158,13 @@ function normalizeTmdAwsStation(row = {}) {
 async function fetchTmdProvinces(request, url) {
   const query = String(url.searchParams.get("query") || "").trim();
   if (query.length < 2) return jsonResponse(request, { provinces: [] }, 200, { "X-Maxiwa-Backend": "tmd" });
+  const localMatches = localTmdProvinceMatches(query);
   try {
     const tmdUrl = `${TMD_PROVINCE_SEARCH_URL}?FilterText=${encodeURIComponent(query)}`;
     const res = await fetchWithTimeout(tmdUrl, { headers: { Accept: "application/json" } }, TMD_WEATHER_TIMEOUT_MS);
     const data = await res.json().catch(() => []);
     if (!res.ok) throw new Error(`TMD province HTTP ${res.status}`);
-    const provinces = (Array.isArray(data) ? data : []).map((item) => ({
+    const tmdProvinces = (Array.isArray(data) ? data : []).map((item) => ({
       id: `tmd-province-${item.id || item.geoCode || item.nameEN || item.name}`,
       label: item.name || item.nameEN || "",
       province: item.name || item.nameEN || "",
@@ -142,6 +172,12 @@ async function fetchTmdProvinces(request, url) {
       longitude: numberValue(item.longitude),
       nameEN: item.nameEN || "",
     })).filter((item) => item.label && item.province);
+    const byProvince = new Map();
+    [...localMatches, ...tmdProvinces].forEach((item) => {
+      const key = normalizeSearchText(item.province);
+      if (key && !byProvince.has(key)) byProvince.set(key, item);
+    });
+    const provinces = Array.from(byProvince.values());
     return jsonResponse(request, { provinces }, 200, {
       "Cache-Control": "public, max-age=3600",
       "X-Maxiwa-Backend": "tmd",
@@ -149,8 +185,8 @@ async function fetchTmdProvinces(request, url) {
   } catch (error) {
     return jsonResponse(request, {
       error: error?.message || "TMD province search is unavailable",
-      provinces: [],
-    }, 502, { "X-Maxiwa-Backend": "tmd-error" });
+      provinces: localMatches,
+    }, localMatches.length > 0 ? 200 : 502, { "X-Maxiwa-Backend": localMatches.length > 0 ? "tmd" : "tmd-error" });
   }
 }
 
