@@ -22490,17 +22490,59 @@ var MaxiwaKpiApp = (() => {
   function AlertNoticeBox({ text, icon = "fa-triangle-exclamation", title, fullText = "", sourceLabel = "", link = "" }) {
     const isLong = String(text || "").length > 90;
     const [detailOpen, setDetailOpen] = useState(false);
+    const noticeStyle = {
+      width: "fit-content",
+      maxWidth: "100%",
+      minWidth: "min(420px, 100%)",
+      minHeight: 40,
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      overflow: "hidden",
+      borderRadius: 8,
+      whiteSpace: "nowrap"
+    };
+    const iconStyle = {
+      width: 38,
+      minHeight: 40,
+      display: "grid",
+      placeItems: "center",
+      flex: "0 0 38px"
+    };
+    const viewportStyle = {
+      minWidth: 0,
+      overflow: "hidden",
+      flex: "1 1 auto",
+      paddingRight: 12
+    };
+    const trackStyle = {
+      display: "flex",
+      alignItems: "center",
+      gap: 40,
+      minWidth: isLong ? "max-content" : 0,
+      maxWidth: isLong ? "none" : "100%",
+      fontSize: 13,
+      fontWeight: 800,
+      lineHeight: 1.35
+    };
+    const textStyle = {
+      minWidth: 0,
+      overflow: isLong ? "visible" : "hidden",
+      textOverflow: isLong ? "clip" : "ellipsis",
+      whiteSpace: "nowrap"
+    };
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         className: cn("mx-weather-ticker text-left", isLong && "mx-weather-ticker--marquee"),
+        style: noticeStyle,
         type: "button",
         onClick: () => setDetailOpen((open) => !open),
         "aria-expanded": detailOpen,
         title: title || text
       },
-      /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-weather-ticker__icon", "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${icon}` })),
-      /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__viewport" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__track" }, /* @__PURE__ */ import_react.default.createElement("span", null, text), isLong && /* @__PURE__ */ import_react.default.createElement("span", { "aria-hidden": "true" }, text)))
+      /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-weather-ticker__icon", style: iconStyle, "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${icon}` })),
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__viewport", style: viewportStyle }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__track", style: trackStyle }, /* @__PURE__ */ import_react.default.createElement("span", { style: textStyle }, text), isLong && /* @__PURE__ */ import_react.default.createElement("span", { style: textStyle, "aria-hidden": "true" }, text)))
     ), detailOpen && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute left-0 top-[calc(100%+8px)] z-[120] w-[min(720px,calc(100vw-2rem))] rounded-lg border border-[var(--mx-line-strong)] bg-[var(--mx-panel-strong)] p-4 text-[var(--mx-text)] shadow-2xl" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold" }, sourceLabel || "\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28"), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", type: "button", onClick: () => setDetailOpen(false), "aria-label": "\u0E1B\u0E34\u0E14\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 max-h-[48vh] overflow-y-auto whitespace-pre-wrap text-sm leading-6" }, fullText || text), link && /* @__PURE__ */ import_react.default.createElement("a", { className: "mt-3 inline-flex items-center gap-2 text-sm font-bold text-[var(--mx-info)]", href: link, target: "_blank", rel: "noopener noreferrer" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-up-right-from-square" }), "\u0E40\u0E1B\u0E34\u0E14\u0E2B\u0E19\u0E49\u0E32\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E2F")));
   }
   function WeatherAlertTicker({ weather, adminAnnouncement }) {

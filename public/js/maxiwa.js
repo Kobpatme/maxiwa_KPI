@@ -1307,23 +1307,65 @@ function officialAlertText(alert = {}, options = {}) {
 function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullText = '', sourceLabel = '', link = '' }) {
   const isLong = String(text || '').length > 90;
   const [detailOpen, setDetailOpen] = useState(false);
+  const noticeStyle = {
+    width: 'fit-content',
+    maxWidth: '100%',
+    minWidth: 'min(420px, 100%)',
+    minHeight: 40,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    overflow: 'hidden',
+    borderRadius: 8,
+    whiteSpace: 'nowrap',
+  };
+  const iconStyle = {
+    width: 38,
+    minHeight: 40,
+    display: 'grid',
+    placeItems: 'center',
+    flex: '0 0 38px',
+  };
+  const viewportStyle = {
+    minWidth: 0,
+    overflow: 'hidden',
+    flex: '1 1 auto',
+    paddingRight: 12,
+  };
+  const trackStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 40,
+    minWidth: isLong ? 'max-content' : 0,
+    maxWidth: isLong ? 'none' : '100%',
+    fontSize: 13,
+    fontWeight: 800,
+    lineHeight: 1.35,
+  };
+  const textStyle = {
+    minWidth: 0,
+    overflow: isLong ? 'visible' : 'hidden',
+    textOverflow: isLong ? 'clip' : 'ellipsis',
+    whiteSpace: 'nowrap',
+  };
 
   return (
     <div className="relative">
       <button
         className={cn('mx-weather-ticker text-left', isLong && 'mx-weather-ticker--marquee')}
+        style={noticeStyle}
         type="button"
         onClick={() => setDetailOpen((open) => !open)}
         aria-expanded={detailOpen}
         title={title || text}
       >
-        <span className="mx-weather-ticker__icon" aria-hidden="true">
+        <span className="mx-weather-ticker__icon" style={iconStyle} aria-hidden="true">
           <i className={`fa-solid ${icon}`}></i>
         </span>
-        <div className="mx-weather-ticker__viewport">
-          <div className="mx-weather-ticker__track">
-            <span>{text}</span>
-            {isLong && <span aria-hidden="true">{text}</span>}
+        <div className="mx-weather-ticker__viewport" style={viewportStyle}>
+          <div className="mx-weather-ticker__track" style={trackStyle}>
+            <span style={textStyle}>{text}</span>
+            {isLong && <span style={textStyle} aria-hidden="true">{text}</span>}
           </div>
         </div>
       </button>
