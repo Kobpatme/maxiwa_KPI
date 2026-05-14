@@ -1351,6 +1351,7 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
   const trackStyle = {
     display: 'flex',
     alignItems: 'center',
+    justifyContent: isLong ? 'flex-start' : 'center',
     gap: 40,
     minWidth: isLong ? 'max-content' : 0,
     maxWidth: isLong ? 'none' : '100%',
