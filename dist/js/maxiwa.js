@@ -22392,7 +22392,8 @@ var MaxiwaKpiApp = (() => {
         (position) => resolve({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-          label: "\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19"
+          label: "\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19",
+          province: WEATHER_FALLBACK_LOCATION.province
         }),
         () => resolve({ ...WEATHER_FALLBACK_LOCATION, label: WEATHER_FALLBACK_LOCATION.label }),
         { enableHighAccuracy: false, timeout: 3500, maximumAge: 15 * 60 * 1e3 }
@@ -22440,6 +22441,12 @@ var MaxiwaKpiApp = (() => {
     const [locationQuery, setLocationQuery] = useState("");
     const [locationResults, setLocationResults] = useState([]);
     const [locationSearching, setLocationSearching] = useState(false);
+    const pickLocation = useCallback((location) => {
+      setSelectedLocation(location);
+      setMenuOpen(false);
+      setLocationQuery("");
+      setLocationResults([]);
+    }, []);
     const loadWeather = useCallback(async (cancelledRef = { current: false }) => {
       setWeather((prev) => ({ ...prev, loading: true, error: false }));
       try {
@@ -22469,17 +22476,17 @@ var MaxiwaKpiApp = (() => {
       const timer = setTimeout(async () => {
         setLocationSearching(true);
         try {
-          const params = new URLSearchParams({ name: query, count: "6", language: "th", format: "json" });
-          const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params.toString()}`);
-          if (!res.ok) throw new Error(`Geocoding HTTP ${res.status}`);
+          const params = new URLSearchParams({ query });
+          const res = await fetch(`${apiBase()}/tmd/provinces?${params.toString()}`, { headers: sessionHeaders() });
+          if (!res.ok) throw new Error(`TMD province HTTP ${res.status}`);
           const data = await res.json();
           if (!cancelled) {
-            setLocationResults((data.results || []).map((item) => ({
-              id: `geo-${item.id}`,
+            setLocationResults((data.provinces || []).slice(0, 8).map((item) => ({
+              id: item.id,
               latitude: item.latitude,
               longitude: item.longitude,
-              label: [item.name, item.admin1, item.country].filter(Boolean).join(", "),
-              province: item.admin1 || item.name || ""
+              label: item.label,
+              province: item.province || item.label
             })));
           }
         } catch {
@@ -22511,9 +22518,7 @@ var MaxiwaKpiApp = (() => {
         className: "w-full rounded-md px-3 py-2 text-left text-sm font-bold hover:bg-white/10",
         type: "button",
         onClick: () => {
-          setSelectedLocation(WEATHER_LOCATIONS.find((item) => item.id === "current") || WEATHER_FALLBACK_LOCATION);
-          setMenuOpen(false);
-          setLocationQuery("");
+          pickLocation(WEATHER_LOCATIONS.find((item) => item.id === "current") || WEATHER_FALLBACK_LOCATION);
         }
       },
       /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-location-crosshairs mr-2 text-[#78b7ff]" }),
@@ -22525,9 +22530,7 @@ var MaxiwaKpiApp = (() => {
         className: cn("w-full rounded-md px-3 py-2 text-left text-sm font-bold hover:bg-white/10", selectedLocation.id === location.id && "bg-white/10 text-[#78b7ff]"),
         type: "button",
         onClick: () => {
-          setSelectedLocation(location);
-          setMenuOpen(false);
-          setLocationQuery("");
+          pickLocation(location);
         }
       },
       location.label
@@ -22538,9 +22541,7 @@ var MaxiwaKpiApp = (() => {
         className: "w-full rounded-md px-3 py-2 text-left text-sm font-bold hover:bg-white/10",
         type: "button",
         onClick: () => {
-          setSelectedLocation(location);
-          setMenuOpen(false);
-          setLocationQuery("");
+          pickLocation(location);
         }
       },
       location.label

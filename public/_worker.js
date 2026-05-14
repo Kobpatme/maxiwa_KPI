@@ -9,6 +9,7 @@ const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log",
 const SERVER_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const TMD_WEATHER_TODAY_URL = "https://data.tmd.go.th/api/WeatherToday/V2/";
 const TMD_AWS_WEATHER_URL = "https://www.tmd.go.th/api/weather/get-aws-weather-by-province";
+const TMD_PROVINCE_SEARCH_URL = "https://www.tmd.go.th/api/Province/getProvinces";
 const TMD_WEATHER_TIMEOUT_MS = 6500;
 const TMD_PROVINCE_ALIASES = [
   { keys: ["กรุงเทพ", "bangkok", "ลาดยาว", "จตุจักร", "บางนา"], province: "กรุงเทพมหานคร" },
@@ -123,6 +124,34 @@ function normalizeTmdAwsStation(row = {}) {
     description: tmdWeatherDescription(row.weatherType),
     time: row.dateTimeUtc7 || "",
   };
+}
+
+async function fetchTmdProvinces(request, url) {
+  const query = String(url.searchParams.get("query") || "").trim();
+  if (query.length < 2) return jsonResponse(request, { provinces: [] }, 200, { "X-Maxiwa-Backend": "tmd" });
+  try {
+    const tmdUrl = `${TMD_PROVINCE_SEARCH_URL}?FilterText=${encodeURIComponent(query)}`;
+    const res = await fetchWithTimeout(tmdUrl, { headers: { Accept: "application/json" } }, TMD_WEATHER_TIMEOUT_MS);
+    const data = await res.json().catch(() => []);
+    if (!res.ok) throw new Error(`TMD province HTTP ${res.status}`);
+    const provinces = (Array.isArray(data) ? data : []).map((item) => ({
+      id: `tmd-province-${item.id || item.geoCode || item.nameEN || item.name}`,
+      label: item.name || item.nameEN || "",
+      province: item.name || item.nameEN || "",
+      latitude: numberValue(item.latitude),
+      longitude: numberValue(item.longitude),
+      nameEN: item.nameEN || "",
+    })).filter((item) => item.label && item.province);
+    return jsonResponse(request, { provinces }, 200, {
+      "Cache-Control": "public, max-age=3600",
+      "X-Maxiwa-Backend": "tmd",
+    });
+  } catch (error) {
+    return jsonResponse(request, {
+      error: error?.message || "TMD province search is unavailable",
+      provinces: [],
+    }, 502, { "X-Maxiwa-Backend": "tmd-error" });
+  }
 }
 
 function decodeXmlText(value = "") {
@@ -1303,6 +1332,9 @@ async function handleApi(request, env, apiPath) {
   const url = new URL(request.url);
   if (apiPath === "tmd/weather") {
     return fetchTmdWeather(request, url);
+  }
+  if (apiPath === "tmd/provinces") {
+    return fetchTmdProvinces(request, url);
   }
 
   const settings = supabaseSettings(env);
