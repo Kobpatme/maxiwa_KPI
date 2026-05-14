@@ -1,4 +1,4 @@
-const { useEffect, useMemo, useState, useCallback } = React;
+const { useEffect, useMemo, useState, useCallback, useRef } = React;
 
 const SESSION_KEY = 'maxiwa-kpi-session';
 const SESSION_ID_KEY = 'maxiwa-kpi-session-id';
@@ -1317,9 +1317,45 @@ function officialAlertText(alert = {}, options = {}) {
 }
 
 function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullText = '', sourceLabel = '', link = '' }) {
-  const isLong = String(text || '').length > 55;
+  const textValue = String(text || '');
   const [detailOpen, setDetailOpen] = useState(false);
-  const marqueeName = 'mx-alert-inline-marquee';
+  const [shouldMarquee, setShouldMarquee] = useState(false);
+  const viewportRef = useRef(null);
+  const measureTextRef = useRef(null);
+  const marqueeName = useMemo(
+    () => `mx-alert-inline-marquee-${Math.random().toString(36).slice(2, 9)}`,
+    []
+  );
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const measureText = measureTextRef.current;
+    if (!viewport || !measureText) return undefined;
+
+    let frameId = 0;
+    let isActive = true;
+    const measureOverflow = () => {
+      if (!isActive) return;
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(() => {
+        if (!isActive) return;
+        const nextShouldMarquee = measureText.scrollWidth > viewport.clientWidth + 1;
+        setShouldMarquee(nextShouldMarquee);
+      });
+    };
+
+    measureOverflow();
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measureOverflow) : null;
+    resizeObserver?.observe(viewport);
+    resizeObserver?.observe(measureText);
+    if (document.fonts?.ready) document.fonts.ready.then(measureOverflow).catch(() => {});
+
+    return () => {
+      isActive = false;
+      cancelAnimationFrame(frameId);
+      resizeObserver?.disconnect();
+    };
+  }, [textValue]);
 
   useEffect(() => {
     if (!detailOpen) return undefined;
@@ -1363,38 +1399,36 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
   const trackStyle = {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: isLong ? 'flex-start' : 'center',
+    justifyContent: shouldMarquee ? 'flex-start' : 'center',
     gap: 40,
-    minWidth: isLong ? 'max-content' : 0,
-    maxWidth: isLong ? 'none' : '100%',
+    minWidth: shouldMarquee ? 'max-content' : 0,
+    maxWidth: shouldMarquee ? 'none' : '100%',
     fontSize: 13,
     fontWeight: 800,
     lineHeight: 1.35,
-    animation: isLong ? `${marqueeName} 42s linear infinite` : undefined,
-    willChange: isLong ? 'transform' : undefined,
+    animation: shouldMarquee ? `${marqueeName} 42s linear infinite` : undefined,
+    animationPlayState: shouldMarquee ? 'running' : undefined,
+    willChange: shouldMarquee ? 'transform' : undefined,
   };
   const textStyle = {
     minWidth: 0,
-    overflow: isLong ? 'visible' : 'hidden',
-    textOverflow: isLong ? 'clip' : 'ellipsis',
+    overflow: shouldMarquee ? 'visible' : 'hidden',
+    textOverflow: shouldMarquee ? 'clip' : 'ellipsis',
     whiteSpace: 'nowrap',
   };
 
   return (
     <div className="relative w-full min-w-0">
-      {isLong && (
+      {shouldMarquee && (
         <style>{`
           @keyframes ${marqueeName} {
             from { transform: translateX(0); }
             to { transform: translateX(calc(-50% - 20px)); }
           }
-          @media (prefers-reduced-motion: reduce) {
-            .mx-weather-ticker__track { animation: none !important; }
-          }
         `}</style>
       )}
       <button
-        className={cn('mx-weather-ticker text-left', isLong && 'mx-weather-ticker--marquee')}
+        className={cn('mx-weather-ticker text-left', shouldMarquee && 'mx-weather-ticker--marquee')}
         style={noticeStyle}
         type="button"
         onClick={() => setDetailOpen((open) => !open)}
@@ -1404,10 +1438,10 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
         <span className="mx-weather-ticker__icon" style={iconStyle} aria-hidden="true">
           <i className={`fa-solid ${icon}`}></i>
         </span>
-        <div className="mx-weather-ticker__viewport" style={viewportStyle}>
+        <div className="mx-weather-ticker__viewport" style={viewportStyle} ref={viewportRef}>
           <div className="mx-weather-ticker__track" style={trackStyle}>
-            <span style={textStyle}>{text}</span>
-            {isLong && <span style={textStyle} aria-hidden="true">{text}</span>}
+            <span style={textStyle} ref={measureTextRef}>{text}</span>
+            {shouldMarquee && <span style={textStyle} aria-hidden="true">{text}</span>}
           </div>
         </div>
       </button>

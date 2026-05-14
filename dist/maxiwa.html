@@ -290,12 +290,15 @@
         transition-duration: 0.01ms !important;
       }
       .mx-weather-ticker--marquee .mx-weather-ticker__track {
-        animation: none !important;
-        min-width: 0;
+        animation-duration: 42s !important;
+        animation-iteration-count: infinite !important;
+        animation-timing-function: linear !important;
+        min-width: max-content;
+        max-width: none;
       }
       .mx-weather-ticker--marquee .mx-weather-ticker__track span {
-        overflow: hidden;
-        text-overflow: ellipsis;
+        overflow: visible;
+        text-overflow: clip;
       }
     }
   </style>

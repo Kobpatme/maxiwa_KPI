@@ -21471,7 +21471,7 @@ var MaxiwaKpiApp = (() => {
 
   // public/js/maxiwa.js
   init_react_shim();
-  var { useEffect, useMemo, useState, useCallback } = import_react.default;
+  var { useEffect, useMemo, useState, useCallback, useRef } = import_react.default;
   var SESSION_KEY = "maxiwa-kpi-session";
   var SESSION_ID_KEY = "maxiwa-kpi-session-id";
   var SESSION_LOCK_KEY = "maxiwa-kpi-active-session";
@@ -22500,9 +22500,43 @@ var MaxiwaKpiApp = (() => {
     return title || description;
   }
   function AlertNoticeBox({ text, icon = "fa-triangle-exclamation", title, fullText = "", sourceLabel = "", link = "" }) {
-    const isLong = String(text || "").length > 55;
+    const textValue = String(text || "");
     const [detailOpen, setDetailOpen] = useState(false);
-    const marqueeName = "mx-alert-inline-marquee";
+    const [shouldMarquee, setShouldMarquee] = useState(false);
+    const viewportRef = useRef(null);
+    const measureTextRef = useRef(null);
+    const marqueeName = useMemo(
+      () => `mx-alert-inline-marquee-${Math.random().toString(36).slice(2, 9)}`,
+      []
+    );
+    useEffect(() => {
+      var _a;
+      const viewport = viewportRef.current;
+      const measureText = measureTextRef.current;
+      if (!viewport || !measureText) return void 0;
+      let frameId = 0;
+      let isActive = true;
+      const measureOverflow = () => {
+        if (!isActive) return;
+        cancelAnimationFrame(frameId);
+        frameId = requestAnimationFrame(() => {
+          if (!isActive) return;
+          const nextShouldMarquee = measureText.scrollWidth > viewport.clientWidth + 1;
+          setShouldMarquee(nextShouldMarquee);
+        });
+      };
+      measureOverflow();
+      const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measureOverflow) : null;
+      resizeObserver == null ? void 0 : resizeObserver.observe(viewport);
+      resizeObserver == null ? void 0 : resizeObserver.observe(measureText);
+      if ((_a = document.fonts) == null ? void 0 : _a.ready) document.fonts.ready.then(measureOverflow).catch(() => {
+      });
+      return () => {
+        isActive = false;
+        cancelAnimationFrame(frameId);
+        resizeObserver == null ? void 0 : resizeObserver.disconnect();
+      };
+    }, [textValue]);
     useEffect(() => {
       if (!detailOpen) return void 0;
       const handleKeyDown = (event) => {
@@ -22545,34 +22579,32 @@ var MaxiwaKpiApp = (() => {
     const trackStyle = {
       display: "flex",
       alignItems: "center",
-      justifyContent: isLong ? "flex-start" : "center",
+      justifyContent: shouldMarquee ? "flex-start" : "center",
       gap: 40,
-      minWidth: isLong ? "max-content" : 0,
-      maxWidth: isLong ? "none" : "100%",
+      minWidth: shouldMarquee ? "max-content" : 0,
+      maxWidth: shouldMarquee ? "none" : "100%",
       fontSize: 13,
       fontWeight: 800,
       lineHeight: 1.35,
-      animation: isLong ? `${marqueeName} 42s linear infinite` : void 0,
-      willChange: isLong ? "transform" : void 0
+      animation: shouldMarquee ? `${marqueeName} 42s linear infinite` : void 0,
+      animationPlayState: shouldMarquee ? "running" : void 0,
+      willChange: shouldMarquee ? "transform" : void 0
     };
     const textStyle = {
       minWidth: 0,
-      overflow: isLong ? "visible" : "hidden",
-      textOverflow: isLong ? "clip" : "ellipsis",
+      overflow: shouldMarquee ? "visible" : "hidden",
+      textOverflow: shouldMarquee ? "clip" : "ellipsis",
       whiteSpace: "nowrap"
     };
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative w-full min-w-0" }, isLong && /* @__PURE__ */ import_react.default.createElement("style", null, `
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "relative w-full min-w-0" }, shouldMarquee && /* @__PURE__ */ import_react.default.createElement("style", null, `
           @keyframes ${marqueeName} {
             from { transform: translateX(0); }
             to { transform: translateX(calc(-50% - 20px)); }
           }
-          @media (prefers-reduced-motion: reduce) {
-            .mx-weather-ticker__track { animation: none !important; }
-          }
         `), /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
-        className: cn("mx-weather-ticker text-left", isLong && "mx-weather-ticker--marquee"),
+        className: cn("mx-weather-ticker text-left", shouldMarquee && "mx-weather-ticker--marquee"),
         style: noticeStyle,
         type: "button",
         onClick: () => setDetailOpen((open) => !open),
@@ -22580,7 +22612,7 @@ var MaxiwaKpiApp = (() => {
         title: title || text
       },
       /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-weather-ticker__icon", style: iconStyle, "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${icon}` })),
-      /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__viewport", style: viewportStyle }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__track", style: trackStyle }, /* @__PURE__ */ import_react.default.createElement("span", { style: textStyle }, text), isLong && /* @__PURE__ */ import_react.default.createElement("span", { style: textStyle, "aria-hidden": "true" }, text)))
+      /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__viewport", style: viewportStyle, ref: viewportRef }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-weather-ticker__track", style: trackStyle }, /* @__PURE__ */ import_react.default.createElement("span", { style: textStyle, ref: measureTextRef }, text), shouldMarquee && /* @__PURE__ */ import_react.default.createElement("span", { style: textStyle, "aria-hidden": "true" }, text)))
     ), detailOpen && /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed inset-0 z-[119]", onClick: () => setDetailOpen(false), "aria-hidden": "true" }), detailOpen && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute left-0 top-[calc(100%+8px)] z-[120] w-[min(720px,calc(100vw-2rem))] rounded-lg border border-[var(--mx-line-strong)] bg-[var(--mx-panel-strong)] p-4 text-[var(--mx-text)] shadow-2xl" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold" }, sourceLabel || "\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28"), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !p-0 w-8 h-8 grid place-items-center", type: "button", onClick: () => setDetailOpen(false), "aria-label": "\u0E1B\u0E34\u0E14\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28", title: "\u0E1B\u0E34\u0E14" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 max-h-[48vh] overflow-y-auto whitespace-pre-wrap text-sm leading-6" }, fullText || text), link && /* @__PURE__ */ import_react.default.createElement("a", { className: "mt-3 inline-flex items-center gap-2 text-sm font-bold text-[var(--mx-info)]", href: link, target: "_blank", rel: "noopener noreferrer" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-up-right-from-square" }), "\u0E40\u0E1B\u0E34\u0E14\u0E2B\u0E19\u0E49\u0E32\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E2F")));
   }
   function WeatherAlertTicker({ weather, adminAnnouncement }) {
