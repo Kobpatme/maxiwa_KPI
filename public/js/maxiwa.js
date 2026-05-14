@@ -1428,10 +1428,6 @@ function WeatherAlertTicker({ weather, adminAnnouncement }) {
   const [officialAlerts, setOfficialAlerts] = useState([]);
 
   useEffect(() => {
-    if (adminAnnouncement?.isActive && adminAnnouncement.message) {
-      setOfficialAlerts([]);
-      return undefined;
-    }
     if (!weather || weather.loading || weather.error) {
       setOfficialAlerts([]);
       return undefined;
@@ -1450,27 +1446,37 @@ function WeatherAlertTicker({ weather, adminAnnouncement }) {
       cancelled = true;
       clearInterval(refreshTimer);
     };
-  }, [adminAnnouncement?.isActive, adminAnnouncement?.message, weather?.location, weather?.province]);
+  }, [weather?.location, weather?.province, weather?.loading, weather?.error]);
 
-  if (adminAnnouncement?.isActive && adminAnnouncement.message) {
-    const adminText = adminAnnouncement.message;
-    return <AlertNoticeBox text={adminText} icon="fa-bullhorn" fullText={adminText} sourceLabel="ประกาศจากแอดมิน" />;
-  }
   const activeAlert = officialAlerts[0] || null;
   const tickerText = activeAlert ? officialAlertText(activeAlert) : '';
   const fullText = activeAlert ? officialAlertText(activeAlert, { full: true }) : '';
+  const adminText = adminAnnouncement?.isActive && adminAnnouncement.message ? adminAnnouncement.message : '';
+  const notices = [
+    adminText ? (
+      <AlertNoticeBox
+        key="admin"
+        text={adminText}
+        icon="fa-bullhorn"
+        fullText={adminText}
+        sourceLabel="ประกาศจากแอดมิน"
+      />
+    ) : null,
+    tickerText ? (
+      <AlertNoticeBox
+        key="weather"
+        text={tickerText}
+        title={`ประกาศเตือนภัยจากกรมอุตุนิยมวิทยา: ${fullText}`}
+        fullText={fullText}
+        sourceLabel="ประกาศเตือนภัยจากกรมอุตุนิยมวิทยา"
+        link={TMD_WARNING_PAGE_URL}
+      />
+    ) : null,
+  ].filter(Boolean);
 
-  if (!tickerText) return null;
+  if (!notices.length) return null;
 
-  return (
-    <AlertNoticeBox
-      text={tickerText}
-      title={`ประกาศเตือนภัยจากกรมอุตุนิยมวิทยา: ${fullText}`}
-      fullText={fullText}
-      sourceLabel="ประกาศเตือนภัยจากกรมอุตุนิยมวิทยา"
-      link={TMD_WARNING_PAGE_URL}
-    />
-  );
+  return <div className="grid gap-2">{notices}</div>;
 }
 
 function WeatherWidget({ onWeatherChange }) {

@@ -22573,10 +22573,6 @@ var MaxiwaKpiApp = (() => {
   function WeatherAlertTicker({ weather, adminAnnouncement }) {
     const [officialAlerts, setOfficialAlerts] = useState([]);
     useEffect(() => {
-      if ((adminAnnouncement == null ? void 0 : adminAnnouncement.isActive) && adminAnnouncement.message) {
-        setOfficialAlerts([]);
-        return void 0;
-      }
       if (!weather || weather.loading || weather.error) {
         setOfficialAlerts([]);
         return void 0;
@@ -22593,25 +22589,36 @@ var MaxiwaKpiApp = (() => {
         cancelled = true;
         clearInterval(refreshTimer);
       };
-    }, [adminAnnouncement == null ? void 0 : adminAnnouncement.isActive, adminAnnouncement == null ? void 0 : adminAnnouncement.message, weather == null ? void 0 : weather.location, weather == null ? void 0 : weather.province]);
-    if ((adminAnnouncement == null ? void 0 : adminAnnouncement.isActive) && adminAnnouncement.message) {
-      const adminText = adminAnnouncement.message;
-      return /* @__PURE__ */ import_react.default.createElement(AlertNoticeBox, { text: adminText, icon: "fa-bullhorn", fullText: adminText, sourceLabel: "\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E08\u0E32\u0E01\u0E41\u0E2D\u0E14\u0E21\u0E34\u0E19" });
-    }
+    }, [weather == null ? void 0 : weather.location, weather == null ? void 0 : weather.province, weather == null ? void 0 : weather.loading, weather == null ? void 0 : weather.error]);
     const activeAlert = officialAlerts[0] || null;
     const tickerText = activeAlert ? officialAlertText(activeAlert) : "";
     const fullText = activeAlert ? officialAlertText(activeAlert, { full: true }) : "";
-    if (!tickerText) return null;
-    return /* @__PURE__ */ import_react.default.createElement(
-      AlertNoticeBox,
-      {
-        text: tickerText,
-        title: `\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E40\u0E15\u0E37\u0E2D\u0E19\u0E20\u0E31\u0E22\u0E08\u0E32\u0E01\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E19\u0E34\u0E22\u0E21\u0E27\u0E34\u0E17\u0E22\u0E32: ${fullText}`,
-        fullText,
-        sourceLabel: "\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E40\u0E15\u0E37\u0E2D\u0E19\u0E20\u0E31\u0E22\u0E08\u0E32\u0E01\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E19\u0E34\u0E22\u0E21\u0E27\u0E34\u0E17\u0E22\u0E32",
-        link: TMD_WARNING_PAGE_URL
-      }
-    );
+    const adminText = (adminAnnouncement == null ? void 0 : adminAnnouncement.isActive) && adminAnnouncement.message ? adminAnnouncement.message : "";
+    const notices = [
+      adminText ? /* @__PURE__ */ import_react.default.createElement(
+        AlertNoticeBox,
+        {
+          key: "admin",
+          text: adminText,
+          icon: "fa-bullhorn",
+          fullText: adminText,
+          sourceLabel: "\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E08\u0E32\u0E01\u0E41\u0E2D\u0E14\u0E21\u0E34\u0E19"
+        }
+      ) : null,
+      tickerText ? /* @__PURE__ */ import_react.default.createElement(
+        AlertNoticeBox,
+        {
+          key: "weather",
+          text: tickerText,
+          title: `\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E40\u0E15\u0E37\u0E2D\u0E19\u0E20\u0E31\u0E22\u0E08\u0E32\u0E01\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E19\u0E34\u0E22\u0E21\u0E27\u0E34\u0E17\u0E22\u0E32: ${fullText}`,
+          fullText,
+          sourceLabel: "\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E40\u0E15\u0E37\u0E2D\u0E19\u0E20\u0E31\u0E22\u0E08\u0E32\u0E01\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E19\u0E34\u0E22\u0E21\u0E27\u0E34\u0E17\u0E22\u0E32",
+          link: TMD_WARNING_PAGE_URL
+        }
+      ) : null
+    ].filter(Boolean);
+    if (!notices.length) return null;
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-2" }, notices);
   }
   function WeatherWidget({ onWeatherChange }) {
     var _a, _b, _c, _d;
