@@ -1369,7 +1369,6 @@ const WEATHER_LOCATIONS = [
   { id: 'current', latitude: null, longitude: null, label: 'ตำแหน่งปัจจุบัน' },
 ];
 const WEATHER_FALLBACK_LOCATION = WEATHER_LOCATIONS[0];
-const TMD_WARNING_PAGE_URL = 'https://www.tmd.go.th/forecast/forecastWarning';
 
 function weatherMeta(code) {
   if (code === 0) return { icon: 'fa-sun', label: 'Clear' };
@@ -1462,39 +1461,32 @@ function WeatherGlyph({ loading, icon }) {
   );
 }
 
-async function fetchOfficialWeatherAlerts(weather = {}) {
-  const params = new URLSearchParams({
-    location: weather.location || WEATHER_FALLBACK_LOCATION.label,
-    province: weather.province || weather.location || '',
-    _: String(Date.now()),
-  });
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-  try {
-    const res = await fetch(`${apiBase()}/tmd/official-alerts?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || `TMD alerts HTTP ${res.status}`);
-    return Array.isArray(data.alerts) ? data.alerts : [];
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function normalizeAlertText(value = '') {
-  return String(value || '').replace(/\s+/g, ' ').trim();
-}
-
-function compactAlertDetail(value = '', limit = 260) {
-  const text = normalizeAlertText(value);
-  return text.length > limit ? `${text.slice(0, limit).trim()}...` : text;
-}
-
-function officialAlertText(alert = {}, options = {}) {
-  const limit = options.full ? Number.POSITIVE_INFINITY : 420;
-  const title = compactAlertDetail(alert.title || '', options.full ? Number.POSITIVE_INFINITY : 120);
-  const description = compactAlertDetail(alert.description || '', limit);
-  if (title && description) return `${title}: ${description}`;
-  return title || description;
+function dailyWeatherForecastText(weather = {}, options = {}) {
+  if (!weather || weather.loading || weather.error) return '';
+  const location = weather.location || WEATHER_FALLBACK_LOCATION.label;
+  const condition = weather.label || weather.description || 'Weather';
+  const shortTerm = weather.shortTerm || {};
+  const details = [
+    Number.isFinite(Number(weather.temp)) ? `อุณหภูมิ ${Math.round(Number(weather.temp))}°C` : '',
+    condition ? `สภาพอากาศ ${condition}` : '',
+    Number.isFinite(Number(weather.rainfall)) ? `ฝนสะสม ${Number(weather.rainfall)} มม.` : '',
+    Number.isFinite(Number(weather.humidity)) ? `ความชื้น ${Math.round(Number(weather.humidity))}%` : '',
+    Number.isFinite(Number(weather.wind)) ? `ลม ${Math.round(Number(weather.wind))} กม./ชม.` : '',
+  ].filter(Boolean);
+  const outlook = [
+    Number.isFinite(Number(shortTerm.precipitationProbability)) ? `โอกาสฝนช่วงถัดไป ${Math.round(Number(shortTerm.precipitationProbability))}%` : '',
+    Number.isFinite(Number(shortTerm.precipitation)) ? `ฝนคาดการณ์ ${Number(shortTerm.precipitation)} มม.` : '',
+    shortTerm.stormSoon ? 'มีแนวโน้มฝนฟ้าคะนอง' : '',
+  ].filter(Boolean);
+  const text = [`พยากรณ์อากาศประจำวัน ${location}`, ...details, ...outlook].join(' | ');
+  if (!options.full) return text;
+  return [
+    `พยากรณ์อากาศประจำวัน ${location}`,
+    ...details,
+    ...outlook,
+    weather.stationName ? `สถานี: ${weather.stationName}` : '',
+    weather.source ? `ที่มา: ${weather.source}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullText = '', sourceLabel = '', link = '' }) {
@@ -1653,32 +1645,8 @@ function AlertNoticeBox({ text, icon = 'fa-triangle-exclamation', title, fullTex
 }
 
 function WeatherAlertTicker({ weather, adminAnnouncement }) {
-  const [officialAlerts, setOfficialAlerts] = useState([]);
-
-  useEffect(() => {
-    if (!weather || weather.loading || weather.error) {
-      setOfficialAlerts([]);
-      return undefined;
-    }
-    let cancelled = false;
-    const loadAlerts = () => fetchOfficialWeatherAlerts(weather)
-      .then((alerts) => {
-        if (!cancelled) setOfficialAlerts(alerts);
-      })
-      .catch(() => {
-        if (!cancelled) setOfficialAlerts([]);
-      });
-    loadAlerts();
-    const refreshTimer = setInterval(loadAlerts, 10 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      clearInterval(refreshTimer);
-    };
-  }, [weather?.location, weather?.province, weather?.loading, weather?.error]);
-
-  const activeAlert = officialAlerts[0] || null;
-  const tickerText = activeAlert ? officialAlertText(activeAlert) : '';
-  const fullText = activeAlert ? officialAlertText(activeAlert, { full: true }) : '';
+  const forecastText = dailyWeatherForecastText(weather);
+  const fullForecastText = dailyWeatherForecastText(weather, { full: true });
   const adminText = adminAnnouncement?.isActive && adminAnnouncement.message ? adminAnnouncement.message : '';
   const notices = [
     adminText ? (
@@ -1690,14 +1658,14 @@ function WeatherAlertTicker({ weather, adminAnnouncement }) {
         sourceLabel="ประกาศจากแอดมิน"
       />
     ) : null,
-    !adminText && tickerText ? (
+    !adminText && forecastText ? (
       <AlertNoticeBox
         key="weather"
-        text={tickerText}
-        title={`ประกาศเตือนภัยจากกรมอุตุนิยมวิทยา: ${fullText}`}
-        fullText={fullText}
-        sourceLabel="ประกาศเตือนภัยจากกรมอุตุนิยมวิทยา"
-        link={TMD_WARNING_PAGE_URL}
+        text={forecastText}
+        icon={weather?.icon || 'fa-cloud-sun'}
+        title={fullForecastText}
+        fullText={fullForecastText}
+        sourceLabel="พยากรณ์อากาศประจำวัน"
       />
     ) : null,
   ].filter(Boolean);
@@ -6024,10 +5992,7 @@ function App() {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,
     reloadDashboard, reloadTasks, reloadPeople, reloadAdmin, applySavedTasks,
   } = useAppData(user, view);
-  const [scopeDateValue, setScopeDateValue] = useState(() => {
-    const now = new Date();
-    return scopeDateInputValue(now.getMonth() + 1, now.getFullYear());
-  });
+  const [scopeDateValue, setScopeDateValue] = useState('');
   const scopedState = useMemo(() => ({
     ...state,
     tasks: filterTasksByScopeDate(state.tasks || [], scopeDateValue),

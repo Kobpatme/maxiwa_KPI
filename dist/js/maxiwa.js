@@ -22473,7 +22473,6 @@ var MaxiwaKpiApp = (() => {
     { id: "current", latitude: null, longitude: null, label: "\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19" }
   ];
   var WEATHER_FALLBACK_LOCATION = WEATHER_LOCATIONS[0];
-  var TMD_WARNING_PAGE_URL = "https://www.tmd.go.th/forecast/forecastWarning";
   function weatherMeta(code) {
     if (code === 0) return { icon: "fa-sun", label: "Clear" };
     if ([1, 2, 3].includes(code)) return { icon: "fa-cloud-sun", label: "Cloudy" };
@@ -22552,36 +22551,32 @@ var MaxiwaKpiApp = (() => {
   function WeatherGlyph({ loading, icon }) {
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "w-14 h-14 rounded-2xl bg-gradient-to-br from-[#334155] to-[#111827] border border-white/10 grid place-items-center flex-shrink-0 shadow-inner", "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${loading ? "fa-rotate-right fa-spin" : icon || "fa-cloud-sun"} text-[32px] ${icon === "fa-sun" ? "text-[#f6c453]" : icon === "fa-cloud-bolt" ? "text-[#f59e0b]" : icon === "fa-cloud-showers-heavy" ? "text-[#60a5fa]" : "text-[#dbeafe]"}` }));
   }
-  async function fetchOfficialWeatherAlerts(weather = {}) {
-    const params = new URLSearchParams({
-      location: weather.location || WEATHER_FALLBACK_LOCATION.label,
-      province: weather.province || weather.location || "",
-      _: String(Date.now())
-    });
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8e3);
-    try {
-      const res = await fetch(`${apiBase()}/tmd/official-alerts?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
-      const data = await res.json();
-      if (!res.ok) throw new Error((data == null ? void 0 : data.error) || `TMD alerts HTTP ${res.status}`);
-      return Array.isArray(data.alerts) ? data.alerts : [];
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  function normalizeAlertText(value = "") {
-    return String(value || "").replace(/\s+/g, " ").trim();
-  }
-  function compactAlertDetail(value = "", limit = 260) {
-    const text = normalizeAlertText(value);
-    return text.length > limit ? `${text.slice(0, limit).trim()}...` : text;
-  }
-  function officialAlertText(alert2 = {}, options = {}) {
-    const limit = options.full ? Number.POSITIVE_INFINITY : 420;
-    const title = compactAlertDetail(alert2.title || "", options.full ? Number.POSITIVE_INFINITY : 120);
-    const description = compactAlertDetail(alert2.description || "", limit);
-    if (title && description) return `${title}: ${description}`;
-    return title || description;
+  function dailyWeatherForecastText(weather = {}, options = {}) {
+    if (!weather || weather.loading || weather.error) return "";
+    const location = weather.location || WEATHER_FALLBACK_LOCATION.label;
+    const condition = weather.label || weather.description || "Weather";
+    const shortTerm = weather.shortTerm || {};
+    const details = [
+      Number.isFinite(Number(weather.temp)) ? `\u0E2D\u0E38\u0E13\u0E2B\u0E20\u0E39\u0E21\u0E34 ${Math.round(Number(weather.temp))}\xB0C` : "",
+      condition ? `\u0E2A\u0E20\u0E32\u0E1E\u0E2D\u0E32\u0E01\u0E32\u0E28 ${condition}` : "",
+      Number.isFinite(Number(weather.rainfall)) ? `\u0E1D\u0E19\u0E2A\u0E30\u0E2A\u0E21 ${Number(weather.rainfall)} \u0E21\u0E21.` : "",
+      Number.isFinite(Number(weather.humidity)) ? `\u0E04\u0E27\u0E32\u0E21\u0E0A\u0E37\u0E49\u0E19 ${Math.round(Number(weather.humidity))}%` : "",
+      Number.isFinite(Number(weather.wind)) ? `\u0E25\u0E21 ${Math.round(Number(weather.wind))} \u0E01\u0E21./\u0E0A\u0E21.` : ""
+    ].filter(Boolean);
+    const outlook = [
+      Number.isFinite(Number(shortTerm.precipitationProbability)) ? `\u0E42\u0E2D\u0E01\u0E32\u0E2A\u0E1D\u0E19\u0E0A\u0E48\u0E27\u0E07\u0E16\u0E31\u0E14\u0E44\u0E1B ${Math.round(Number(shortTerm.precipitationProbability))}%` : "",
+      Number.isFinite(Number(shortTerm.precipitation)) ? `\u0E1D\u0E19\u0E04\u0E32\u0E14\u0E01\u0E32\u0E23\u0E13\u0E4C ${Number(shortTerm.precipitation)} \u0E21\u0E21.` : "",
+      shortTerm.stormSoon ? "\u0E21\u0E35\u0E41\u0E19\u0E27\u0E42\u0E19\u0E49\u0E21\u0E1D\u0E19\u0E1F\u0E49\u0E32\u0E04\u0E30\u0E19\u0E2D\u0E07" : ""
+    ].filter(Boolean);
+    const text = [`\u0E1E\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C\u0E2D\u0E32\u0E01\u0E32\u0E28\u0E1B\u0E23\u0E30\u0E08\u0E33\u0E27\u0E31\u0E19 ${location}`, ...details, ...outlook].join(" | ");
+    if (!options.full) return text;
+    return [
+      `\u0E1E\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C\u0E2D\u0E32\u0E01\u0E32\u0E28\u0E1B\u0E23\u0E30\u0E08\u0E33\u0E27\u0E31\u0E19 ${location}`,
+      ...details,
+      ...outlook,
+      weather.stationName ? `\u0E2A\u0E16\u0E32\u0E19\u0E35: ${weather.stationName}` : "",
+      weather.source ? `\u0E17\u0E35\u0E48\u0E21\u0E32: ${weather.source}` : ""
+    ].filter(Boolean).join("\n");
   }
   function AlertNoticeBox({ text, icon = "fa-triangle-exclamation", title, fullText = "", sourceLabel = "", link = "" }) {
     const textValue = String(text || "");
@@ -22700,28 +22695,8 @@ var MaxiwaKpiApp = (() => {
     ), detailOpen && /* @__PURE__ */ import_react.default.createElement("div", { className: "fixed inset-0 z-[119]", onClick: () => setDetailOpen(false), "aria-hidden": "true" }), detailOpen && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute left-0 top-[calc(100%+8px)] z-[120] w-[min(720px,calc(100vw-2rem))] rounded-lg border border-[var(--mx-line-strong)] bg-[var(--mx-panel-strong)] p-4 text-[var(--mx-text)] shadow-2xl" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold" }, sourceLabel || "\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28"), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !p-0 w-8 h-8 grid place-items-center", type: "button", onClick: () => setDetailOpen(false), "aria-label": "\u0E1B\u0E34\u0E14\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28", title: "\u0E1B\u0E34\u0E14" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 max-h-[48vh] overflow-y-auto whitespace-pre-wrap text-sm leading-6" }, fullText || text), link && /* @__PURE__ */ import_react.default.createElement("a", { className: "mt-3 inline-flex items-center gap-2 text-sm font-bold text-[var(--mx-info)]", href: link, target: "_blank", rel: "noopener noreferrer" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-up-right-from-square" }), "\u0E40\u0E1B\u0E34\u0E14\u0E2B\u0E19\u0E49\u0E32\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E2F")));
   }
   function WeatherAlertTicker({ weather, adminAnnouncement }) {
-    const [officialAlerts, setOfficialAlerts] = useState([]);
-    useEffect(() => {
-      if (!weather || weather.loading || weather.error) {
-        setOfficialAlerts([]);
-        return void 0;
-      }
-      let cancelled = false;
-      const loadAlerts = () => fetchOfficialWeatherAlerts(weather).then((alerts) => {
-        if (!cancelled) setOfficialAlerts(alerts);
-      }).catch(() => {
-        if (!cancelled) setOfficialAlerts([]);
-      });
-      loadAlerts();
-      const refreshTimer = setInterval(loadAlerts, 10 * 60 * 1e3);
-      return () => {
-        cancelled = true;
-        clearInterval(refreshTimer);
-      };
-    }, [weather == null ? void 0 : weather.location, weather == null ? void 0 : weather.province, weather == null ? void 0 : weather.loading, weather == null ? void 0 : weather.error]);
-    const activeAlert = officialAlerts[0] || null;
-    const tickerText = activeAlert ? officialAlertText(activeAlert) : "";
-    const fullText = activeAlert ? officialAlertText(activeAlert, { full: true }) : "";
+    const forecastText = dailyWeatherForecastText(weather);
+    const fullForecastText = dailyWeatherForecastText(weather, { full: true });
     const adminText = (adminAnnouncement == null ? void 0 : adminAnnouncement.isActive) && adminAnnouncement.message ? adminAnnouncement.message : "";
     const notices = [
       adminText ? /* @__PURE__ */ import_react.default.createElement(
@@ -22734,15 +22709,15 @@ var MaxiwaKpiApp = (() => {
           sourceLabel: "\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E08\u0E32\u0E01\u0E41\u0E2D\u0E14\u0E21\u0E34\u0E19"
         }
       ) : null,
-      !adminText && tickerText ? /* @__PURE__ */ import_react.default.createElement(
+      !adminText && forecastText ? /* @__PURE__ */ import_react.default.createElement(
         AlertNoticeBox,
         {
           key: "weather",
-          text: tickerText,
-          title: `\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E40\u0E15\u0E37\u0E2D\u0E19\u0E20\u0E31\u0E22\u0E08\u0E32\u0E01\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E19\u0E34\u0E22\u0E21\u0E27\u0E34\u0E17\u0E22\u0E32: ${fullText}`,
-          fullText,
-          sourceLabel: "\u0E1B\u0E23\u0E30\u0E01\u0E32\u0E28\u0E40\u0E15\u0E37\u0E2D\u0E19\u0E20\u0E31\u0E22\u0E08\u0E32\u0E01\u0E01\u0E23\u0E21\u0E2D\u0E38\u0E15\u0E38\u0E19\u0E34\u0E22\u0E21\u0E27\u0E34\u0E17\u0E22\u0E32",
-          link: TMD_WARNING_PAGE_URL
+          text: forecastText,
+          icon: (weather == null ? void 0 : weather.icon) || "fa-cloud-sun",
+          title: fullForecastText,
+          fullText: fullForecastText,
+          sourceLabel: "\u0E1E\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C\u0E2D\u0E32\u0E01\u0E32\u0E28\u0E1B\u0E23\u0E30\u0E08\u0E33\u0E27\u0E31\u0E19"
         }
       ) : null
     ].filter(Boolean);
@@ -25203,10 +25178,7 @@ var MaxiwaKpiApp = (() => {
       reloadAdmin,
       applySavedTasks
     } = useAppData(user, view);
-    const [scopeDateValue, setScopeDateValue] = useState(() => {
-      const now = /* @__PURE__ */ new Date();
-      return scopeDateInputValue(now.getMonth() + 1, now.getFullYear());
-    });
+    const [scopeDateValue, setScopeDateValue] = useState("");
     const scopedState = useMemo(() => ({
       ...state,
       tasks: filterTasksByScopeDate(state.tasks || [], scopeDateValue),
