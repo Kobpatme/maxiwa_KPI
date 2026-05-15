@@ -22545,7 +22545,7 @@ var MaxiwaKpiApp = (() => {
     const conditionText = String(current.description || "").toLowerCase();
     const meta = current.icon ? { icon: current.icon, label: current.description || "Weather" } : conditionText.includes("\u0E1D\u0E19") || conditionText.includes("rain") ? { icon: "fa-cloud-showers-heavy", label: current.description || "Rain" } : weatherMeta(Number.NaN);
     return {
-      location: current.location || location.label,
+      location: location.label || current.location,
       stationName: current.stationName || "",
       temp: Number.isFinite(Number(current.temp)) ? Math.round(Number(current.temp)) : null,
       rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,

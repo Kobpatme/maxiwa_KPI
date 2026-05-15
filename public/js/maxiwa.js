@@ -1449,7 +1449,7 @@ async function fetchWeatherSnapshot(selectedLocation) {
     ? { icon: 'fa-cloud-showers-heavy', label: current.description || 'Rain' }
     : weatherMeta(Number.NaN);
   return {
-    location: current.location || location.label,
+    location: location.label || current.location,
     stationName: current.stationName || '',
     temp: Number.isFinite(Number(current.temp)) ? Math.round(Number(current.temp)) : null,
     rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,
