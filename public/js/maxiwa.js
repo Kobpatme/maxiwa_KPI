@@ -641,6 +641,21 @@ function taskMatchesCurrentPeriod(task, month, year) {
   return startedAt <= periodEnd;
 }
 
+function scopeDateInputValue(month, year) {
+  if (!month || !year) return '';
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-01`;
+}
+
+function scopeDateParts(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { year, month, day };
+}
+
 function taskPersonId(task) {
   return String(task?.empId || task?.empid || task?.assignedToEmpId || '').trim();
 }
@@ -1134,6 +1149,115 @@ function LeadPersonDetailModal({ row, dialogId }) {
 }
 
 // ─── UI Primitives ─────────────────────────────────────────────────────────────
+function TeamPerformancePulsePanel({ rows = [], emptyText = 'No team data in this scope.' }) {
+  return (
+    <Panel title="Team Performance Pulse" subtitle="Team member pulse view for the selected scope">
+      <div className="grid gap-4">
+        {rows.map(({ person, detail }, index) => {
+          const slaScore = person.weightedSlaScore ?? detail.scores.sla;
+          const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
+          const totalWeight = person.totalWeight ?? detail.scores.totalWeight;
+          const primaryRisk = detail.riskItems[0];
+          const dialogId = `team-pulse-person-detail-${String(person.empId || person.empid || person.name || index).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+          return (
+            <React.Fragment key={person.empId || person.name}>
+              <button
+                type="button"
+                className="mx-data-card text-left w-full cursor-pointer transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[var(--mx-info)]"
+                onClick={() => document.getElementById(dialogId)?.showModal()}
+              >
+                <div className="grid xl:grid-cols-[minmax(240px,0.85fr)_minmax(360px,1.15fr)] gap-5">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-extrabold text-lg leading-tight break-words">{person.name}</div>
+                        <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team || '-'} / {person.empId || person.empid || 'No employee ID'}</div>
+                      </div>
+                      <span className={cn('mx-badge', leadFocusClass(detail, slaScore))}>{leadFocusLabel(detail, slaScore)}</span>
+                    </div>
+                    <div className="mt-3 inline-flex items-center gap-2 text-xs font-extrabold text-[var(--mx-info)]">
+                      <i className="fa-solid fa-up-right-and-down-left-from-center"></i>
+                      Open detail
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      <div className="mx-muted-card rounded-lg p-3">
+                        <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">SLA</div>
+                        <div className="mt-1 text-xl font-extrabold">{formatScorePercent(slaScore)}</div>
+                      </div>
+                      <div className="mx-muted-card rounded-lg p-3">
+                        <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Complete</div>
+                        <div className="mt-1 text-xl font-extrabold">{formatScorePercent(completionScore)}</div>
+                      </div>
+                      <div className="mx-muted-card rounded-lg p-3">
+                        <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Weight</div>
+                        <div className="mt-1 text-xl font-extrabold">{formatWeightPercent(totalWeight)}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="mx-badge mx-status-process">Active {detail.active}</span>
+                      <span className="mx-badge mx-status-pending">Pending {detail.pending}</span>
+                      <span className="mx-badge mx-status-hold">On Hold {detail.onHold}</span>
+                      <span className="mx-badge mx-status-completed">Done {detail.completed}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
+                    <div className="mx-muted-card rounded-lg p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-extrabold">Next focus</div>
+                        <span className={cn('mx-badge', detail.overdue > 0 ? 'mx-status-hold' : detail.dueSoon > 0 ? 'mx-status-pending' : 'mx-status-process')}>
+                          {detail.overdue} overdue / {detail.dueSoon} risk
+                        </span>
+                      </div>
+                      {primaryRisk ? (
+                        <div className="mt-3">
+                          <div className="font-bold leading-6 break-words">{extractJobCode(primaryRisk.task.job)}</div>
+                          <div className="mt-1 text-sm text-[var(--mx-muted)] line-clamp-2">{primaryRisk.task.job || '-'}</div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <span className={cn('mx-badge', primaryRisk.days < 0 ? 'mx-status-hold' : primaryRisk.days <= 3 ? 'mx-status-pending' : 'mx-status-process')}>
+                              {primaryRisk.days < 0 ? `${Math.abs(primaryRisk.days)} bd late` : `${primaryRisk.days} bd left`}
+                            </span>
+                            <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(primaryRisk.weight)}</span>
+                            <span className={cn('mx-badge', getStatusClass(primaryRisk.task.status))}>{primaryRisk.task.status || '-'}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-3 text-sm text-[var(--mx-muted)]">No risky work in this scope.</div>
+                      )}
+                    </div>
+
+                    <div className="mx-muted-card rounded-lg p-4">
+                      <div className="text-sm font-extrabold">Main Sub KPI Mix</div>
+                      <div className="mt-3 grid gap-2">
+                        {detail.kpiMix.map((item) => (
+                          <div key={item.name} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-sm font-bold leading-5 break-words">{item.name}</div>
+                                <div className="mt-1 text-xs text-[var(--mx-muted)]">Active {item.active} / Done {item.completed} / Total {item.tasks}</div>
+                              </div>
+                              <span className="mx-badge mx-status-cancelled flex-shrink-0">{formatWeightPercent(item.weight)}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {detail.kpiMix.length === 0 && <div className="text-sm text-[var(--mx-muted)]">No active Sub KPI for this person.</div>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </button>
+              <LeadPersonDetailModal row={{ person, detail }} dialogId={dialogId} />
+            </React.Fragment>
+          );
+        })}
+        {rows.length === 0 && <div className="mx-data-card text-center text-[var(--mx-muted)]">{emptyText}</div>}
+      </div>
+    </Panel>
+  );
+}
+
 function MetricCard({ label, value, sub, icon, accent = 'var(--mx-blue)' }) {
   return (
     <div className="mx-shell-card rounded-[20px] p-5">
@@ -3068,6 +3192,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
 
   if (user.role === 'Manager') {
     const tasks = filterPerformanceTasks(data.tasks || []);
+    const holidaySet = buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]);
     const taskIndex = buildPersonTaskIndex(tasks);
     const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks, taskIndex);
     const risky = tasks.filter((t) => statusIn(t.status, ['Pending', 'On Hold'])).length;
@@ -3076,6 +3201,11 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
       ? orgScores.sla
       : (summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0);
     const topPeople = [...summary].sort((a, b) => (b.weightedSlaScore || 0) - (a.weightedSlaScore || 0)).slice(0, 6);
+    const managerRows = summary
+      .map((person) => ({ person, detail: summarizeLeadPersonTasks(person, taskIndex, holidaySet) }))
+      .sort((a, b) => (b.detail.overdue - a.detail.overdue)
+        || (b.detail.dueSoon - a.detail.dueSoon)
+        || ((b.person.weightedSlaScore ?? b.detail.scores.sla ?? 0) - (a.person.weightedSlaScore ?? a.detail.scores.sla ?? 0)));
     return (
       <div className="grid gap-5">
         <div className="mx-grid-auto">
@@ -3087,6 +3217,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
           <MetricCard label="People" value={summary.length} sub="จำนวนคนในมุมผู้จัดการ" icon="fa-users-viewfinder" accent="var(--mx-blue)" />
         </div>
         {orgScores && <WeightFormulaStrip scores={orgScores} />}
+        <TeamPerformancePulsePanel rows={managerRows} emptyText="No people data in this scope." />
         <Panel title="Performance Scoreboard" subtitle="เห็นคะแนน, ปริมาณงาน, และจุดที่ควรติดตามทันที">
           <div className="grid md:grid-cols-2 gap-3">
             {topPeople.map((person) => (
@@ -5836,6 +5967,18 @@ function App() {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,
     reloadDashboard, reloadTasks, reloadPeople, reloadAdmin, applySavedTasks,
   } = useAppData(user, view);
+  const [scopeDateValue, setScopeDateValue] = useState(() => {
+    const now = new Date();
+    return scopeDateInputValue(now.getMonth() + 1, now.getFullYear());
+  });
+
+  useEffect(() => {
+    setScopeDateValue((current) => {
+      const parts = scopeDateParts(current);
+      if (parts && parts.month === Number(filterMonth) && parts.year === Number(filterYear)) return current;
+      return scopeDateInputValue(filterMonth, filterYear);
+    });
+  }, [filterMonth, filterYear]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -6193,6 +6336,17 @@ function App() {
   const activePeriodLabel = showFilterBar
     ? `${filterMonth === 0 ? 'ทุกเดือน' : MONTH_NAMES[filterMonth - 1]} ${filterYear}`
     : user.team;
+  const currentScopeDateValue = showFilterBar ? scopeDateValue : '';
+  const handleScopeDateChange = (value) => {
+    setScopeDateValue(value);
+    const parts = scopeDateParts(value);
+    if (!parts) {
+      setFilterMonth(0);
+      return;
+    }
+    setFilterYear(parts.year);
+    setFilterMonth(parts.month);
+  };
 
   return (
     <div className="min-h-screen p-4 md:p-6">
@@ -6298,6 +6452,17 @@ function App() {
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                   {showFilterBar && (
                     <>
+                      <div className="flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2">
+                        <label className="text-[11px] uppercase tracking-[0.12em] font-extrabold text-[var(--mx-muted)]" htmlFor="current-scope-date">Scope Date</label>
+                        <input
+                          id="current-scope-date"
+                          className="mx-input !w-[150px] !py-1.5 !text-sm"
+                          type="date"
+                          value={currentScopeDateValue}
+                          onChange={(e) => handleScopeDateChange(e.target.value)}
+                          title="Choose current scope date"
+                        />
+                      </div>
                       <select
                         className="mx-select !w-[160px] !py-2 !text-sm"
                         value={filterMonth}
