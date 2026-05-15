@@ -22099,6 +22099,9 @@ var MaxiwaKpiApp = (() => {
       summary: buildPeopleSummaryFromTasks(tasks)
     };
   }
+  function hasScopeDateFilter(scopeDateValue) {
+    return Boolean(normalizeDateOnly(scopeDateValue));
+  }
   function taskPersonId(task) {
     return String((task == null ? void 0 : task.empId) || (task == null ? void 0 : task.empid) || (task == null ? void 0 : task.assignedToEmpId) || "").trim();
   }
@@ -25523,6 +25526,7 @@ var MaxiwaKpiApp = (() => {
     const activePeriodLabel = showFilterBar ? `${filterMonth === 0 ? "\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19" : MONTH_NAMES[filterMonth - 1]} ${filterYear}` : user.team;
     const currentScopeDateOptions = useMemo(() => scopeDateOptions(filterMonth, filterYear), [filterMonth, filterYear]);
     const currentScopeDateValue = showFilterBar ? scopeDateValue : "";
+    const scopeDateActive = hasScopeDateFilter(currentScopeDateValue);
     const handleScopeDateChange = (value) => {
       setScopeDateValue(value);
       const parts = scopeDateParts(value);
@@ -25533,6 +25537,7 @@ var MaxiwaKpiApp = (() => {
       setFilterYear(parts.year);
       setFilterMonth(parts.month);
     };
+    const clearScopeDate = () => setScopeDateValue("");
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "min-h-screen p-4 md:p-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "max-w-[1640px] mx-auto grid xl:grid-cols-[320px_1fr] gap-5 items-start" }, /* @__PURE__ */ import_react.default.createElement(
       Sidebar,
       {
@@ -25555,6 +25560,16 @@ var MaxiwaKpiApp = (() => {
         disabled: currentScopeDateOptions.length === 0
       },
       currentScopeDateOptions.map((option) => /* @__PURE__ */ import_react.default.createElement("option", { key: option.value, value: option.value }, option.label))
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        type: "button",
+        className: "mx-btn mx-btn-soft !px-3 !py-1.5 !text-xs",
+        onClick: clearScopeDate,
+        disabled: !scopeDateActive,
+        title: "Show whole current month"
+      },
+      "Clear"
     )), /* @__PURE__ */ import_react.default.createElement(
       "select",
       {

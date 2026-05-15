@@ -707,6 +707,10 @@ function filterDashboardByScopeDate(dashboard, scopeDateValue) {
   };
 }
 
+function hasScopeDateFilter(scopeDateValue) {
+  return Boolean(normalizeDateOnly(scopeDateValue));
+}
+
 function taskPersonId(task) {
   return String(task?.empId || task?.empid || task?.assignedToEmpId || '').trim();
 }
@@ -6394,6 +6398,7 @@ function App() {
     : user.team;
   const currentScopeDateOptions = useMemo(() => scopeDateOptions(filterMonth, filterYear), [filterMonth, filterYear]);
   const currentScopeDateValue = showFilterBar ? scopeDateValue : '';
+  const scopeDateActive = hasScopeDateFilter(currentScopeDateValue);
   const handleScopeDateChange = (value) => {
     setScopeDateValue(value);
     const parts = scopeDateParts(value);
@@ -6404,6 +6409,7 @@ function App() {
     setFilterYear(parts.year);
     setFilterMonth(parts.month);
   };
+  const clearScopeDate = () => setScopeDateValue('');
 
   return (
     <div className="min-h-screen p-4 md:p-6">
@@ -6523,6 +6529,15 @@ function App() {
                             <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
+                        <button
+                          type="button"
+                          className="mx-btn mx-btn-soft !px-3 !py-1.5 !text-xs"
+                          onClick={clearScopeDate}
+                          disabled={!scopeDateActive}
+                          title="Show whole current month"
+                        >
+                          Clear
+                        </button>
                       </div>
                       <select
                         className="mx-select !w-[160px] !py-2 !text-sm"
