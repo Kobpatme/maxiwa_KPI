@@ -25106,7 +25106,7 @@ var MaxiwaKpiApp = (() => {
         "textarea",
         {
           className: "mx-textarea min-h-[84px]",
-          maxLength: 180,
+          maxLength: 1e3,
           placeholder: "\u0E40\u0E0A\u0E48\u0E19 \u0E27\u0E31\u0E19\u0E19\u0E35\u0E49\u0E21\u0E35\u0E0B\u0E49\u0E2D\u0E21\u0E2D\u0E1E\u0E22\u0E1E\u0E40\u0E27\u0E25\u0E32 15:00 \u0E19. \u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E1C\u0E37\u0E48\u0E2D\u0E40\u0E27\u0E25\u0E32\u0E01\u0E32\u0E23\u0E40\u0E14\u0E34\u0E19\u0E17\u0E32\u0E07",
           value: announcementDraft.message,
           onChange: (e) => {

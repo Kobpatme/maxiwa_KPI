@@ -5852,7 +5852,7 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
               ข้อความประกาศ
               <textarea
                 className="mx-textarea min-h-[84px]"
-                maxLength={180}
+                maxLength={1000}
                 placeholder="เช่น วันนี้มีซ้อมอพยพเวลา 15:00 น. กรุณาเผื่อเวลาการเดินทาง"
                 value={announcementDraft.message}
                 onChange={(e) => {
