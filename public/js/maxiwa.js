@@ -6399,7 +6399,7 @@ function App() {
   const activePeriodLabel = showFilterBar
     ? `${filterMonth === 0 ? 'ทุกเดือน' : MONTH_NAMES[filterMonth - 1]} ${filterYear}`
     : user.team;
-  const currentScopeDateOptions = useMemo(() => scopeDateOptions(filterMonth, filterYear), [filterMonth, filterYear]);
+  const currentScopeDateOptions = scopeDateOptions(filterMonth, filterYear);
   const currentScopeDateValue = showFilterBar ? scopeDateValue : '';
   const scopeDateActive = hasScopeDateFilter(currentScopeDateValue);
   const selectedScopeDateParts = scopeDateParts(currentScopeDateValue);
