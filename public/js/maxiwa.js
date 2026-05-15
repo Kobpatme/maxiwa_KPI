@@ -656,6 +656,43 @@ function scopeDateParts(value) {
   return { year, month, day };
 }
 
+function sameDateOnly(left, right) {
+  const leftDate = normalizeDateOnly(left);
+  const rightDate = normalizeDateOnly(right);
+  if (!leftDate || !rightDate) return false;
+  return leftDate.getFullYear() === rightDate.getFullYear()
+    && leftDate.getMonth() === rightDate.getMonth()
+    && leftDate.getDate() === rightDate.getDate();
+}
+
+function taskMatchesScopeDate(task, scopeDateValue) {
+  const scopeDate = normalizeDateOnly(scopeDateValue);
+  if (!scopeDate) return true;
+  const directDates = [task?.startdate, task?.created_at, task?.deadline, task?.completiondate].filter(Boolean);
+  if (directDates.some((value) => sameDateOnly(value, scopeDate))) return true;
+
+  const start = normalizeDateOnly(task?.startdate || task?.created_at || task?.deadline);
+  const end = normalizeDateOnly(task?.deadline || task?.completiondate || task?.startdate || task?.created_at);
+  if (!start || !end) return false;
+  return isActiveTask(task) && start <= scopeDate && scopeDate <= end;
+}
+
+function filterTasksByScopeDate(tasks = [], scopeDateValue) {
+  const scopeDate = normalizeDateOnly(scopeDateValue);
+  if (!scopeDate) return tasks || [];
+  return (tasks || []).filter((task) => taskMatchesScopeDate(task, scopeDate));
+}
+
+function filterDashboardByScopeDate(dashboard, scopeDateValue) {
+  if (!dashboard || !Array.isArray(dashboard.tasks)) return dashboard;
+  const tasks = filterTasksByScopeDate(dashboard.tasks, scopeDateValue);
+  return {
+    ...dashboard,
+    tasks,
+    summary: buildPeopleSummaryFromTasks(tasks),
+  };
+}
+
 function taskPersonId(task) {
   return String(task?.empId || task?.empid || task?.assignedToEmpId || '').trim();
 }
@@ -5971,6 +6008,11 @@ function App() {
     const now = new Date();
     return scopeDateInputValue(now.getMonth() + 1, now.getFullYear());
   });
+  const scopedState = useMemo(() => ({
+    ...state,
+    tasks: filterTasksByScopeDate(state.tasks || [], scopeDateValue),
+    dashboard: filterDashboardByScopeDate(state.dashboard, scopeDateValue),
+  }), [state, scopeDateValue]);
 
   useEffect(() => {
     setScopeDateValue((current) => {
@@ -6053,10 +6095,10 @@ function App() {
 
   // Notifications computed from tasks
   const notifications = useMemo(() => {
-    if (!state.tasks || !state.tasks.length) return [];
+    if (!scopedState.tasks || !scopedState.tasks.length) return [];
     const holidaySet = buildHolidaySet(state.holidays || []);
     const result = [];
-    state.tasks.forEach((task) => {
+    scopedState.tasks.forEach((task) => {
       const st = statusKey(task.status);
       if (st === 'pending') {
         result.push({
@@ -6090,7 +6132,7 @@ function App() {
       }
     });
     return result;
-  }, [state.tasks, state.holidays]);
+  }, [scopedState.tasks, state.holidays]);
 
   useEffect(() => {
     if (!user) {
@@ -6245,7 +6287,7 @@ function App() {
   };
 
   const downloadCSV = () => {
-    const src = state.tasks || [];
+    const src = scopedState.tasks || [];
     if (src.length === 0) return alert('ไม่มีข้อมูลสำหรับ export');
     const headers = ['ลำดับ', 'รายละเอียดงาน', 'Main KPI', 'Sub KPI', 'Weight กลาง', 'Weight ที่ใช้จริง', 'ประเภท Weight', 'ผู้รับผิดชอบ', 'ทีม', 'สถานะ', 'วันเริ่มต้น', 'Deadline', 'วันที่เสร็จ', 'ผล'];
     const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
@@ -6425,7 +6467,7 @@ function App() {
                       </div>
                     )}
                   </div>
-                  {['tasks', 'my-tasks'].includes(view) && state.tasks.length > 0 && (
+                  {['tasks', 'my-tasks'].includes(view) && scopedState.tasks.length > 0 && (
                     <button className="mx-btn mx-btn-soft !py-2" onClick={downloadCSV} title="Export CSV">
                       <i className="fa-solid fa-file-csv mr-1"></i>CSV
                     </button>
@@ -6516,7 +6558,7 @@ function App() {
 
           {view === 'executive' && (
             <ExecutiveView
-              data={state.dashboard}
+              data={scopedState.dashboard}
               filterMonth={filterMonth}
               filterYear={filterYear}
               holidays={state.holidays}
@@ -6526,7 +6568,7 @@ function App() {
           {view === 'dashboard' && (
             <DashboardView
               user={user}
-              data={state.dashboard}
+              data={scopedState.dashboard}
               filterMonth={filterMonth}
               filterYear={filterYear}
               holidays={state.holidays}
@@ -6539,7 +6581,7 @@ function App() {
           {view === 'my-dashboard' && (
             <DashboardView
               user={personalWorkUser}
-              data={state.dashboard}
+              data={scopedState.dashboard}
               filterMonth={filterMonth}
               filterYear={filterYear}
               holidays={state.holidays}
@@ -6552,7 +6594,7 @@ function App() {
           {view === 'tasks' && (
             <TaskCenterView
               user={user}
-              tasks={state.tasks}
+              tasks={scopedState.tasks}
               holidays={state.holidays}
               onAccept={handleAccept}
               onStatusChange={handleStatusChange}
@@ -6564,7 +6606,7 @@ function App() {
           {view === 'my-tasks' && (
             <TaskCenterView
               user={personalWorkUser}
-              tasks={state.tasks}
+              tasks={scopedState.tasks}
               holidays={state.holidays}
               onAccept={handleAccept}
               onStatusChange={handleStatusChange}

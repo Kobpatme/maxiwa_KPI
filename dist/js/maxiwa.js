@@ -22056,6 +22056,36 @@ var MaxiwaKpiApp = (() => {
     if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null;
     return { year, month, day };
   }
+  function sameDateOnly(left, right) {
+    const leftDate = normalizeDateOnly(left);
+    const rightDate = normalizeDateOnly(right);
+    if (!leftDate || !rightDate) return false;
+    return leftDate.getFullYear() === rightDate.getFullYear() && leftDate.getMonth() === rightDate.getMonth() && leftDate.getDate() === rightDate.getDate();
+  }
+  function taskMatchesScopeDate(task, scopeDateValue) {
+    const scopeDate = normalizeDateOnly(scopeDateValue);
+    if (!scopeDate) return true;
+    const directDates = [task == null ? void 0 : task.startdate, task == null ? void 0 : task.created_at, task == null ? void 0 : task.deadline, task == null ? void 0 : task.completiondate].filter(Boolean);
+    if (directDates.some((value) => sameDateOnly(value, scopeDate))) return true;
+    const start = normalizeDateOnly((task == null ? void 0 : task.startdate) || (task == null ? void 0 : task.created_at) || (task == null ? void 0 : task.deadline));
+    const end = normalizeDateOnly((task == null ? void 0 : task.deadline) || (task == null ? void 0 : task.completiondate) || (task == null ? void 0 : task.startdate) || (task == null ? void 0 : task.created_at));
+    if (!start || !end) return false;
+    return isActiveTask(task) && start <= scopeDate && scopeDate <= end;
+  }
+  function filterTasksByScopeDate(tasks = [], scopeDateValue) {
+    const scopeDate = normalizeDateOnly(scopeDateValue);
+    if (!scopeDate) return tasks || [];
+    return (tasks || []).filter((task) => taskMatchesScopeDate(task, scopeDate));
+  }
+  function filterDashboardByScopeDate(dashboard, scopeDateValue) {
+    if (!dashboard || !Array.isArray(dashboard.tasks)) return dashboard;
+    const tasks = filterTasksByScopeDate(dashboard.tasks, scopeDateValue);
+    return {
+      ...dashboard,
+      tasks,
+      summary: buildPeopleSummaryFromTasks(tasks)
+    };
+  }
   function taskPersonId(task) {
     return String((task == null ? void 0 : task.empId) || (task == null ? void 0 : task.empid) || (task == null ? void 0 : task.assignedToEmpId) || "").trim();
   }
@@ -25158,6 +25188,11 @@ var MaxiwaKpiApp = (() => {
       const now = /* @__PURE__ */ new Date();
       return scopeDateInputValue(now.getMonth() + 1, now.getFullYear());
     });
+    const scopedState = useMemo(() => ({
+      ...state,
+      tasks: filterTasksByScopeDate(state.tasks || [], scopeDateValue),
+      dashboard: filterDashboardByScopeDate(state.dashboard, scopeDateValue)
+    }), [state, scopeDateValue]);
     useEffect(() => {
       setScopeDateValue((current) => {
         const parts = scopeDateParts(current);
@@ -25227,10 +25262,10 @@ var MaxiwaKpiApp = (() => {
       return years;
     }, []);
     const notifications = useMemo(() => {
-      if (!state.tasks || !state.tasks.length) return [];
+      if (!scopedState.tasks || !scopedState.tasks.length) return [];
       const holidaySet = buildHolidaySet(state.holidays || []);
       const result = [];
-      state.tasks.forEach((task) => {
+      scopedState.tasks.forEach((task) => {
         var _a2;
         const st = statusKey(task.status);
         if (st === "pending") {
@@ -25265,7 +25300,7 @@ var MaxiwaKpiApp = (() => {
         }
       });
       return result;
-    }, [state.tasks, state.holidays]);
+    }, [scopedState.tasks, state.holidays]);
     useEffect(() => {
       if (!user) {
         safeSessionRemove(SESSION_KEY);
@@ -25405,7 +25440,7 @@ var MaxiwaKpiApp = (() => {
       }
     };
     const downloadCSV = () => {
-      const src = state.tasks || [];
+      const src = scopedState.tasks || [];
       if (src.length === 0) return alert("\u0E44\u0E21\u0E48\u0E21\u0E35\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A export");
       const headers = ["\u0E25\u0E33\u0E14\u0E31\u0E1A", "\u0E23\u0E32\u0E22\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14\u0E07\u0E32\u0E19", "Main KPI", "Sub KPI", "Weight \u0E01\u0E25\u0E32\u0E07", "Weight \u0E17\u0E35\u0E48\u0E43\u0E0A\u0E49\u0E08\u0E23\u0E34\u0E07", "\u0E1B\u0E23\u0E30\u0E40\u0E20\u0E17 Weight", "\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A", "\u0E17\u0E35\u0E21", "\u0E2A\u0E16\u0E32\u0E19\u0E30", "\u0E27\u0E31\u0E19\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19", "Deadline", "\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48\u0E40\u0E2A\u0E23\u0E47\u0E08", "\u0E1C\u0E25"];
       const esc = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
@@ -25495,7 +25530,7 @@ var MaxiwaKpiApp = (() => {
         adminSection,
         setAdminSection
       }
-    ), /* @__PURE__ */ import_react.default.createElement("main", { className: "grid content-start gap-5" }, /* @__PURE__ */ import_react.default.createElement("header", { className: "relative z-[80] mx-shell-card overflow-visible" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "px-5 py-5 md:px-6 md:py-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-5 2xl:grid-cols-[minmax(0,1fr)_390px_auto] 2xl:items-start" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 md:grid-cols-[auto_minmax(0,1fr)] md:items-center" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-completed" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-building-user" }), user.team), /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 w-full md:justify-self-stretch md:max-w-[min(100%,760px)]" }, /* @__PURE__ */ import_react.default.createElement(WeatherAlertTicker, { weather: headerWeather, adminAnnouncement }))), /* @__PURE__ */ import_react.default.createElement("h1", { className: "mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal" }, pageTitle), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]" }, pageSubtitle)), /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 2xl:justify-self-end" }, /* @__PURE__ */ import_react.default.createElement(WeatherWidget, { onWeatherChange: setHeaderWeather })), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center justify-end gap-2 2xl:justify-end" }, canOpenExecutiveView(user.role) && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2", onClick: openExecutiveView, title: "Open Performance View" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-display" }), /* @__PURE__ */ import_react.default.createElement("span", null, "Performance View")), /* @__PURE__ */ import_react.default.createElement(ThemeToggle, { theme, onToggle: toggleTheme }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3 relative", onClick: () => setShowNotif((v) => !v), title: "Notifications", "aria-label": "Notifications" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bell" }), notifications.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center" }, notifications.length > 9 ? "9+" : notifications.length)), showNotif && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold mb-3 flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", onClick: () => setShowNotif(false) }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), notifications.length === 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-2 max-h-72 overflow-y-auto" }, notifications.slice(0, 10).map((n) => /* @__PURE__ */ import_react.default.createElement("div", { key: n.id, className: "rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-2 text-sm" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${n.icon} mt-0.5 flex-shrink-0`, style: { color: n.color } }), /* @__PURE__ */ import_react.default.createElement("span", null, n.message))))))), ["tasks", "my-tasks"].includes(view) && state.tasks.length > 0 && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: downloadCSV, title: "Export CSV" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-file-csv mr-1" }), "CSV"), (state.loading || actionLoading) && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-pending" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-rotate-right fa-spin" }), "Loading")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 lg:grid-cols-[minmax(210px,auto)_minmax(260px,1fr)_auto] lg:items-center" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "w-9 h-9 rounded-lg mx-brand-mark grid place-items-center" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-calendar-check text-[var(--mx-accent)]" })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[11px] uppercase tracking-[0.14em] font-extrabold" }, "Current Scope"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-0.5 text-[var(--mx-text)] font-bold" }, activePeriodLabel))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-2 lg:justify-end" }, showFilterBar && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "text-[11px] uppercase tracking-[0.12em] font-extrabold text-[var(--mx-muted)]", htmlFor: "current-scope-date" }, "Scope Date"), /* @__PURE__ */ import_react.default.createElement(
+    ), /* @__PURE__ */ import_react.default.createElement("main", { className: "grid content-start gap-5" }, /* @__PURE__ */ import_react.default.createElement("header", { className: "relative z-[80] mx-shell-card overflow-visible" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "px-5 py-5 md:px-6 md:py-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-5 2xl:grid-cols-[minmax(0,1fr)_390px_auto] 2xl:items-start" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 md:grid-cols-[auto_minmax(0,1fr)] md:items-center" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-completed" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-building-user" }), user.team), /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 w-full md:justify-self-stretch md:max-w-[min(100%,760px)]" }, /* @__PURE__ */ import_react.default.createElement(WeatherAlertTicker, { weather: headerWeather, adminAnnouncement }))), /* @__PURE__ */ import_react.default.createElement("h1", { className: "mt-4 mb-0 text-[30px] md:text-[38px] leading-tight font-extrabold tracking-normal" }, pageTitle), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]" }, pageSubtitle)), /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 2xl:justify-self-end" }, /* @__PURE__ */ import_react.default.createElement(WeatherWidget, { onWeatherChange: setHeaderWeather })), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center justify-end gap-2 2xl:justify-end" }, canOpenExecutiveView(user.role) && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2", onClick: openExecutiveView, title: "Open Performance View" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-display" }), /* @__PURE__ */ import_react.default.createElement("span", null, "Performance View")), /* @__PURE__ */ import_react.default.createElement(ThemeToggle, { theme, onToggle: toggleTheme }), /* @__PURE__ */ import_react.default.createElement("div", { className: "relative" }, /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2 !px-3 relative", onClick: () => setShowNotif((v) => !v), title: "Notifications", "aria-label": "Notifications" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-bell" }), notifications.length > 0 && /* @__PURE__ */ import_react.default.createElement("span", { className: "absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center" }, notifications.length > 9 ? "9+" : notifications.length)), showNotif && /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute right-0 top-12 z-40 w-80 mx-shell-card rounded-[20px] p-4 shadow-2xl border border-[rgba(255,255,255,0.08)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm font-extrabold mb-3 flex items-center justify-between" }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("button", { className: "text-[var(--mx-muted)] hover:text-[var(--mx-text)]", onClick: () => setShowNotif(false) }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" }))), notifications.length === 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E32\u0E23\u0E41\u0E08\u0E49\u0E07\u0E40\u0E15\u0E37\u0E2D\u0E19"), /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-2 max-h-72 overflow-y-auto" }, notifications.slice(0, 10).map((n) => /* @__PURE__ */ import_react.default.createElement("div", { key: n.id, className: "rounded-[14px] p-3 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)]" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-2 text-sm" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${n.icon} mt-0.5 flex-shrink-0`, style: { color: n.color } }), /* @__PURE__ */ import_react.default.createElement("span", null, n.message))))))), ["tasks", "my-tasks"].includes(view) && scopedState.tasks.length > 0 && /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-soft !py-2", onClick: downloadCSV, title: "Export CSV" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-file-csv mr-1" }), "CSV"), (state.loading || actionLoading) && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge mx-status-pending" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-rotate-right fa-spin" }), "Loading")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "border-t border-[var(--mx-line)] bg-[var(--mx-surface)] px-5 py-3 md:px-6" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-3 lg:grid-cols-[minmax(210px,auto)_minmax(260px,1fr)_auto] lg:items-center" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 text-sm text-[var(--mx-muted)]" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "w-9 h-9 rounded-lg mx-brand-mark grid place-items-center" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-calendar-check text-[var(--mx-accent)]" })), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[11px] uppercase tracking-[0.14em] font-extrabold" }, "Current Scope"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-0.5 text-[var(--mx-text)] font-bold" }, activePeriodLabel))), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-2 lg:justify-end" }, showFilterBar && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2" }, /* @__PURE__ */ import_react.default.createElement("label", { className: "text-[11px] uppercase tracking-[0.12em] font-extrabold text-[var(--mx-muted)]", htmlFor: "current-scope-date" }, "Scope Date"), /* @__PURE__ */ import_react.default.createElement(
       "input",
       {
         id: "current-scope-date",
@@ -25545,7 +25580,7 @@ var MaxiwaKpiApp = (() => {
     ))), view === "executive" && /* @__PURE__ */ import_react.default.createElement(
       ExecutiveView,
       {
-        data: state.dashboard,
+        data: scopedState.dashboard,
         filterMonth,
         filterYear,
         holidays: state.holidays,
@@ -25555,7 +25590,7 @@ var MaxiwaKpiApp = (() => {
       DashboardView,
       {
         user,
-        data: state.dashboard,
+        data: scopedState.dashboard,
         filterMonth,
         filterYear,
         holidays: state.holidays,
@@ -25568,7 +25603,7 @@ var MaxiwaKpiApp = (() => {
       DashboardView,
       {
         user: personalWorkUser,
-        data: state.dashboard,
+        data: scopedState.dashboard,
         filterMonth,
         filterYear,
         holidays: state.holidays,
@@ -25581,7 +25616,7 @@ var MaxiwaKpiApp = (() => {
       TaskCenterView,
       {
         user,
-        tasks: state.tasks,
+        tasks: scopedState.tasks,
         holidays: state.holidays,
         onAccept: handleAccept,
         onStatusChange: handleStatusChange,
@@ -25593,7 +25628,7 @@ var MaxiwaKpiApp = (() => {
       TaskCenterView,
       {
         user: personalWorkUser,
-        tasks: state.tasks,
+        tasks: scopedState.tasks,
         holidays: state.holidays,
         onAccept: handleAccept,
         onStatusChange: handleStatusChange,
