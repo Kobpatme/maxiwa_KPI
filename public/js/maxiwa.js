@@ -649,15 +649,17 @@ function scopeDateInputValue(month, year) {
 function scopeDateOptions(month, year) {
   const selectedMonth = Number(month || 0);
   const selectedYear = Number(year || 0);
-  if (!selectedMonth || !selectedYear) return [];
+  if (!selectedMonth || !selectedYear) return [{ value: '', label: 'All month' }];
   const days = new Date(selectedYear, selectedMonth, 0).getDate();
-  return Array.from({ length: days }, (_, index) => {
+  return [
+    { value: '', label: 'All month' },
+    ...Array.from({ length: days }, (_, index) => {
     const day = index + 1;
     return {
       value: `${String(selectedYear).padStart(4, '0')}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-      label: String(day).padStart(2, '0'),
+      label: `Day ${String(day).padStart(2, '0')}`,
     };
-  });
+  })];
 }
 
 function scopeDateParts(value) {
@@ -6034,6 +6036,7 @@ function App() {
 
   useEffect(() => {
     setScopeDateValue((current) => {
+      if (!current) return '';
       const parts = scopeDateParts(current);
       if (parts && parts.month === Number(filterMonth) && parts.year === Number(filterYear)) return current;
       return scopeDateInputValue(filterMonth, filterYear);
@@ -6399,13 +6402,15 @@ function App() {
   const currentScopeDateOptions = useMemo(() => scopeDateOptions(filterMonth, filterYear), [filterMonth, filterYear]);
   const currentScopeDateValue = showFilterBar ? scopeDateValue : '';
   const scopeDateActive = hasScopeDateFilter(currentScopeDateValue);
+  const selectedScopeDateParts = scopeDateParts(currentScopeDateValue);
+  const activeScopeDetail = showFilterBar && scopeDateActive && selectedScopeDateParts
+    ? `Date ${String(selectedScopeDateParts.day).padStart(2, '0')} ${MONTH_NAMES[selectedScopeDateParts.month - 1]} ${selectedScopeDateParts.year}`
+    : activePeriodLabel;
   const handleScopeDateChange = (value) => {
     setScopeDateValue(value);
+    if (!value) return;
     const parts = scopeDateParts(value);
-    if (!parts) {
-      setFilterMonth(0);
-      return;
-    }
+    if (!parts) return;
     setFilterYear(parts.year);
     setFilterMonth(parts.month);
   };
@@ -6508,21 +6513,21 @@ function App() {
                   </span>
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.14em] font-extrabold">Current Scope</div>
-                    <div className="mt-0.5 text-[var(--mx-text)] font-bold">{activePeriodLabel}</div>
+                    <div className="mt-0.5 text-[var(--mx-text)] font-bold">{activeScopeDetail}</div>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                   {showFilterBar && (
                     <>
-                      <div className="flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2">
-                        <label className="text-[11px] uppercase tracking-[0.12em] font-extrabold text-[var(--mx-muted)]" htmlFor="current-scope-date">Day</label>
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2">
+                        <label className="text-[11px] uppercase tracking-[0.12em] font-extrabold text-[var(--mx-muted)]" htmlFor="current-scope-date">View</label>
                         <select
                           id="current-scope-date"
-                          className="mx-select !w-[92px] !py-1.5 !text-sm"
+                          className="mx-select !w-[138px] !py-1.5 !text-sm"
                           value={currentScopeDateValue}
                           onChange={(e) => handleScopeDateChange(e.target.value)}
-                          title="Choose day in current month"
+                          title="Choose all month or a day in current month"
                           disabled={currentScopeDateOptions.length === 0}
                         >
                           {currentScopeDateOptions.map((option) => (
@@ -6534,7 +6539,7 @@ function App() {
                           className="mx-btn mx-btn-soft !px-3 !py-1.5 !text-xs"
                           onClick={clearScopeDate}
                           disabled={!scopeDateActive}
-                          title="Show whole current month"
+                          title="Show all month"
                         >
                           Clear
                         </button>
