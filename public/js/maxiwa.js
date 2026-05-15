@@ -646,6 +646,20 @@ function scopeDateInputValue(month, year) {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-01`;
 }
 
+function scopeDateOptions(month, year) {
+  const selectedMonth = Number(month || 0);
+  const selectedYear = Number(year || 0);
+  if (!selectedMonth || !selectedYear) return [];
+  const days = new Date(selectedYear, selectedMonth, 0).getDate();
+  return Array.from({ length: days }, (_, index) => {
+    const day = index + 1;
+    return {
+      value: `${String(selectedYear).padStart(4, '0')}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+      label: String(day).padStart(2, '0'),
+    };
+  });
+}
+
 function scopeDateParts(value) {
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -6378,6 +6392,7 @@ function App() {
   const activePeriodLabel = showFilterBar
     ? `${filterMonth === 0 ? 'ทุกเดือน' : MONTH_NAMES[filterMonth - 1]} ${filterYear}`
     : user.team;
+  const currentScopeDateOptions = useMemo(() => scopeDateOptions(filterMonth, filterYear), [filterMonth, filterYear]);
   const currentScopeDateValue = showFilterBar ? scopeDateValue : '';
   const handleScopeDateChange = (value) => {
     setScopeDateValue(value);
@@ -6495,15 +6510,19 @@ function App() {
                   {showFilterBar && (
                     <>
                       <div className="flex items-center gap-2 rounded-lg border border-[var(--mx-line)] bg-[var(--mx-panel)] px-3 py-2">
-                        <label className="text-[11px] uppercase tracking-[0.12em] font-extrabold text-[var(--mx-muted)]" htmlFor="current-scope-date">Scope Date</label>
-                        <input
+                        <label className="text-[11px] uppercase tracking-[0.12em] font-extrabold text-[var(--mx-muted)]" htmlFor="current-scope-date">Day</label>
+                        <select
                           id="current-scope-date"
-                          className="mx-input !w-[150px] !py-1.5 !text-sm"
-                          type="date"
+                          className="mx-select !w-[92px] !py-1.5 !text-sm"
                           value={currentScopeDateValue}
                           onChange={(e) => handleScopeDateChange(e.target.value)}
-                          title="Choose current scope date"
-                        />
+                          title="Choose day in current month"
+                          disabled={currentScopeDateOptions.length === 0}
+                        >
+                          {currentScopeDateOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
                       </div>
                       <select
                         className="mx-select !w-[160px] !py-2 !text-sm"
