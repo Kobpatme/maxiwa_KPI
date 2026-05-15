@@ -1423,34 +1423,43 @@ async function fetchWeatherSnapshot(selectedLocation) {
     label: location.label || '',
     province: location.province || location.label || '',
   });
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const requestWeather = async (endpoint) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(`${apiBase()}/${endpoint}?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `Weather HTTP ${res.status}`);
+      return data;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  let data = null;
   try {
-    const res = await fetch(`${apiBase()}/openmeteo/weather?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || `Weather HTTP ${res.status}`);
-    const current = data.weather || {};
-    const conditionText = String(current.description || '').toLowerCase();
-    const meta = current.icon
-      ? { icon: current.icon, label: current.description || 'Weather' }
-      : conditionText.includes('ฝน') || conditionText.includes('rain')
-      ? { icon: 'fa-cloud-showers-heavy', label: current.description || 'Rain' }
-      : weatherMeta(Number.NaN);
-    return {
-      location: current.location || location.label,
-      stationName: current.stationName || '',
-      temp: Number.isFinite(Number(current.temp)) ? Math.round(Number(current.temp)) : null,
-      rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,
-      humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
-      wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
-      shortTerm: current.shortTerm || null,
-      province: location.province || '',
-      source: data.source || 'Open-Meteo',
-      ...meta,
-    };
-  } finally {
-    clearTimeout(timer);
+    data = await requestWeather('tmd/weather');
+  } catch {
+    data = await requestWeather('openmeteo/weather');
   }
+  const current = data.weather || {};
+  const conditionText = String(current.description || '').toLowerCase();
+  const meta = current.icon
+    ? { icon: current.icon, label: current.description || 'Weather' }
+    : conditionText.includes('ฝน') || conditionText.includes('rain')
+    ? { icon: 'fa-cloud-showers-heavy', label: current.description || 'Rain' }
+    : weatherMeta(Number.NaN);
+  return {
+    location: current.location || location.label,
+    stationName: current.stationName || '',
+    temp: Number.isFinite(Number(current.temp)) ? Math.round(Number(current.temp)) : null,
+    rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,
+    humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
+    wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
+    shortTerm: current.shortTerm || null,
+    province: location.province || '',
+    source: data.source || 'Open-Meteo',
+    ...meta,
+  };
 }
 
 function WeatherGlyph({ loading, icon }) {
@@ -1864,7 +1873,7 @@ function WeatherWidget({ onWeatherChange }) {
           <div>ฝนสะสม: {weather.loading ? '-' : weather.rainfall ?? '-'} มม.</div>
           <div>ความชื้น: {weather.loading ? '-' : weather.humidity ?? '-'}%</div>
           <div>ลม: {weather.loading ? '-' : weather.wind ?? '-'} กม./ชม.</div>
-          <div className="text-[10px] text-slate-400">ที่มา: {weather.source || 'Open-Meteo'}</div>
+          <div className="text-[10px] text-slate-400">ที่มา: {weather.source || 'TMD'}</div>
         </div>
       </div>
     </div>

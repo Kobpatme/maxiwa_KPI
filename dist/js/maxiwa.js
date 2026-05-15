@@ -22523,30 +22523,39 @@ var MaxiwaKpiApp = (() => {
       label: location.label || "",
       province: location.province || location.label || ""
     });
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8e3);
+    const requestWeather = async (endpoint) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8e3);
+      try {
+        const res = await fetch(`${apiBase()}/${endpoint}?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
+        const data2 = await res.json();
+        if (!res.ok) throw new Error((data2 == null ? void 0 : data2.error) || `Weather HTTP ${res.status}`);
+        return data2;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    let data = null;
     try {
-      const res = await fetch(`${apiBase()}/openmeteo/weather?${params.toString()}`, { headers: sessionHeaders(), signal: controller.signal });
-      const data = await res.json();
-      if (!res.ok) throw new Error((data == null ? void 0 : data.error) || `Weather HTTP ${res.status}`);
-      const current = data.weather || {};
-      const conditionText = String(current.description || "").toLowerCase();
-      const meta = current.icon ? { icon: current.icon, label: current.description || "Weather" } : conditionText.includes("\u0E1D\u0E19") || conditionText.includes("rain") ? { icon: "fa-cloud-showers-heavy", label: current.description || "Rain" } : weatherMeta(Number.NaN);
-      return {
-        location: current.location || location.label,
-        stationName: current.stationName || "",
-        temp: Number.isFinite(Number(current.temp)) ? Math.round(Number(current.temp)) : null,
-        rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,
-        humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
-        wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
-        shortTerm: current.shortTerm || null,
-        province: location.province || "",
-        source: data.source || "Open-Meteo",
-        ...meta
-      };
-    } finally {
-      clearTimeout(timer);
+      data = await requestWeather("tmd/weather");
+    } catch {
+      data = await requestWeather("openmeteo/weather");
     }
+    const current = data.weather || {};
+    const conditionText = String(current.description || "").toLowerCase();
+    const meta = current.icon ? { icon: current.icon, label: current.description || "Weather" } : conditionText.includes("\u0E1D\u0E19") || conditionText.includes("rain") ? { icon: "fa-cloud-showers-heavy", label: current.description || "Rain" } : weatherMeta(Number.NaN);
+    return {
+      location: current.location || location.label,
+      stationName: current.stationName || "",
+      temp: Number.isFinite(Number(current.temp)) ? Math.round(Number(current.temp)) : null,
+      rainfall: Number.isFinite(Number(current.rainfall)) ? Number(current.rainfall) : null,
+      humidity: Number.isFinite(Number(current.humidity)) ? Math.round(Number(current.humidity)) : null,
+      wind: Number.isFinite(Number(current.wind)) ? Math.round(Number(current.wind)) : null,
+      shortTerm: current.shortTerm || null,
+      province: location.province || "",
+      source: data.source || "Open-Meteo",
+      ...meta
+    };
   }
   function WeatherGlyph({ loading, icon }) {
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "w-14 h-14 rounded-2xl bg-gradient-to-br from-[#334155] to-[#111827] border border-white/10 grid place-items-center flex-shrink-0 shadow-inner", "aria-hidden": "true" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${loading ? "fa-rotate-right fa-spin" : icon || "fa-cloud-sun"} text-[32px] ${icon === "fa-sun" ? "text-[#f6c453]" : icon === "fa-cloud-bolt" ? "text-[#f59e0b]" : icon === "fa-cloud-showers-heavy" ? "text-[#60a5fa]" : "text-[#dbeafe]"}` }));
@@ -22862,7 +22871,7 @@ var MaxiwaKpiApp = (() => {
         }
       },
       location.label
-    )))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 grid grid-cols-[56px_auto_1fr] items-center gap-4" }, /* @__PURE__ */ import_react.default.createElement(WeatherGlyph, { loading: weather.loading, icon: weather.icon }), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[44px] leading-none font-light tracking-normal" }, weather.loading ? "--" : (_a = weather.temp) != null ? _a : "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 text-sm font-bold whitespace-nowrap" }, "\xB0C | \xB0F")), /* @__PURE__ */ import_react.default.createElement("div", { className: "ml-auto text-[12px] leading-[1.45] text-slate-300 whitespace-nowrap text-left" }, /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E1D\u0E19\u0E2A\u0E30\u0E2A\u0E21: ", weather.loading ? "-" : (_b = weather.rainfall) != null ? _b : "-", " \u0E21\u0E21."), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E04\u0E27\u0E32\u0E21\u0E0A\u0E37\u0E49\u0E19: ", weather.loading ? "-" : (_c = weather.humidity) != null ? _c : "-", "%"), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E25\u0E21: ", weather.loading ? "-" : (_d = weather.wind) != null ? _d : "-", " \u0E01\u0E21./\u0E0A\u0E21."), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[10px] text-slate-400" }, "\u0E17\u0E35\u0E48\u0E21\u0E32: ", weather.source || "Open-Meteo"))));
+    )))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-3 grid grid-cols-[56px_auto_1fr] items-center gap-4" }, /* @__PURE__ */ import_react.default.createElement(WeatherGlyph, { loading: weather.loading, icon: weather.icon }), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-start gap-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[44px] leading-none font-light tracking-normal" }, weather.loading ? "--" : (_a = weather.temp) != null ? _a : "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 text-sm font-bold whitespace-nowrap" }, "\xB0C | \xB0F")), /* @__PURE__ */ import_react.default.createElement("div", { className: "ml-auto text-[12px] leading-[1.45] text-slate-300 whitespace-nowrap text-left" }, /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E1D\u0E19\u0E2A\u0E30\u0E2A\u0E21: ", weather.loading ? "-" : (_b = weather.rainfall) != null ? _b : "-", " \u0E21\u0E21."), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E04\u0E27\u0E32\u0E21\u0E0A\u0E37\u0E49\u0E19: ", weather.loading ? "-" : (_c = weather.humidity) != null ? _c : "-", "%"), /* @__PURE__ */ import_react.default.createElement("div", null, "\u0E25\u0E21: ", weather.loading ? "-" : (_d = weather.wind) != null ? _d : "-", " \u0E01\u0E21./\u0E0A\u0E21."), /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[10px] text-slate-400" }, "\u0E17\u0E35\u0E48\u0E21\u0E32: ", weather.source || "TMD"))));
   }
   function normalizePhotoUrl(value) {
     const src = String(value || "").trim();
