@@ -326,13 +326,13 @@
     }
     .executive-header-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(520px, 0.48fr);
+      grid-template-columns: minmax(0, 1fr) auto;
       gap: 24px;
       align-items: start;
     }
     .executive-controls {
       display: grid;
-      grid-template-columns: 144px 164px 112px 150px 108px 96px;
+      grid-template-columns: 108px 96px;
       gap: 10px;
       justify-content: end;
       align-items: start;
@@ -343,7 +343,6 @@
       min-height: 48px;
     }
     .executive-controls .print-btn {
-      grid-column: 6;
       justify-self: end;
       min-width: 92px;
       background: var(--mx-panel-strong);
@@ -378,8 +377,8 @@
       flex: 0 0 auto;
     }
     .tab-strip {
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       gap: 10px;
       padding: 8px;
       background: rgba(251, 250, 246, 0.82);
@@ -391,6 +390,23 @@
       top: 12px;
       z-index: 20;
       backdrop-filter: blur(18px);
+    }
+    .tab-button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      min-width: 0;
+    }
+    .tab-filter-controls {
+      display: grid;
+      grid-template-columns: 164px 112px 150px;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .tab-filter-controls .mx-input,
+    .tab-filter-controls .mx-btn {
+      min-height: 44px;
+      width: 100%;
     }
     .tab-button {
       display: inline-flex;
@@ -1318,13 +1334,20 @@
       }
       .executive-controls {
         justify-content: start;
-        grid-template-columns: minmax(150px, 180px) minmax(150px, 180px) minmax(110px, 130px) minmax(132px, auto) minmax(92px, auto) minmax(88px, auto);
+        grid-template-columns: minmax(92px, auto) minmax(88px, auto);
       }
       .executive-controls .print-btn {
         grid-column: auto;
       }
       .hero-band .presentation-grid {
         grid-template-columns: 1fr;
+      }
+      .tab-strip {
+        grid-template-columns: 1fr;
+      }
+      .tab-filter-controls {
+        grid-template-columns: minmax(150px, 180px) minmax(110px, 130px) minmax(132px, auto);
+        justify-content: start;
       }
     }
     @media (max-width: 640px) {
@@ -1347,11 +1370,13 @@
       .executive-controls {
         grid-template-columns: 1fr 1fr;
       }
-      .executive-controls .mx-input:first-child,
       .executive-controls .mx-btn {
         grid-column: auto;
       }
-      .executive-controls .mx-btn-primary {
+      .tab-filter-controls {
+        grid-template-columns: 1fr 1fr;
+      }
+      .tab-filter-controls .mx-btn-primary {
         grid-column: 1 / -1;
       }
       .presentation-grid { gap: 14px; }
@@ -1409,6 +1434,10 @@
       .metric-card { min-height: 142px; }
       .tab-strip {
         position: static;
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+      .tab-button-group {
         display: grid;
         grid-template-columns: 1fr 1fr;
       }

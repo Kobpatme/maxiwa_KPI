@@ -25488,10 +25488,13 @@ var MaxiwaKpiApp = (() => {
       setView(nextView);
     };
     const openExecutiveView = () => {
+      var _a2;
       const executiveUrl = new URL("/dashboard", window.location.origin);
       executiveUrl.searchParams.set("empId", user.empId || user.empid || "");
       executiveUrl.searchParams.set("month", String(filterMonth));
       executiveUrl.searchParams.set("year", String(filterYear));
+      const activeSessionId = String(((_a2 = window.MAXIWA_ACTIVE_SESSION) == null ? void 0 : _a2.sessionId) || user.serverSessionId || user.sessionId || "").trim();
+      if (activeSessionId) executiveUrl.searchParams.set("sessionId", activeSessionId);
       window.open(executiveUrl.toString(), "_blank", "noopener,noreferrer");
     };
     const handleTasksSaved = (savedTasks = [], options = {}) => {

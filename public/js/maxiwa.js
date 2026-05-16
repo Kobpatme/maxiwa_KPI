@@ -6327,6 +6327,8 @@ function App() {
     executiveUrl.searchParams.set('empId', user.empId || user.empid || '');
     executiveUrl.searchParams.set('month', String(filterMonth));
     executiveUrl.searchParams.set('year', String(filterYear));
+    const activeSessionId = String(window.MAXIWA_ACTIVE_SESSION?.sessionId || user.serverSessionId || user.sessionId || '').trim();
+    if (activeSessionId) executiveUrl.searchParams.set('sessionId', activeSessionId);
     window.open(executiveUrl.toString(), '_blank', 'noopener,noreferrer');
   };
 

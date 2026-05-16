@@ -8,6 +8,7 @@ const MONTH_NAMES = [
 const STRATEGIC_VIEW_ROLES = ['SrManager', 'Director', 'Executive'];
 const TEAM_SCOPED_ROLES = ['Lead'];
 const EXEC_THEME_KEY = 'metrix-executive-theme';
+const SESSION_LOCK_KEY = 'maxiwa-kpi-active-session';
 
 function getInitialExecutiveTheme() {
   try {
@@ -39,6 +40,20 @@ function isStrategicViewRole(role) {
 
 function userEmpId(user) {
   return String(user?.empId || user?.empid || '').trim();
+}
+
+function readExecutiveSession(empId, sessionId) {
+  const cleanEmpId = String(empId || '').trim();
+  const cleanSessionId = String(sessionId || '').trim();
+  if (cleanEmpId && cleanSessionId) return { empId: cleanEmpId, sessionId: cleanSessionId };
+  try {
+    const lock = JSON.parse(localStorage.getItem(SESSION_LOCK_KEY) || 'null');
+    if (!lock?.empId || !lock?.sessionId || Number(lock.expiresAt || 0) <= Date.now()) return null;
+    if (cleanEmpId && String(lock.empId).trim().toLowerCase() !== cleanEmpId.toLowerCase()) return null;
+    return { empId: String(lock.empId).trim(), sessionId: String(lock.sessionId).trim() };
+  } catch {
+    return null;
+  }
 }
 
 function isSelfScopedRole(role) {
@@ -773,15 +788,29 @@ function LineChart({ labels = [], months = [], series, mode = 'percent' }) {
   );
 }
 
-function TabBar({ activeTab, setActiveTab }) {
+function TabBar({ activeTab, setActiveTab, month, setMonth, year, setYear, years, loading, onLoad }) {
   return (
     <nav className="tab-strip no-print">
-      {TAB_ITEMS.map((tab) => (
-        <button key={tab.id} className={`tab-button ${activeTab === tab.id ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
-          <i className={`fa-solid ${tab.icon}`}></i>
-          <span>{tab.label}</span>
+      <div className="tab-button-group">
+        {TAB_ITEMS.map((tab) => (
+          <button key={tab.id} className={`tab-button ${activeTab === tab.id ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
+            <i className={`fa-solid ${tab.icon}`}></i>
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="tab-filter-controls">
+        <select className="mx-input" value={month} onChange={(e) => setMonth(Number(e.target.value))} aria-label="Filter month">
+          <option value={0}>ทุกเดือน</option>
+          {MONTH_NAMES.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
+        </select>
+        <select className="mx-input" value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Filter year">
+          {years.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <button className="mx-btn mx-btn-primary" onClick={onLoad} disabled={loading}>
+          <i className={`fa-solid ${loading ? 'fa-rotate-right fa-spin' : 'fa-arrows-rotate'} mr-2`}></i>โหลดข้อมูล
         </button>
-      ))}
+      </div>
     </nav>
   );
 }
@@ -2043,6 +2072,7 @@ function KpiWeightsPanel({ kpiWeightRows, kpiSearch, setKpiSearch }) {
 function App() {
   const params = new URLSearchParams(window.location.search);
   const initialEmpId = String(params.get('empId') || '').trim().toUpperCase();
+  const initialSessionId = String(params.get('sessionId') || '').trim();
   const [empId, setEmpId] = useState(initialEmpId);
   const [month, setMonth] = useState(params.has('month') ? Number(params.get('month')) : 0);
   const [year, setYear] = useState(Number(params.get('year') || new Date().getFullYear()));
@@ -2066,11 +2096,17 @@ function App() {
     }
     setState((prev) => ({ ...prev, loading: true, error: '' }));
     try {
-      const initial = await API.getInitialData(cleanEmpId);
+      const session = readExecutiveSession(cleanEmpId, initialSessionId);
+      if (session && typeof window !== 'undefined') window.MAXIWA_ACTIVE_SESSION = session;
+      const initial = await API.getInitialData(cleanEmpId, session?.sessionId || initialSessionId);
       if (initial?.error) throw new Error(initial.error);
       if (!initial?.user) throw new Error('User profile was not found.');
       const normalizedEmpId = String(initial.user.empId || initial.user.empid || cleanEmpId).trim();
       const user = { ...initial.user, empId: normalizedEmpId, empid: normalizedEmpId, kpis: initial.kpis || [] };
+      const activeSessionId = String(initial.session?.sessionId || initial.sessionId || user.serverSessionId || session?.sessionId || initialSessionId || '').trim();
+      if (activeSessionId && typeof window !== 'undefined') {
+        window.MAXIWA_ACTIVE_SESSION = { empId: normalizedEmpId, sessionId: activeSessionId };
+      }
       const monthParam = month === 0 ? null : month;
       let tasks = [];
       let taskHolidays = [];
@@ -2115,6 +2151,7 @@ function App() {
       url.searchParams.set('empId', cleanEmpId);
       url.searchParams.set('month', String(month));
       url.searchParams.set('year', String(year));
+      url.searchParams.delete('sessionId');
       window.history.replaceState(null, '', url);
     } catch (error) {
       setState((prev) => ({ ...prev, loading: false, error: error.message || 'Unable to load dashboard data.' }));
@@ -2289,17 +2326,6 @@ function App() {
             </p>
           </div>
           <div className="no-print control-panel executive-controls">
-            <input className="mx-input !w-36" value={empId} onChange={(e) => setEmpId(e.target.value.toUpperCase())} placeholder="empId" />
-            <select className="mx-input !w-40" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-              <option value={0}>ทุกเดือน</option>
-              {MONTH_NAMES.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
-            </select>
-            <select className="mx-input !w-28" value={year} onChange={(e) => setYear(Number(e.target.value))}>
-              {years.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-            <button className="mx-btn mx-btn-primary" onClick={() => load(empId)} disabled={state.loading}>
-              <i className={`fa-solid ${state.loading ? 'fa-rotate-right fa-spin' : 'fa-arrows-rotate'} mr-2`}></i>โหลดข้อมูล
-            </button>
             <button
               className="mx-btn theme-toggle"
               type="button"
@@ -2330,7 +2356,17 @@ function App() {
         </div>
       </section>
 
-      <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <TabBar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        month={month}
+        setMonth={setMonth}
+        year={year}
+        setYear={setYear}
+        years={years}
+        loading={state.loading}
+        onLoad={() => load(empId)}
+      />
 
       {activeTab === 'overview' && <OverviewPanel portfolio={portfolio} teamRows={teamRows} kpiRows={kpiRows} statusRows={statusRows} criticalQueue={criticalQueue} monthlyTrend={monthlyTrend} periodLabel={periodLabel} user={state.user} empId={empId} tasks={tasks} />}
       {activeTab === 'teams' && <TeamsPanel teamRows={teamRows} holidays={holidaySet} />}
@@ -2342,4 +2378,3 @@ function App() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-

@@ -164,7 +164,7 @@ const API = (() => {
   }
 
   return {
-    getInitialData: (empId) => post("getInitialData", { empId }),
+    getInitialData: (empId, sessionId = "") => post("getInitialData", { empId, sessionId }),
     validateSession: () => post("session/heartbeat", {}),
     getEmployeeTasks: (userData, month, year, allTime, requesterEmpId) =>
       get("getEmployeeTasks", { name: userData.name, month, year, allTime, requesterEmpId }),
