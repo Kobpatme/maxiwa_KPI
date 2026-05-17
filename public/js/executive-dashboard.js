@@ -521,18 +521,27 @@ function buildDataQuality(tasks = []) {
   return { checks, totalIssues };
 }
 
-function getTaskMonth(task) {
-  const raw = task.completiondate || task.deadline || task.startdate || task.created_at || task.timestamp;
+function getTaskDate(task, fields = []) {
+  const raw = fields.map((field) => task?.[field]).find(Boolean);
   const d = raw ? new Date(raw) : null;
-  if (!d || Number.isNaN(d.getTime())) return null;
-  return d.getMonth();
+  return d && !Number.isNaN(d.getTime()) ? d : null;
 }
 
-function getTaskDayOfMonth(task) {
-  const raw = task.completiondate || task.deadline || task.startdate || task.created_at || task.timestamp;
-  const d = raw ? new Date(raw) : null;
-  if (!d || Number.isNaN(d.getTime())) return null;
-  return d.getDate();
+function taskDateMatchesPeriod(task, fields, year, monthIndex, day = null) {
+  const d = getTaskDate(task, fields);
+  if (!d) return false;
+  if (d.getFullYear() !== Number(year) || d.getMonth() !== Number(monthIndex)) return false;
+  return day === null || d.getDate() === Number(day);
+}
+
+function taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidays = []) {
+  if (!isActive(task)) return false;
+  const deadline = getEffectiveDeadline(task, holidays);
+  if (!deadline) return false;
+  if (deadline.getFullYear() !== Number(year) || deadline.getMonth() !== Number(monthIndex)) return false;
+  if (day !== null && deadline.getDate() !== Number(day)) return false;
+  const days = businessDaysBetween(new Date(), deadline, holidays);
+  return days !== null && days <= 3;
 }
 
 function buildPortfolio(tasks, holidays = []) {
@@ -1145,11 +1154,11 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
             <div>
               <h2 className="section-title m-0">Execution Trend</h2>
-              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">{monthlyTrend.granularity === 'day' ? 'ปริมาณงานรายวันในเดือนที่เลือก แยกงานทั้งหมด งานที่เสร็จแล้ว และงานเสี่ยง/เกินกำหนด' : 'ปริมาณงานรายเดือน แยกงานทั้งหมด งานที่เสร็จแล้ว และงานเสี่ยง/เกินกำหนด'}</p>
+              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">{monthlyTrend.granularity === 'day' ? 'ผลงานจริงรายวันในเดือนและปีที่เลือก แยกงานเข้า/เริ่ม งานเสร็จจริง และงานเสี่ยง/เกินกำหนด' : 'ผลงานจริงรายเดือนในปีที่เลือก แยกงานเข้า/เริ่ม งานเสร็จจริง และงานเสี่ยง/เกินกำหนด'}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <span className="mx-badge status-info">งานทั้งหมด</span>
-              <span className="mx-badge status-good">เสร็จแล้ว</span>
+              <span className="mx-badge status-info">งานเข้า/เริ่ม</span>
+              <span className="mx-badge status-good">เสร็จจริง</span>
               <span className="mx-badge status-bad">เสี่ยง/เกินกำหนด</span>
             </div>
           </div>
@@ -2255,17 +2264,21 @@ function App() {
     const risk = [];
     const total = [];
     const completed = [];
+    const intakeFields = ['startdate', 'created_at', 'timestamp'];
+    const completionFields = ['completiondate'];
 
     if (month === 0) {
       const months = Array.from({ length: 12 }, (_, i) => i);
       months.forEach((monthIndex) => {
-        const monthTasks = tasks.filter((task) => getTaskMonth(task) === monthIndex);
-        const monthPortfolio = buildPortfolio(monthTasks, holidaySet);
-        sla.push(monthTasks.length ? monthPortfolio.scores.sla : null);
-        trendCompletion.push(monthTasks.length ? monthPortfolio.completion : null);
-        risk.push(monthTasks.length ? (monthPortfolio.overdue.length + monthPortfolio.atRisk.length) : 0);
-        total.push(monthTasks.length);
-        completed.push(monthPortfolio.completed.length);
+        const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex));
+        const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex));
+        const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, null, holidaySet));
+        const monthPortfolio = buildPortfolio(completedTasks, holidaySet);
+        sla.push(completedTasks.length ? monthPortfolio.scores.sla : null);
+        trendCompletion.push(intakeTasks.length ? roundMetric((completedTasks.length / intakeTasks.length) * 100, 1) : null);
+        risk.push(riskTasks.length);
+        total.push(intakeTasks.length);
+        completed.push(completedTasks.length);
       });
       return {
         granularity: 'month',
@@ -2278,15 +2291,16 @@ function App() {
     const monthIndex = month - 1;
     const daysInMonth = new Date(year, month, 0).getDate();
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-    const monthTasks = tasks.filter((task) => getTaskMonth(task) === monthIndex);
     days.forEach((day) => {
-      const dayTasks = monthTasks.filter((task) => getTaskDayOfMonth(task) === day);
-      const dayPortfolio = buildPortfolio(dayTasks, holidaySet);
-      sla.push(dayTasks.length ? dayPortfolio.scores.sla : null);
-      trendCompletion.push(dayTasks.length ? dayPortfolio.completion : null);
-      risk.push(dayTasks.length ? (dayPortfolio.overdue.length + dayPortfolio.atRisk.length) : 0);
-      total.push(dayTasks.length);
-      completed.push(dayPortfolio.completed.length);
+      const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, day));
+      const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, day));
+      const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidaySet));
+      const dayPortfolio = buildPortfolio(completedTasks, holidaySet);
+      sla.push(completedTasks.length ? dayPortfolio.scores.sla : null);
+      trendCompletion.push(intakeTasks.length ? roundMetric((completedTasks.length / intakeTasks.length) * 100, 1) : null);
+      risk.push(riskTasks.length);
+      total.push(intakeTasks.length);
+      completed.push(completedTasks.length);
     });
     return {
       granularity: 'day',
