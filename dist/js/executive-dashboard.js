@@ -21925,16 +21925,23 @@ var MaxiwaExecutiveDashboard = (() => {
     const d = raw ? new Date(raw) : null;
     return d && !Number.isNaN(d.getTime()) ? d : null;
   }
-  function taskDateMatchesPeriod(task, fields, year, monthIndex, day = null) {
+  function isAfterDateOnly(value, limit) {
+    const date = normalizeDateOnly(value);
+    const limitDate = normalizeDateOnly(limit);
+    return Boolean(date && limitDate && date.getTime() > limitDate.getTime());
+  }
+  function taskDateMatchesPeriod(task, fields, year, monthIndex, day = null, maxDate = null) {
     const d = getTaskDate(task, fields);
     if (!d) return false;
+    if (maxDate && isAfterDateOnly(d, maxDate)) return false;
     if (d.getFullYear() !== Number(year) || d.getMonth() !== Number(monthIndex)) return false;
     return day === null || d.getDate() === Number(day);
   }
-  function taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidays = []) {
+  function taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidays = [], maxDate = null) {
     if (!isActive(task)) return false;
     const deadline = getEffectiveDeadline(task, holidays);
     if (!deadline) return false;
+    if (maxDate && isAfterDateOnly(deadline, maxDate)) return false;
     if (deadline.getFullYear() !== Number(year) || deadline.getMonth() !== Number(monthIndex)) return false;
     if (day !== null && deadline.getDate() !== Number(day)) return false;
     const days = businessDaysBetween(/* @__PURE__ */ new Date(), deadline, holidays);
@@ -22487,12 +22494,18 @@ var MaxiwaExecutiveDashboard = (() => {
       const completed = [];
       const intakeFields = ["startdate", "created_at", "timestamp"];
       const completionFields = ["completiondate"];
+      const today = normalizeDateOnly(/* @__PURE__ */ new Date());
+      const currentYear = today.getFullYear();
+      const currentMonthIndex = today.getMonth();
+      const currentDay = today.getDate();
+      const selectedYear = Number(year);
       if (month === 0) {
-        const months = Array.from({ length: 12 }, (_, i) => i);
+        const monthCount = selectedYear < currentYear ? 12 : selectedYear === currentYear ? currentMonthIndex + 1 : 0;
+        const months = Array.from({ length: monthCount }, (_, i) => i);
         months.forEach((monthIndex2) => {
-          const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex2));
-          const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex2));
-          const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex2, null, holidaySet));
+          const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex2, null, today));
+          const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex2, null, today));
+          const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex2, null, holidaySet, today));
           const monthPortfolio = buildPortfolio(completedTasks, holidaySet);
           sla.push(completedTasks.length ? monthPortfolio.scores.sla : null);
           trendCompletion.push(intakeTasks.length ? roundMetric(completedTasks.length / intakeTasks.length * 100, 1) : null);
@@ -22509,11 +22522,12 @@ var MaxiwaExecutiveDashboard = (() => {
       }
       const monthIndex = month - 1;
       const daysInMonth = new Date(year, month, 0).getDate();
-      const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+      const dayCount = selectedYear < currentYear || selectedYear === currentYear && monthIndex < currentMonthIndex ? daysInMonth : selectedYear === currentYear && monthIndex === currentMonthIndex ? currentDay : 0;
+      const days = Array.from({ length: dayCount }, (_, i) => i + 1);
       days.forEach((day) => {
-        const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, day));
-        const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, day));
-        const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidaySet));
+        const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, day, today));
+        const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, day, today));
+        const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidaySet, today));
         const dayPortfolio = buildPortfolio(completedTasks, holidaySet);
         sla.push(completedTasks.length ? dayPortfolio.scores.sla : null);
         trendCompletion.push(intakeTasks.length ? roundMetric(completedTasks.length / intakeTasks.length * 100, 1) : null);
