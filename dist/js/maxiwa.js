@@ -13282,6 +13282,32 @@ var MaxiwaKpiApp = (() => {
     const key = statusKey(status);
     return expectedStatuses.some((expected) => key === statusKey(expected));
   }
+  function taskSortTimestamp(task = {}) {
+    const candidates = [
+      task.created_at,
+      task.createdAt,
+      task.startdate,
+      task.startDate,
+      task.updated_at,
+      task.updatedAt,
+      task.deadline,
+      task.completiondate,
+      task.completionDate
+    ];
+    for (const value of candidates) {
+      const time = value ? new Date(value).getTime() : NaN;
+      if (!Number.isNaN(time)) return time;
+    }
+    const id = Number(task.id);
+    return Number.isFinite(id) ? id : 0;
+  }
+  function compareMyTasks(a, b) {
+    const processDiff = Number(statusEquals(b.status, "On Process")) - Number(statusEquals(a.status, "On Process"));
+    if (processDiff) return processDiff;
+    const dateDiff = taskSortTimestamp(b) - taskSortTimestamp(a);
+    if (dateDiff) return dateDiff;
+    return String(b.id || "").localeCompare(String(a.id || ""), void 0, { numeric: true });
+  }
   function taskDateInPeriod(value, month, year, allTime) {
     if (allTime || !month || !year) return true;
     const date = value ? new Date(value) : null;
@@ -14869,7 +14895,7 @@ var MaxiwaKpiApp = (() => {
     const kpis = data.kpis || [];
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "grid gap-5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "mx-grid-auto" }, /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "Tasks", value: tasks.length, sub: "\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E23\u0E27\u0E21\u0E08\u0E32\u0E01\u0E23\u0E30\u0E1A\u0E1A\u0E40\u0E14\u0E34\u0E21", icon: "fa-briefcase" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "Users", value: staff.length, sub: "\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E43\u0E19\u0E23\u0E30\u0E1A\u0E1A", icon: "fa-users", accent: "var(--mx-teal)" }), /* @__PURE__ */ import_react.default.createElement(MetricCard, { label: "KPI Items", value: kpis.length, sub: "\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23 KPI \u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19", icon: "fa-sliders", accent: "var(--mx-amber)" })), /* @__PURE__ */ import_react.default.createElement(Panel, { title: "System Overview", subtitle: "\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E1C\u0E39\u0E49\u0E14\u0E39\u0E41\u0E25\u0E23\u0E30\u0E1A\u0E1A" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, APP_NAME, " \u0E43\u0E0A\u0E49 backend \u0E40\u0E14\u0E34\u0E21\u0E41\u0E25\u0E30\u0E10\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E40\u0E14\u0E34\u0E21\u0E42\u0E14\u0E22\u0E15\u0E23\u0E07 \u0E41\u0E15\u0E48\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E1B\u0E23\u0E30\u0E2A\u0E1A\u0E01\u0E32\u0E23\u0E13\u0E4C\u0E01\u0E32\u0E23\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E43\u0E2B\u0E49\u0E0A\u0E31\u0E14\u0E40\u0E08\u0E19\u0E41\u0E25\u0E30\u0E40\u0E1B\u0E47\u0E19\u0E23\u0E30\u0E1A\u0E1A\u0E21\u0E32\u0E01\u0E02\u0E36\u0E49\u0E19")));
   }
-  function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, onDelete, onRefresh, actionState }) {
+  function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, onDelete, onRefresh, actionState, myTasksSort = false }) {
     const [statusFilter, setStatusFilter] = useState("all");
     const [search, setSearch] = useState("");
     const [expandedTaskId, setExpandedTaskId] = useState(null);
@@ -14906,13 +14932,14 @@ var MaxiwaKpiApp = (() => {
       ), /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-50" }, label, /* @__PURE__ */ import_react.default.createElement("div", { className: "absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" })));
     };
     const filtered = useMemo(() => {
-      return (tasks || []).filter((task) => {
+      const items = (tasks || []).filter((task) => {
         if (statusFilter !== "all" && !statusEquals(task.status, statusFilter)) return false;
         const q = search.trim().toLowerCase();
         if (!q) return true;
         return [task.job, task.name, task.team, task.mainkpi, task.subkpi, task.status].some((v) => String(v || "").toLowerCase().includes(q));
       });
-    }, [tasks, statusFilter, search]);
+      return myTasksSort ? [...items].sort(compareMyTasks) : items;
+    }, [tasks, statusFilter, search, myTasksSort]);
     const taskSummary = useMemo(() => ({
       total: (tasks || []).length,
       active: (tasks || []).filter((t) => statusIn(t.status, ["On Process", "Pending", "On Hold"])).length,
@@ -16896,7 +16923,8 @@ var MaxiwaKpiApp = (() => {
         onStatusChange: handleStatusChange,
         onDelete: handleDelete,
         onRefresh: reloadTasks,
-        actionState
+        actionState,
+        myTasksSort: true
       }
     ), view === "my-tasks" && /* @__PURE__ */ import_react.default.createElement(
       TaskCenterView,
@@ -16908,7 +16936,8 @@ var MaxiwaKpiApp = (() => {
         onStatusChange: handleStatusChange,
         onDelete: handleDelete,
         onRefresh: reloadTasks,
-        actionState
+        actionState,
+        myTasksSort: true
       }
     ), view === "create" && /* @__PURE__ */ import_react.default.createElement(QuickCreateView, { user, people: peopleForAssign, mode: "personal", onSaved: handleTasksSaved }), view === "assign" && /* @__PURE__ */ import_react.default.createElement(QuickCreateView, { user, people: peopleForAssign, mode: "assign", onSaved: (savedTasks) => handleTasksSaved(savedTasks, { reloadPeople: true }) }), view === "people" && /* @__PURE__ */ import_react.default.createElement(PeopleView, { user, people: state.people, onRefresh: reloadPeople }), view === "tracker" && /* @__PURE__ */ import_react.default.createElement(TrackerViewNew, null), view === "systems" && /* @__PURE__ */ import_react.default.createElement(SystemsView, { user, systemLinks }), view === "admin" && /* @__PURE__ */ import_react.default.createElement(
       AdminStudio,

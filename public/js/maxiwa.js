@@ -622,6 +622,34 @@ function statusIn(status, expectedStatuses = []) {
   return expectedStatuses.some((expected) => key === statusKey(expected));
 }
 
+function taskSortTimestamp(task = {}) {
+  const candidates = [
+    task.created_at,
+    task.createdAt,
+    task.startdate,
+    task.startDate,
+    task.updated_at,
+    task.updatedAt,
+    task.deadline,
+    task.completiondate,
+    task.completionDate,
+  ];
+  for (const value of candidates) {
+    const time = value ? new Date(value).getTime() : NaN;
+    if (!Number.isNaN(time)) return time;
+  }
+  const id = Number(task.id);
+  return Number.isFinite(id) ? id : 0;
+}
+
+function compareMyTasks(a, b) {
+  const processDiff = Number(statusEquals(b.status, 'On Process')) - Number(statusEquals(a.status, 'On Process'));
+  if (processDiff) return processDiff;
+  const dateDiff = taskSortTimestamp(b) - taskSortTimestamp(a);
+  if (dateDiff) return dateDiff;
+  return String(b.id || '').localeCompare(String(a.id || ''), undefined, { numeric: true });
+}
+
 function taskDateInPeriod(value, month, year, allTime) {
   if (allTime || !month || !year) return true;
   const date = value ? new Date(value) : null;
@@ -3296,7 +3324,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
 }
 
 // ─── Task Center View ──────────────────────────────────────────────────────────
-function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, onDelete, onRefresh, actionState }) {
+function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, onDelete, onRefresh, actionState, myTasksSort = false }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [expandedTaskId, setExpandedTaskId] = useState(null);
@@ -3352,14 +3380,15 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
   };
 
   const filtered = useMemo(() => {
-    return (tasks || []).filter((task) => {
+    const items = (tasks || []).filter((task) => {
       if (statusFilter !== 'all' && !statusEquals(task.status, statusFilter)) return false;
       const q = search.trim().toLowerCase();
       if (!q) return true;
       return [task.job, task.name, task.team, task.mainkpi, task.subkpi, task.status]
         .some((v) => String(v || '').toLowerCase().includes(q));
     });
-  }, [tasks, statusFilter, search]);
+    return myTasksSort ? [...items].sort(compareMyTasks) : items;
+  }, [tasks, statusFilter, search, myTasksSort]);
 
   const taskSummary = useMemo(() => ({
     total: (tasks || []).length,
@@ -6616,6 +6645,7 @@ function App() {
               onDelete={handleDelete}
               onRefresh={reloadTasks}
               actionState={actionState}
+              myTasksSort={true}
             />
           )}
           {view === 'my-tasks' && (
@@ -6628,6 +6658,7 @@ function App() {
               onDelete={handleDelete}
               onRefresh={reloadTasks}
               actionState={actionState}
+              myTasksSort={true}
             />
           )}
           {view === 'create' && (
