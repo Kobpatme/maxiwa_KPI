@@ -52,6 +52,9 @@ for (const [fileName, globalName] of jsxBuilds) {
     jsxFactory: "React.createElement",
     jsxFragment: "React.Fragment",
     loader: { ".js": "jsx" },
+    define: {
+      "process.env.NODE_ENV": JSON.stringify("production"),
+    },
     target: ["es2019"],
     logLevel: "silent",
   });
