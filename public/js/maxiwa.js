@@ -2488,7 +2488,7 @@ function useAppData(user, view) {
       if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
       else if (user.role === 'Staff') res = { staff: [user] };
       else res = await API.getAllStaff(user.empId);
-      safeSet({ people: filterByAllowedTeams(user, res.staff || []), loading: false });
+      safeSet({ people: filterByAllowedTeams(user, (res.staff || []).map((person) => normalizeAppUser(person))).filter(Boolean), loading: false });
     } catch (e) {
       safeSet({ loading: false, error: e.message || 'โหลดรายชื่อไม่สำเร็จ' });
     }
@@ -4098,7 +4098,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
   useEffect(() => {
     if (isPersonalTask) return;
     if (!form.assignedToEmpId) { setAssigneeKpis([]); return; }
-    const person = (people || []).find((p) => p.empId === form.assignedToEmpId);
+    const person = (people || []).find((p) => userEmpId(p) === form.assignedToEmpId);
     if (!person) return;
     setForm((prev) => ({ ...prev, assignedToName: person.name, assignedToTeam: person.team, subkpi: '', mainkpi: '', deadline: '', extra_data: keepSsrExtraData(prev.extra_data) }));
     API.getKPIsByTeam(person.team)
@@ -4117,8 +4117,8 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
       setForm((p) => ({ ...p, subkpi: '', mainkpi: '', deadline: '', extra_data: keepSsrExtraData(p.extra_data) }));
       return;
     }
-    const kpi = activeKpis.find((k) => k.sub === subkpi);
-    setForm((p) => ({ ...p, subkpi, mainkpi: kpi?.main || '', extra_data: keepSsrExtraData(p.extra_data) }));
+    const kpi = activeKpis.find((k) => kpiSubValueOf(k) === subkpi);
+    setForm((p) => ({ ...p, subkpi, mainkpi: kpiMainValueOf(kpi) || '', extra_data: keepSsrExtraData(p.extra_data) }));
 
     setLoadingDeadline(true);
     try {
@@ -4133,7 +4133,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
       if (res && !res.error) {
         setForm((p) => ({
           ...p,
-          mainkpi: res.mainkpi || kpi?.main || '',
+          mainkpi: res.mainkpi || kpiMainValueOf(kpi) || '',
           deadline: res.deadline || '',
           extra_data: {
             ...keepSsrExtraData(p.extra_data),
@@ -4240,7 +4240,7 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
             >
               <option value="">เลือกผู้รับผิดชอบ</option>
               {(people || []).map((person) => (
-                <option key={person.empId} value={person.empId}>
+                <option key={userEmpId(person)} value={userEmpId(person)}>
                   {person.name} ({person.team})
                 </option>
               ))}
@@ -4253,9 +4253,11 @@ function QuickCreateView({ user, people, onSaved, mode = 'auto' }) {
           {activeKpis.length > 0 ? (
             <select className="mx-select" value={form.subkpi} onChange={(e) => handleSubKpiChange(e.target.value)}>
               <option value="">เลือก Sub KPI</option>
-              {activeKpis.map((k) => (
-                <option key={`${k.main}-${k.sub}`} value={k.sub}>{k.sub}</option>
-              ))}
+              {activeKpis.map((k) => {
+                const main = kpiMainValueOf(k);
+                const sub = kpiSubValueOf(k);
+                return sub ? <option key={k.id || `${k.team || ''}-${main}-${sub}`} value={sub}>{sub}</option> : null;
+              })}
             </select>
           ) : (
             <input

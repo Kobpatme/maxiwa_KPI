@@ -14480,7 +14480,7 @@ var MaxiwaKpiApp = (() => {
         if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
         else if (user.role === "Staff") res = { staff: [user] };
         else res = await API.getAllStaff(user.empId);
-        safeSet({ people: filterByAllowedTeams(user, res.staff || []), loading: false });
+        safeSet({ people: filterByAllowedTeams(user, (res.staff || []).map((person) => normalizeAppUser(person))).filter(Boolean), loading: false });
       } catch (e) {
         safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
       }
@@ -15383,7 +15383,7 @@ var MaxiwaKpiApp = (() => {
         setAssigneeKpis([]);
         return;
       }
-      const person = (people || []).find((p) => p.empId === form.assignedToEmpId);
+      const person = (people || []).find((p) => userEmpId(p) === form.assignedToEmpId);
       if (!person) return;
       setForm((prev) => ({ ...prev, assignedToName: person.name, assignedToTeam: person.team, subkpi: "", mainkpi: "", deadline: "", extra_data: keepSsrExtraData(prev.extra_data) }));
       API.getKPIsByTeam(person.team).then((res) => setAssigneeKpis(res.kpis || [])).catch(() => setAssigneeKpis([]));
@@ -15396,8 +15396,8 @@ var MaxiwaKpiApp = (() => {
         setForm((p) => ({ ...p, subkpi: "", mainkpi: "", deadline: "", extra_data: keepSsrExtraData(p.extra_data) }));
         return;
       }
-      const kpi = activeKpis.find((k) => k.sub === subkpi);
-      setForm((p) => ({ ...p, subkpi, mainkpi: (kpi == null ? void 0 : kpi.main) || "", extra_data: keepSsrExtraData(p.extra_data) }));
+      const kpi = activeKpis.find((k) => kpiSubValueOf(k) === subkpi);
+      setForm((p) => ({ ...p, subkpi, mainkpi: kpiMainValueOf(kpi) || "", extra_data: keepSsrExtraData(p.extra_data) }));
       setLoadingDeadline(true);
       try {
         const targetTeam = isPersonalTask ? user.team : form.assignedToTeam;
@@ -15411,7 +15411,7 @@ var MaxiwaKpiApp = (() => {
         if (res && !res.error) {
           setForm((p) => ({
             ...p,
-            mainkpi: res.mainkpi || (kpi == null ? void 0 : kpi.main) || "",
+            mainkpi: res.mainkpi || kpiMainValueOf(kpi) || "",
             deadline: res.deadline || "",
             extra_data: {
               ...keepSsrExtraData(p.extra_data),
@@ -15515,8 +15515,12 @@ var MaxiwaKpiApp = (() => {
           onChange: (e) => setForm((p) => ({ ...p, assignedToEmpId: e.target.value }))
         },
         /* @__PURE__ */ import_react.default.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1C\u0E39\u0E49\u0E23\u0E31\u0E1A\u0E1C\u0E34\u0E14\u0E0A\u0E2D\u0E1A"),
-        (people || []).map((person) => /* @__PURE__ */ import_react.default.createElement("option", { key: person.empId, value: person.empId }, person.name, " (", person.team, ")"))
-      )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Sub KPI"), activeKpis.length > 0 ? /* @__PURE__ */ import_react.default.createElement("select", { className: "mx-select", value: form.subkpi, onChange: (e) => handleSubKpiChange(e.target.value) }, /* @__PURE__ */ import_react.default.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01 Sub KPI"), activeKpis.map((k) => /* @__PURE__ */ import_react.default.createElement("option", { key: `${k.main}-${k.sub}`, value: k.sub }, k.sub))) : /* @__PURE__ */ import_react.default.createElement(
+        (people || []).map((person) => /* @__PURE__ */ import_react.default.createElement("option", { key: userEmpId(person), value: userEmpId(person) }, person.name, " (", person.team, ")"))
+      )), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("label", { className: "block mb-2 text-sm font-bold" }, "Sub KPI"), activeKpis.length > 0 ? /* @__PURE__ */ import_react.default.createElement("select", { className: "mx-select", value: form.subkpi, onChange: (e) => handleSubKpiChange(e.target.value) }, /* @__PURE__ */ import_react.default.createElement("option", { value: "" }, "\u0E40\u0E25\u0E37\u0E2D\u0E01 Sub KPI"), activeKpis.map((k) => {
+        const main = kpiMainValueOf(k);
+        const sub = kpiSubValueOf(k);
+        return sub ? /* @__PURE__ */ import_react.default.createElement("option", { key: k.id || `${k.team || ""}-${main}-${sub}`, value: sub }, sub) : null;
+      })) : /* @__PURE__ */ import_react.default.createElement(
         "input",
         {
           className: "mx-input",
