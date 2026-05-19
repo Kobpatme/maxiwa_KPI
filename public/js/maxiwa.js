@@ -622,6 +622,14 @@ function statusIn(status, expectedStatuses = []) {
   return expectedStatuses.some((expected) => key === statusKey(expected));
 }
 
+function isOwnTask(task, user) {
+  const taskEmp = String(task?.empId || task?.empid || task?.assignedToEmpId || '').trim().toLowerCase();
+  const currentEmp = userEmpId(user).toLowerCase();
+  if (taskEmp && currentEmp && taskEmp === currentEmp) return true;
+  return String(task?.name || '').trim().toLowerCase() === String(user?.name || '').trim().toLowerCase()
+    && (!task?.team || !user?.team || String(task.team).trim().toLowerCase() === String(user.team).trim().toLowerCase());
+}
+
 function taskSortTimestamp(task = {}) {
   const candidates = [
     task.created_at,
@@ -763,7 +771,23 @@ function extractJobCode(jobStr) {
 
 function getTimestamp() {
   const now = new Date();
-  return `[${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}]`;
+  try {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      }).formatToParts(now).map((part) => [part.type, part.value])
+    );
+    return `[${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}:${parts.second} BKK]`;
+  } catch {
+    return `[${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}]`;
+  }
 }
 
 function getSsrNumber(extraData) {
@@ -3554,6 +3578,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
 
   const canEdit = (task) => ['Manager', 'Admin'].includes(user.role) || !statusIn(task.status, ['Completed', 'Cancelled']);
   const canCancel = (task) => !statusIn(task.status, ['Completed', 'Cancelled']);
+  const canAddNote = (task) => !statusEquals(task.status, 'Cancelled') && isOwnTask(task, user);
 
   return (
     <div className="grid gap-5">
@@ -3808,6 +3833,9 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                           <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
                         </>
                       )}
+                      {statusEquals(task.status, 'Completed') && canAddNote(task) && (
+                        <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
+                      )}
                       {canCancel(task) && (
                         <ActionButton icon="fa-trash" color="rose" onClick={() => handleStaffAction(task, 'cancel')} label="ยกเลิก" loading={taskBusy} disabled={actionsDisabled} />
                       )}
@@ -3820,6 +3848,9 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                   {/* Lead / Manager / Admin actions */}
                   {['Lead', 'Manager', 'Admin'].includes(user.role) && (
                     <>
+                      {statusEquals(task.status, 'Completed') && canAddNote(task) && (
+                        <ActionButton icon="fa-comment-dots" color="blue" onClick={() => handleStaffAction(task, 'note')} label="เพิ่มบันทึก" loading={taskBusy} disabled={actionsDisabled} />
+                      )}
                       <ActionButton icon="fa-arrow-right-arrow-left" color="blue" onClick={() => setStatusTarget(task)} label="เปลี่ยนสถานะ" loading={taskBusy} disabled={actionsDisabled} />
                       {canEdit(task) && (
                         <ActionButton icon="fa-edit" color="indigo" onClick={() => handleEditOpen(task)} label="แก้ไข" disabled={actionsDisabled} />
@@ -6263,7 +6294,7 @@ function App() {
             : 'กำลังอัปเดตสถานะ...';
     beginTaskAction(task, actionLabel);
     try {
-      const isCompleting = status === 'Completed';
+      const isCompleting = status === 'Completed' && mode !== 'note_only';
       const nextNote = isCompleting ? '' : note;
       const statusMode = isCompleting ? undefined : 'append';
       const holdUpdate = mode === 'note_only'

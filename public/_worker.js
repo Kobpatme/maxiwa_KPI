@@ -2007,7 +2007,7 @@ async function handleApi(request, env, apiPath) {
         ? appendTaskNote(existing?.note ?? existing?.notes, nextNote)
         : nextNote;
     }
-    if (statusKey(status) === "completed") updates.completiondate = body.completiondate || todayIso();
+    if (statusKey(status) === "completed" && statusKey(body.mode) !== "append") updates.completiondate = body.completiondate || todayIso();
     const task = await patchTask(env, body.id, updates);
     await writeAudit(env, { taskId: body.id, action: "status_change", changedBy: body.changedBy || body.reason, details: updates });
     return jsonResponse(request, { ok: true, task }, 200, { "X-Maxiwa-Backend": "supabase" });
