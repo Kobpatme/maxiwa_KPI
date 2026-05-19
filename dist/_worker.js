@@ -1026,6 +1026,13 @@ function normalizeStatus(status, fallback = "Pending") {
   return raw;
 }
 
+function appendTaskNote(existingNote, nextNote) {
+  const previous = String(existingNote || "").trim();
+  const incoming = String(nextNote || "").trim();
+  if (!incoming) return previous;
+  return previous ? `${previous}\n${incoming}` : incoming;
+}
+
 function kpiMain(row) {
   return row?.main ?? row?.mainkpi ?? row?.mainKpi ?? "";
 }
@@ -1994,7 +2001,12 @@ async function handleApi(request, env, apiPath) {
     const existing = await supabaseFetch(env, "tasks", `select=*&id=eq.${encodeEq(body.id)}&limit=1`).then((rows) => rows[0]).catch(() => null);
     const holidays = await readAll(env, "holidays").catch(() => []);
     const updates = { status, ...(existing ? buildHoldStatusUpdate(existing, status, holidays, body.changedBy || body.reason || "") : {}) };
-    if (body.note !== undefined || body.reason !== undefined) updates.note = body.note ?? body.reason;
+    if (body.note !== undefined || body.reason !== undefined) {
+      const nextNote = body.note ?? body.reason;
+      updates.note = statusKey(body.mode) === "append"
+        ? appendTaskNote(existing?.note ?? existing?.notes, nextNote)
+        : nextNote;
+    }
     if (statusKey(status) === "completed") updates.completiondate = body.completiondate || todayIso();
     const task = await patchTask(env, body.id, updates);
     await writeAudit(env, { taskId: body.id, action: "status_change", changedBy: body.changedBy || body.reason, details: updates });
