@@ -6297,7 +6297,7 @@ function App() {
     beginTaskAction(task, actionLabel);
     try {
       const isCompleting = status === 'Completed' && mode !== 'note_only';
-      const nextNote = isCompleting ? '' : note;
+      const nextNote = isCompleting ? undefined : note;
       const statusMode = isCompleting ? undefined : 'append';
       const holdUpdate = mode === 'note_only'
         ? null

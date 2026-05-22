@@ -2003,9 +2003,14 @@ async function handleApi(request, env, apiPath) {
     const updates = { status, ...(existing ? buildHoldStatusUpdate(existing, status, holidays, body.changedBy || body.reason || "") : {}) };
     if (body.note !== undefined || body.reason !== undefined) {
       const nextNote = body.note ?? body.reason;
-      updates.note = statusKey(body.mode) === "append"
-        ? appendTaskNote(existing?.note ?? existing?.notes, nextNote)
-        : nextNote;
+      const isBlankCompleteNote = statusKey(status) === "completed"
+        && statusKey(body.mode) !== "append"
+        && String(nextNote || "").trim() === "";
+      if (!isBlankCompleteNote) {
+        updates.note = statusKey(body.mode) === "append"
+          ? appendTaskNote(existing?.note ?? existing?.notes, nextNote)
+          : nextNote;
+      }
     }
     if (statusKey(status) === "completed" && statusKey(body.mode) !== "append") updates.completiondate = body.completiondate || todayIso();
     const task = await patchTask(env, body.id, updates);

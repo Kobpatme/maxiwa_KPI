@@ -16708,7 +16708,7 @@ var MaxiwaKpiApp = (() => {
       beginTaskAction(task, actionLabel);
       try {
         const isCompleting = status === "Completed" && mode !== "note_only";
-        const nextNote = isCompleting ? "" : note;
+        const nextNote = isCompleting ? void 0 : note;
         const statusMode = isCompleting ? void 0 : "append";
         const holdUpdate = mode === "note_only" ? null : buildHoldExtraData(task, status, state.holidays || [], user.name);
         if (mode === "note_only") {
