@@ -109,6 +109,10 @@ function fmtDate(value) {
   return d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+function riskAsOfLabel(value) {
+  return `Risk as of ${fmtDate(value)}`;
+}
+
 function normalizeStatus(task) {
   return String(task?.status || '').trim().toLowerCase();
 }
@@ -1055,7 +1059,7 @@ function KpiHeatmap({ teamRows, kpiRows }) {
   );
 }
 
-function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue, monthlyTrend, periodLabel, user, empId, tasks }) {
+function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue, monthlyTrend, periodLabel, riskAsOfDate, user, empId, tasks }) {
   const highestRisk = [...teamRows].sort((a, b) => ((b.overdueWeight * 3 + b.atRiskWeight + b.riskWeightShare) - (a.overdueWeight * 3 + a.atRiskWeight + a.riskWeightShare)))[0];
   const highestLoad = [...teamRows].sort((a, b) => b.activeWeight - a.activeWeight || b.totalWeight - a.totalWeight)[0];
   const strongestTeam = [...teamRows].sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
@@ -1092,6 +1096,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Total portfolio</span><strong>{fmtNum(tasks.length)}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Work units</span><strong>{fmtWorkUnits(portfolio.totalWeight)}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Active units</span><strong>{fmtWorkUnits(portfolio.activeWeight)}</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Risk basis</span><strong>{riskAsOfLabel(riskAsOfDate)}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Risk adjusted score</span><strong>{fmtPct(portfolio.riskAdjustedScore)}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">SLA breach rate</span><strong>{tasks.length ? fmtPct(Math.round((portfolio.slaFail.length / Math.max(1, portfolio.completed.length)) * 1000) / 10) : '-'}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Teams monitored</span><strong>{fmtNum(teamRows.length)}</strong></div>
@@ -2404,7 +2409,7 @@ function App() {
         onLoad={() => load(empId)}
       />
 
-      {activeTab === 'overview' && <OverviewPanel portfolio={portfolio} teamRows={teamRows} kpiRows={kpiRows} statusRows={statusRows} criticalQueue={criticalQueue} monthlyTrend={monthlyTrend} periodLabel={periodLabel} user={state.user} empId={empId} tasks={tasks} />}
+      {activeTab === 'overview' && <OverviewPanel portfolio={portfolio} teamRows={teamRows} kpiRows={kpiRows} statusRows={statusRows} criticalQueue={criticalQueue} monthlyTrend={monthlyTrend} periodLabel={periodLabel} riskAsOfDate={riskAsOfDate} user={state.user} empId={empId} tasks={tasks} />}
       {activeTab === 'teams' && <TeamsPanel teamRows={teamRows} holidays={holidaySet} />}
       {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} selectedPerson={selectedPerson} setSelectedPerson={setSelectedPerson} holidays={holidaySet} />}
       {activeTab === 'kpi' && <KpiAnalysisPanel kpiRows={kpiRows} personRows={personRows} teamRows={teamRows} />}

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "test": "node scripts/logic-tests.mjs",
+    "test:logic": "node scripts/logic-tests.mjs",
     "dev": "npm run build && node local-dev-server.mjs",
     "deploy": "npm run build && wrangler pages deploy dist --project-name metrixverity"
   },

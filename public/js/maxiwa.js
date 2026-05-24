@@ -2738,6 +2738,10 @@ function getPerformanceRiskAsOfDate(month, year) {
   return periodEnd < today ? periodEnd : today;
 }
 
+function performanceRiskAsOfLabel(value) {
+  return `Risk as of ${formatDate(value)}`;
+}
+
 function getExecutiveHealthClass(value) {
   if (value === null || value === undefined) return 'mx-status-cancelled';
   if (value >= 90) return 'mx-status-completed';
@@ -2772,6 +2776,7 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
   const completion = scores.completion ?? (tasks.length ? Math.round((completedTasks.length / tasks.length) * 100) : null);
   const sla = scores.sla;
   const periodLabel = `${filterMonth === 0 ? 'All Months' : MONTH_NAMES[filterMonth - 1]} ${filterYear}`;
+  const riskAsOfLabel = performanceRiskAsOfLabel(riskAsOfDate);
   const weightedScore = completion !== null && sla !== null ? Math.round((completion + sla) / 2) : (completion ?? sla);
 
   const teamMap = {};
@@ -2847,6 +2852,10 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
               <div className="flex items-center justify-between gap-3">
                 <span className="text-sm text-[var(--mx-muted)]">Scope</span>
                 <span className="font-extrabold">{periodLabel}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-[var(--mx-muted)]">Risk basis</span>
+                <span className="font-extrabold">{riskAsOfLabel}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-sm text-[var(--mx-muted)]">Active workload</span>

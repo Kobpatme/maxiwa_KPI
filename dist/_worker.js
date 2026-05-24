@@ -997,8 +997,38 @@ function encodeEq(value) {
   return encodeURIComponent(String(value ?? "").trim());
 }
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+export function bangkokDateKey(value = new Date()) {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return value.trim();
+  const sourceDate = value ? new Date(value) : new Date();
+  if (Number.isNaN(sourceDate.getTime())) return "";
+  try {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Bangkok",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).formatToParts(sourceDate).map((part) => [part.type, part.value])
+    );
+    if (parts.year && parts.month && parts.day) return `${parts.year}-${parts.month}-${parts.day}`;
+  } catch {
+    // Fall back to UTC only if the runtime cannot format Bangkok time.
+  }
+  return sourceDate.toISOString().slice(0, 10);
+}
+
+function dateFromDateKey(key) {
+  const match = String(key || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+}
+
+function dateKeyFromUtcDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+export function todayIso() {
+  return bangkokDateKey(new Date());
 }
 
 function randomId() {
@@ -1047,9 +1077,17 @@ function kpiWeight(row) {
   return Number.isFinite(value) && value > 0 ? value : 1;
 }
 
-function activeHolidayDates(holidays) {
+function isActiveFlag(value) {
+  if (value === undefined || value === null || value === "") return true;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const text = String(value).trim().toLowerCase();
+  return !["false", "0", "inactive", "disabled", "no", "n"].includes(text);
+}
+
+export function activeHolidayDates(holidays) {
   return new Set((holidays || [])
-    .filter((h) => h.is_active !== false)
+    .filter((h) => isActiveFlag(h.is_active ?? h.active ?? true))
     .map((h) => String(h.holiday_date || h.date || "").slice(0, 10))
     .filter(Boolean));
 }
@@ -1210,27 +1248,25 @@ async function syncThaiPublicHolidays(env, body = {}) {
   return { ok: true, years, imported: synced.length, holidays: synced };
 }
 
-function addWorkingDays(startDate, days, holidays = []) {
+export function addWorkingDays(startDate, days, holidays = []) {
   const holidaySet = activeHolidayDates(holidays);
-  const date = startDate ? new Date(startDate) : new Date();
+  const date = dateFromDateKey(startDate ? bangkokDateKey(startDate) : todayIso()) || dateFromDateKey(todayIso());
   let remaining = Math.max(0, Number(days || 0));
   while (remaining > 0) {
-    date.setDate(date.getDate() + 1);
-    const day = date.getDay();
-    const iso = date.toISOString().slice(0, 10);
+    date.setUTCDate(date.getUTCDate() + 1);
+    const day = date.getUTCDay();
+    const iso = dateKeyFromUtcDate(date);
     if (day !== 0 && day !== 6 && !holidaySet.has(iso)) remaining -= 1;
   }
-  return date.toISOString().slice(0, 10);
+  return dateKeyFromUtcDate(date);
 }
 
 function normalizeDateOnly(value) {
-  const date = value ? new Date(value) : null;
-  if (!date || Number.isNaN(date.getTime())) return null;
-  date.setHours(0, 0, 0, 0);
-  return date;
+  if (!value) return null;
+  return dateFromDateKey(bangkokDateKey(value));
 }
 
-function businessDaysBetween(startValue, endValue, holidays = []) {
+export function businessDaysBetween(startValue, endValue, holidays = []) {
   const start = normalizeDateOnly(startValue);
   const end = normalizeDateOnly(endValue);
   if (!start || !end || start.getTime() === end.getTime()) return 0;
@@ -1239,9 +1275,9 @@ function businessDaysBetween(startValue, endValue, holidays = []) {
   const cursor = new Date(start);
   let count = 0;
   while (cursor.getTime() !== end.getTime()) {
-    cursor.setDate(cursor.getDate() + direction);
-    const day = cursor.getDay();
-    const iso = cursor.toISOString().slice(0, 10);
+    cursor.setUTCDate(cursor.getUTCDate() + direction);
+    const day = cursor.getUTCDay();
+    const iso = dateKeyFromUtcDate(cursor);
     if (day !== 0 && day !== 6 && !holidaySet.has(iso)) count += direction;
   }
   return count;
@@ -1422,6 +1458,11 @@ function taskInPeriod(task, month, year, allTime) {
 
 function taskPersonId(task) {
   return String(task.empId || task.empid || task.assignedToEmpId || "").trim();
+}
+
+export function normalizeCompletionDate(value) {
+  const normalized = value ? bangkokDateKey(value) : todayIso();
+  return normalized || todayIso();
 }
 
 function taskKpiText(value) {
@@ -1989,6 +2030,7 @@ async function handleApi(request, env, apiPath) {
     const body = await request.json().catch(() => ({}));
     if (!body.id) return jsonResponse(request, { error: "Task id is required" }, 400, { "X-Maxiwa-Backend": "supabase" });
     const { id, ...updates } = body;
+    if (updates.completiondate) updates.completiondate = normalizeCompletionDate(updates.completiondate);
     const task = await patchTask(env, id, updates);
     await writeAudit(env, { taskId: id, action: "update_task", changedBy: body.changedBy, details: updates });
     return jsonResponse(request, { ok: true, task }, 200, { "X-Maxiwa-Backend": "supabase" });
@@ -2012,7 +2054,7 @@ async function handleApi(request, env, apiPath) {
           : nextNote;
       }
     }
-    if (statusKey(status) === "completed" && statusKey(body.mode) !== "append") updates.completiondate = body.completiondate || todayIso();
+    if (statusKey(status) === "completed" && statusKey(body.mode) !== "append") updates.completiondate = normalizeCompletionDate(body.completiondate);
     const task = await patchTask(env, body.id, updates);
     await writeAudit(env, { taskId: body.id, action: "status_change", changedBy: body.changedBy || body.reason, details: updates });
     return jsonResponse(request, { ok: true, task }, 200, { "X-Maxiwa-Backend": "supabase" });
