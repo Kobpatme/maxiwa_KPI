@@ -864,6 +864,16 @@ function formatWeightPercent(value) {
   return `${formatWeight(value)}%`;
 }
 
+function formatWeightUnits(value) {
+  return formatWeight(value);
+}
+
+function calcActiveWeightShare(tasks = []) {
+  const activeWeight = (tasks || []).filter(isActiveTask).reduce((sum, task) => sum + getTaskWeight(task), 0);
+  const totalWeight = (tasks || []).filter((task) => !statusEquals(task?.status, 'Cancelled')).reduce((sum, task) => sum + getTaskWeight(task), 0);
+  return totalWeight > 0 ? Math.round((activeWeight / totalWeight) * 100) : null;
+}
+
 function getKpiGroupKey(task) {
   return String(task?.subkpi ?? task?.subKpi ?? task?.sub ?? task?.mainkpi ?? task?.mainKpi ?? task?.main ?? 'Other').trim() || 'Other';
 }
@@ -884,7 +894,7 @@ function formatScorePercent(value) {
 
 function completionMetricSub(scores) {
   if (!scores || scores.completion === null || scores.completion === undefined) return 'คำนวณจากน้ำหนักงาน';
-  return `สำเร็จ ${scores.completion}% จากน้ำหนักรวม ${formatWeightPercent(scores.totalWeight)}`;
+  return `สำเร็จ ${scores.completion}% จากน้ำหนักรวม ${formatWeightUnits(scores.totalWeight)}`;
 }
 
 function slaMetricSub(scores, score = scores?.sla) {
@@ -938,7 +948,7 @@ function WeightFormulaStrip({ scores }) {
           <span className="mx-badge mx-status-completed">น้ำหนักตรงเวลา {formatWeightPercent(scores.onTimeWeight)}</span>
           <span className="mx-badge mx-status-process">น้ำหนักเสร็จ {formatWeightPercent(scores.completedWeight)}</span>
           <span className="mx-badge mx-status-process">ฐาน SLA {formatWeightPercent(getSlaWeight(scores))}</span>
-          <span className="mx-badge mx-status-cancelled">รวม {formatWeightPercent(scores.totalWeight)}</span>
+          <span className="mx-badge mx-status-cancelled">รวม {formatWeightUnits(scores.totalWeight)}</span>
         </div>
       </div>
     </div>
@@ -996,6 +1006,24 @@ function tasksForPerson(index, person = {}) {
   const empKey = personKey(person.empId || person.empid);
   if (empKey && index.has(`emp:${empKey}`)) return index.get(`emp:${empKey}`) || [];
   return index.get(`name:${personNameTeamKey(person)}`) || [];
+}
+
+function enrichPeopleWithProfiles(summary = [], staff = []) {
+  if (!Array.isArray(summary) || summary.length === 0 || !Array.isArray(staff) || staff.length === 0) return summary || [];
+  const byEmp = new Map();
+  const byNameTeam = new Map();
+  staff.filter((person) => !isResignedPerson(person)).forEach((person) => {
+    const normalized = normalizeAppUser(person);
+    const emp = personKey(normalized.empId || normalized.empid);
+    if (emp) byEmp.set(emp, normalized);
+    const nameTeam = personNameTeamKey(normalized);
+    if (nameTeam !== '::') byNameTeam.set(nameTeam, normalized);
+  });
+  return (summary || []).map((person) => {
+    const emp = personKey(person.empId || person.empid);
+    const profile = (emp && byEmp.get(emp)) || byNameTeam.get(personNameTeamKey(person));
+    return profile ? { ...profile, ...person, pigurl: profile.pigurl || person.pigurl || '' } : person;
+  });
 }
 
 function enrichSummaryWithTaskWeights(summary, tasks, taskIndex = buildPersonTaskIndex(tasks)) {
@@ -1114,6 +1142,7 @@ function LeadPersonDetailModal({ row, dialogId }) {
   const slaScore = person.weightedSlaScore ?? detail.scores.sla;
   const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
   const totalWeight = person.totalWeight ?? detail.scores.totalWeight;
+  const activeWeightShare = calcActiveWeightShare(detail.tasks);
   const riskList = detail.riskItems.slice(0, 5);
   const statusItems = [
     ['Pending', detail.pending, 'mx-status-pending'],
@@ -1160,9 +1189,9 @@ function LeadPersonDetailModal({ row, dialogId }) {
               <div className="mt-1 text-xs text-[var(--mx-muted)]">Done {detail.completed}/{detail.tasks.length}</div>
             </div>
             <div className="mx-muted-card rounded-lg p-4">
-              <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Total Weight</div>
-              <div className="mt-2 text-3xl font-extrabold">{formatWeightPercent(totalWeight)}</div>
-              <div className="mt-1 text-xs text-[var(--mx-muted)]">น้ำหนักงานในช่วงที่เลือก</div>
+              <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Active Weight</div>
+              <div className="mt-2 text-3xl font-extrabold">{formatScorePercent(activeWeightShare)}</div>
+              <div className="mt-1 text-xs text-[var(--mx-muted)]">น้ำหนักงาน active จากรวม {formatWeightUnits(totalWeight)}</div>
             </div>
             <div className="mx-muted-card rounded-lg p-4">
               <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Risk</div>
@@ -1286,7 +1315,7 @@ function TeamPerformancePulsePanel({ rows = [], emptyText = 'No team data in thi
                       </div>
                       <div className="mx-muted-card rounded-lg p-3">
                         <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Weight</div>
-                        <div className="mt-1 text-xl font-extrabold">{formatWeightPercent(totalWeight)}</div>
+                        <div className="mt-1 text-xl font-extrabold">{formatWeightUnits(totalWeight)}</div>
                       </div>
                     </div>
 
@@ -2381,12 +2410,17 @@ function useAppData(user, view) {
         return;
       }
       if (isTeamManagerRole(user.role)) {
-        const tasksRes = await API.getAllTasks(monthParam, filterYear, user.team, user.empId);
+        const [tasksRes, staffRes] = await Promise.all([
+          API.getAllTasks(monthParam, filterYear, user.team, user.empId),
+          API.getAllStaffInTeam(user.team, user.empId).catch(() => ({ staff: [] })),
+        ]);
         const tasks = tasksRes.tasks || [];
+        const staff = staffRes.staff || [];
         safeSet({
           dashboard: {
-            summary: buildPeopleSummaryFromTasks(tasks),
+            summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(tasks), staff),
             tasks,
+            staff,
             period: tasksRes.period,
             holidays: tasksRes.holidays || [],
           },
@@ -2395,12 +2429,17 @@ function useAppData(user, view) {
         return;
       }
       if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
-        const tasksRes = await API.getAllTasks(monthParam, filterYear, 'all', user.empId);
+        const [tasksRes, staffRes] = await Promise.all([
+          API.getAllTasks(monthParam, filterYear, 'all', user.empId),
+          API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
+        ]);
         const visibleTasks = filterByAllowedTeams(user, tasksRes.tasks || []);
+        const staff = filterByAllowedTeams(user, staffRes.staff || []);
         safeSet({
           dashboard: {
-            summary: buildPeopleSummaryFromTasks(visibleTasks),
+            summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(visibleTasks), staff),
             tasks: visibleTasks,
+            staff,
             holidays: tasksRes.holidays || [],
           },
           loading: false,
@@ -2460,7 +2499,7 @@ function useAppData(user, view) {
         ? { ...prev.dashboard, tasks: mergeTasksById(prev.dashboard.tasks, visibleIncoming) }
         : prev.dashboard;
       const nextDashboard = dashboard && Array.isArray(dashboard.tasks) && (isTeamManagerRole(user.role) || isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role))
-        ? { ...dashboard, summary: buildPeopleSummaryFromTasks(dashboard.tasks) }
+        ? { ...dashboard, summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(dashboard.tasks), dashboard.staff || []) }
         : dashboard;
       return { ...prev, tasks: nextTasks, dashboard: nextDashboard, loading: false, error: '' };
     });
@@ -3160,6 +3199,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
     const taskIndex = buildPersonTaskIndex(tasks);
     const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks, taskIndex);
     const teamScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
+    const activeWeightShare = calcActiveWeightShare(tasks);
     const avgSla = teamScores && teamScores.sla !== null
       ? teamScores.sla
       : (summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0);
@@ -3168,7 +3208,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
       <div className="grid gap-5">
         <div className="mx-grid-auto">
           <MetricCard label="Team Members" value={summary.length} sub="กำลังแสดงตามสิทธิ์การเข้าถึง" icon="fa-users" />
-          <MetricCard label="Team Weight" value={teamScores ? formatWeightPercent(teamScores.totalWeight) : '-'} sub="น้ำหนักงานรวมของทีม" icon="fa-scale-balanced" accent="var(--mx-blue)" />
+          <MetricCard label="Active Weight" value={formatScorePercent(activeWeightShare)} sub={`น้ำหนักงาน active จากรวม ${teamScores ? formatWeightUnits(teamScores.totalWeight) : '-'}`} icon="fa-scale-balanced" accent="var(--mx-blue)" />
           <MetricCard label="Weighted Completion" value={teamScores ? formatScorePercent(teamScores.completion) : '-'} sub={completionMetricSub(teamScores)} icon="fa-check-double" accent="var(--mx-green)" />
           <MetricCard label="Avg SLA" value={`${avgSla}%`} sub={teamScores ? slaMetricSub(teamScores, avgSla) : 'ค่าเฉลี่ย weighted SLA score'} icon="fa-chart-line" accent="var(--mx-teal)" />
           <MetricCard label="Period" value={data.period || '-'} sub="ช่วงเวลาที่กำลังดู" icon="fa-calendar-days" accent="var(--mx-amber)" />
@@ -3180,6 +3220,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
               const slaScore = person.weightedSlaScore ?? detail.scores.sla;
               const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
               const totalWeight = person.totalWeight ?? detail.scores.totalWeight;
+              const activeWeightShare = calcActiveWeightShare(detail.tasks);
               const primaryRisk = detail.riskItems[0];
               const dialogId = `lead-person-detail-${String(person.empId || person.empid || person.name || index).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
               return (
@@ -3193,6 +3234,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0">
+                            <div className="mb-3"><UserAvatar user={person} /></div>
                             <div className="font-extrabold text-lg leading-tight break-words">{person.name}</div>
                             <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team || '-'} • {person.empId || person.empid || 'ไม่พบรหัสพนักงาน'}</div>
                           </div>
@@ -3213,8 +3255,8 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                             <div className="mt-1 text-xl font-extrabold">{formatScorePercent(completionScore)}</div>
                           </div>
                           <div className="mx-muted-card rounded-lg p-3">
-                            <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Weight</div>
-                            <div className="mt-1 text-xl font-extrabold">{formatWeightPercent(totalWeight)}</div>
+                            <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Active Weight</div>
+                            <div className="mt-1 text-xl font-extrabold">{formatScorePercent(activeWeightShare)}</div>
                           </div>
                         </div>
 
@@ -3303,7 +3345,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
         <div className="mx-grid-auto">
           <MetricCard label="Active Tasks" value={tasks.length} sub="โหลดจากระบบเดิมแบบตรง ๆ" icon="fa-briefcase" />
           <MetricCard label="Risk Queue" value={risky} sub="Pending / On Hold ต้องติดตาม" icon="fa-triangle-exclamation" accent="var(--mx-amber)" />
-          <MetricCard label="Total Weight" value={orgScores ? formatWeightPercent(orgScores.totalWeight) : '-'} sub="น้ำหนักงานรวมที่ใช้คำนวณ" icon="fa-scale-balanced" accent="var(--mx-blue)" />
+          <MetricCard label="Total Weight" value={orgScores ? formatWeightUnits(orgScores.totalWeight) : '-'} sub="น้ำหนักงานรวมที่ใช้คำนวณ" icon="fa-scale-balanced" accent="var(--mx-blue)" />
           <MetricCard label="Completion" value={orgScores ? formatScorePercent(orgScores.completion) : '-'} sub={completionMetricSub(orgScores)} icon="fa-check-double" accent="var(--mx-green)" />
           <MetricCard label="Avg SLA" value={`${avgSla}%`} sub={orgScores ? slaMetricSub(orgScores, avgSla) : 'weighted SLA across visible staff'} icon="fa-chart-line" accent="var(--mx-teal)" />
           <MetricCard label="People" value={summary.length} sub="จำนวนคนในมุมผู้จัดการ" icon="fa-users-viewfinder" accent="var(--mx-blue)" />
@@ -3319,7 +3361,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                     <div className="font-bold">{person.name}</div>
                     <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team} • Total {person.totalTasks}</div>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="mx-badge mx-status-cancelled">Weight {formatWeightPercent(person.totalWeight)}</span>
+                      <span className="mx-badge mx-status-cancelled">Weight {formatWeightUnits(person.totalWeight)}</span>
                       <span className="mx-badge mx-status-completed">Completion {person.weightedCompletionScore ?? '-'}%</span>
                     </div>
                   </div>
