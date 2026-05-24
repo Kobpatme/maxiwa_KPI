@@ -842,7 +842,8 @@ function keepSsrExtraData(extraData) {
 }
 
 function getTaskWeight(task) {
-  const raw = task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight ?? 1;
+  const extra = normalizeExtraData(task?.extra_data);
+  const raw = extra.kpi_effective_weight ?? task?.kpi_effective_weight ?? task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight ?? 1;
   const weight = typeof raw === 'string'
     ? Number.parseFloat(raw.replace('%', '').trim())
     : Number(raw);
@@ -893,47 +894,32 @@ function slaMetricSub(scores, score = scores?.sla) {
 
 function calcTaskWeightedScores(tasks) {
   if (window.calcWeightedScores) return window.calcWeightedScores(tasks || []);
-  const groups = {};
-  (tasks || []).forEach((task) => {
-    const key = getKpiGroupKey(task);
-    const weight = getTaskWeight(task);
-    const status = statusKey(task?.status);
-    if (!groups[key]) groups[key] = { weight, total: 0, completed: 0, onTime: 0, cancelled: 0 };
-    else if (groups[key].weight === 1 && weight !== 1) groups[key].weight = weight;
-    if (status === 'cancelled') {
-      groups[key].cancelled += 1;
-      return;
-    }
-    groups[key].total += 1;
-    if (status === 'completed') {
-      groups[key].completed += 1;
-      if (isCompletedOnTime(task)) groups[key].onTime += 1;
-    }
-  });
-
   let totalWeight = 0;
   let completedWeight = 0;
-  let slaWeight = 0;
   let onTimeWeight = 0;
-  Object.values(groups).forEach((group) => {
-    const weight = getTaskWeight({ weight: group.weight });
-    if (group.total > 0) {
-      totalWeight += weight;
-      completedWeight += weight * (group.completed / group.total);
+  let cancelledWeight = 0;
+  (tasks || []).forEach((task) => {
+    const weight = getTaskWeight(task);
+    const status = statusKey(task?.status);
+    if (status === 'cancelled') {
+      cancelledWeight += weight;
+      return;
     }
-    if (group.completed > 0) {
-      slaWeight += weight;
-      onTimeWeight += weight * (group.onTime / group.completed);
+    totalWeight += weight;
+    if (status === 'completed') {
+      completedWeight += weight;
+      if (isCompletedOnTime(task)) onTimeWeight += weight;
     }
   });
 
   return {
-    sla: slaWeight > 0 ? Math.round((onTimeWeight / slaWeight) * 100) : null,
+    sla: completedWeight > 0 ? Math.round((onTimeWeight / completedWeight) * 100) : null,
     completion: totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100) : null,
     totalWeight,
     completedWeight,
     onTimeWeight,
-    slaWeight,
+    slaWeight: completedWeight,
+    cancelledWeight,
   };
 }
 
@@ -2737,9 +2723,19 @@ function buildHoldExtraData(task, nextStatus, holidays = [], changedBy = '') {
   };
 }
 
-function getDaysUntilDeadline(task, holidays = []) {
+function getDaysUntilDeadline(task, holidays = [], asOfDate = new Date()) {
   if (!task?.deadline) return null;
-  return businessDaysBetween(new Date(), getEffectiveDeadline(task, holidays), holidays);
+  return businessDaysBetween(asOfDate, getEffectiveDeadline(task, holidays), holidays);
+}
+
+function getPerformanceRiskAsOfDate(month, year) {
+  const selectedMonth = Number(month || 0);
+  const selectedYear = Number(year || 0);
+  const today = normalizeDateOnly(new Date()) || new Date();
+  if (!selectedMonth || !selectedYear) return today;
+  const periodEnd = normalizeDateOnly(new Date(selectedYear, selectedMonth, 0));
+  if (!periodEnd) return today;
+  return periodEnd < today ? periodEnd : today;
 }
 
 function getExecutiveHealthClass(value) {
@@ -2761,14 +2757,15 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
 
   const tasks = filterPerformanceTasks(getExecutiveTasks(data));
   const holidaySet = useMemo(() => buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]), [holidays, data]);
+  const riskAsOfDate = useMemo(() => getPerformanceRiskAsOfDate(filterMonth, filterYear), [filterMonth, filterYear]);
   const activeTasks = tasks.filter(isActiveTask);
   const completedTasks = tasks.filter((task) => statusEquals(task.status, 'Completed'));
   const overdueTasks = activeTasks.filter((task) => {
-    const days = getDaysUntilDeadline(task, holidaySet);
+    const days = getDaysUntilDeadline(task, holidaySet, riskAsOfDate);
     return days !== null && days < 0;
   });
   const atRiskTasks = activeTasks.filter((task) => {
-    const days = getDaysUntilDeadline(task, holidaySet);
+    const days = getDaysUntilDeadline(task, holidaySet, riskAsOfDate);
     return days !== null && days >= 0 && days <= 3;
   });
   const scores = calcTaskWeightedScores(tasks);
@@ -2787,11 +2784,11 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
     const teamScores = calcTaskWeightedScores(teamTasks);
     const active = teamTasks.filter(isActiveTask);
     const overdue = active.filter((task) => {
-      const days = getDaysUntilDeadline(task, holidaySet);
+      const days = getDaysUntilDeadline(task, holidaySet, riskAsOfDate);
       return days !== null && days < 0;
     }).length;
     const atRisk = active.filter((task) => {
-      const days = getDaysUntilDeadline(task, holidaySet);
+      const days = getDaysUntilDeadline(task, holidaySet, riskAsOfDate);
       return days !== null && days >= 0 && days <= 3;
     }).length;
     const teamCompletion = teamScores.completion ?? (teamTasks.length ? Math.round((teamTasks.filter((task) => statusEquals(task.status, 'Completed')).length / teamTasks.length) * 100) : null);
@@ -2800,7 +2797,7 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
   }).sort((a, b) => (a.overdue - b.overdue) || (a.atRisk - b.atRisk) || (b.health - a.health));
 
   const criticalQueue = activeTasks
-    .map((task) => ({ task, days: getDaysUntilDeadline(task, holidaySet), weight: getTaskWeight(task) }))
+    .map((task) => ({ task, days: getDaysUntilDeadline(task, holidaySet, riskAsOfDate), weight: getTaskWeight(task) }))
     .filter((item) => item.days !== null)
     .sort((a, b) => {
       const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;

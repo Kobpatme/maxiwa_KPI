@@ -12849,8 +12849,9 @@ var MaxiwaExecutiveDashboard = (() => {
     return status === "on process" || status === "on_process";
   }
   function taskWeight(task) {
-    var _a, _b, _c, _d;
-    const raw = (_d = (_c = (_b = (_a = task == null ? void 0 : task.mainkpiweight) != null ? _a : task == null ? void 0 : task.main_weight) != null ? _b : task == null ? void 0 : task.weight) != null ? _c : task == null ? void 0 : task.kpiweight) != null ? _d : 1;
+    var _a, _b, _c, _d, _e, _f;
+    const extra = normalizeExtraData(task == null ? void 0 : task.extra_data);
+    const raw = (_f = (_e = (_d = (_c = (_b = (_a = extra.kpi_effective_weight) != null ? _a : task == null ? void 0 : task.kpi_effective_weight) != null ? _b : task == null ? void 0 : task.mainkpiweight) != null ? _c : task == null ? void 0 : task.main_weight) != null ? _d : task == null ? void 0 : task.weight) != null ? _e : task == null ? void 0 : task.kpiweight) != null ? _f : 1;
     const weight = typeof raw === "string" ? Number.parseFloat(raw.replace("%", "").trim()) : Number(raw);
     return Number.isFinite(weight) && weight > 0 ? weight : 1;
   }
@@ -12997,9 +12998,18 @@ var MaxiwaExecutiveDashboard = (() => {
     const activeHoldDays = normalizeStatus(task) === "on hold" ? getTaskHoldDays(task, holidays) : 0;
     return activeHoldDays > 0 ? addBusinessDays(task.deadline, activeHoldDays, holidays) : normalizeDateOnly(task.deadline);
   }
-  function daysUntil(task, holidays = []) {
+  function daysUntil(task, holidays = [], asOfDate = /* @__PURE__ */ new Date()) {
     if (!(task == null ? void 0 : task.deadline)) return null;
-    return businessDaysBetween(/* @__PURE__ */ new Date(), getEffectiveDeadline(task, holidays), holidays);
+    return businessDaysBetween(asOfDate, getEffectiveDeadline(task, holidays), holidays);
+  }
+  function getPerformanceRiskAsOfDate(month, year) {
+    const selectedMonth = Number(month || 0);
+    const selectedYear = Number(year || 0);
+    const today = normalizeDateOnly(/* @__PURE__ */ new Date()) || /* @__PURE__ */ new Date();
+    if (!selectedMonth || !selectedYear) return today;
+    const periodEnd = normalizeDateOnly(new Date(selectedYear, selectedMonth, 0));
+    if (!periodEnd) return today;
+    return periodEnd < today ? periodEnd : today;
   }
   function extractJobCode(job) {
     if (!job) return "-";
@@ -13088,41 +13098,30 @@ var MaxiwaExecutiveDashboard = (() => {
   }
   function calcWeightedScores(tasks) {
     if (window.calcWeightedScores) return window.calcWeightedScores(tasks || []);
-    const groups = {};
-    (tasks || []).forEach((task) => {
-      if (isCancelled(task)) return;
-      const key = mainKpi(task);
-      const weight = taskWeight(task);
-      if (!groups[key]) groups[key] = { weight, total: 0, completed: 0, onTime: 0 };
-      else if (groups[key].weight === 1 && weight !== 1) groups[key].weight = weight;
-      groups[key].total += 1;
-      if (isCompleted(task)) {
-        groups[key].completed += 1;
-        if (isCompletedOnTime(task)) groups[key].onTime += 1;
-      }
-    });
     let totalWeight = 0;
     let completedWeight = 0;
-    let slaWeight = 0;
     let onTimeWeight = 0;
-    Object.values(groups).forEach((group) => {
-      const weight = Math.max(1, Number(group.weight || 1));
-      if (group.total > 0) {
-        totalWeight += weight;
-        completedWeight += weight * (group.completed / group.total);
+    let cancelledWeight = 0;
+    (tasks || []).forEach((task) => {
+      const weight = taskWeight(task);
+      if (isCancelled(task)) {
+        cancelledWeight += weight;
+        return;
       }
-      if (group.completed > 0) {
-        slaWeight += weight;
-        onTimeWeight += weight * (group.onTime / group.completed);
+      totalWeight += weight;
+      if (isCompleted(task)) {
+        completedWeight += weight;
+        if (isCompletedOnTime(task)) onTimeWeight += weight;
       }
     });
     return {
-      sla: slaWeight > 0 ? Math.round(onTimeWeight / slaWeight * 100) : null,
+      sla: completedWeight > 0 ? Math.round(onTimeWeight / completedWeight * 100) : null,
       completion: totalWeight > 0 ? Math.round(completedWeight / totalWeight * 100) : null,
       totalWeight,
       completedWeight,
       onTimeWeight,
-      slaWeight
+      slaWeight: completedWeight,
+      cancelledWeight
     };
   }
   function roundMetric(value, digits = 1) {
@@ -13144,7 +13143,7 @@ var MaxiwaExecutiveDashboard = (() => {
     const days = (tasks || []).filter(isCompleted).map((task) => businessDaysBetween(task.startdate || task.created_at || task.deadline, task.completiondate || task.deadline, holidays)).filter((value) => value !== null && Number.isFinite(value) && value >= 0);
     return days.length ? roundMetric(days.reduce((sum, value) => sum + value, 0) / days.length, 1) : null;
   }
-  function buildAgingBuckets(activeTasks = [], holidays = []) {
+  function buildAgingBuckets(activeTasks = [], holidays = [], asOfDate = /* @__PURE__ */ new Date()) {
     const buckets = {
       dueSoon: { label: "Due <=3bd", total: 0, weight: 0, items: [] },
       overdue1to3: { label: "Overdue 1-3bd", total: 0, weight: 0, items: [] },
@@ -13153,7 +13152,7 @@ var MaxiwaExecutiveDashboard = (() => {
       noDeadline: { label: "No deadline", total: 0, weight: 0, items: [] }
     };
     (activeTasks || []).forEach((task) => {
-      const days = daysUntil(task, holidays);
+      const days = daysUntil(task, holidays, asOfDate);
       let key = "noDeadline";
       if (days !== null && days >= 0 && days <= 3) key = "dueSoon";
       else if (days !== null && days < 0 && Math.abs(days) <= 3) key = "overdue1to3";
@@ -13193,27 +13192,27 @@ var MaxiwaExecutiveDashboard = (() => {
     if (d.getFullYear() !== Number(year) || d.getMonth() !== Number(monthIndex)) return false;
     return day === null || d.getDate() === Number(day);
   }
-  function taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidays = [], maxDate = null) {
+  function taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidays = [], maxDate = null, asOfDate = /* @__PURE__ */ new Date()) {
     if (!isActive(task)) return false;
     const deadline = getEffectiveDeadline(task, holidays);
     if (!deadline) return false;
     if (maxDate && isAfterDateOnly(deadline, maxDate)) return false;
     if (deadline.getFullYear() !== Number(year) || deadline.getMonth() !== Number(monthIndex)) return false;
     if (day !== null && deadline.getDate() !== Number(day)) return false;
-    const days = businessDaysBetween(/* @__PURE__ */ new Date(), deadline, holidays);
+    const days = businessDaysBetween(asOfDate, deadline, holidays);
     return days !== null && days <= 3;
   }
-  function buildPortfolio(tasks, holidays = []) {
+  function buildPortfolio(tasks, holidays = [], asOfDate = /* @__PURE__ */ new Date()) {
     var _a;
     const active = tasks.filter(isActive);
     const completed = tasks.filter(isCompleted);
     const onProcess = tasks.filter(isOnProcess);
     const overdue = active.filter((task) => {
-      const days = daysUntil(task, holidays);
+      const days = daysUntil(task, holidays, asOfDate);
       return days !== null && days < 0;
     });
     const atRisk = active.filter((task) => {
-      const days = daysUntil(task, holidays);
+      const days = daysUntil(task, holidays, asOfDate);
       return days !== null && days >= 0 && days <= 3;
     });
     const slaPass = tasks.filter(isCompletedOnTime);
@@ -13228,7 +13227,7 @@ var MaxiwaExecutiveDashboard = (() => {
     const atRiskWeight = sumWeight(atRisk);
     const avgWeightPerTask = tasks.length ? roundMetric(totalWeight / tasks.length, 1) : 0;
     const avgCloseDays = avgBusinessCloseDays(tasks, holidays);
-    const aging = buildAgingBuckets(active, holidays);
+    const aging = buildAgingBuckets(active, holidays, asOfDate);
     const dataQuality = buildDataQuality(tasks);
     const riskPenalty = totalWeight ? Math.min(15, roundMetric((overdueWeight * 1.2 + atRiskWeight * 0.45) / totalWeight * 10, 1)) : 0;
     const riskAdjustedScore = weightedScore === null || weightedScore === void 0 ? null : Math.max(0, roundMetric(weightedScore - riskPenalty, 1));
@@ -13256,15 +13255,16 @@ var MaxiwaExecutiveDashboard = (() => {
       dataQuality
     };
   }
-  function buildGroupRows(tasks, getKey, holidays = []) {
+  function buildGroupRows(tasks, getKey, holidays = [], asOfDate = /* @__PURE__ */ new Date()) {
     return Object.entries(groupBy(tasks, getKey)).map(([name, items]) => {
       var _a, _b, _c, _d;
-      const portfolio = buildPortfolio(items, holidays);
+      const portfolio = buildPortfolio(items, holidays, asOfDate);
       const topKpiEntry = Object.entries(groupBy(items, mainKpi)).sort((a, b) => b[1].length - a[1].length)[0];
       const health = Math.round((((_b = (_a = portfolio.scores.sla) != null ? _a : portfolio.completion) != null ? _b : 0) + ((_d = (_c = portfolio.completion) != null ? _c : portfolio.scores.sla) != null ? _d : 0)) / 2) - portfolio.overdue.length * 5 - portfolio.atRisk.length * 2;
       return {
         name,
         items,
+        asOfDate,
         total: items.length,
         totalWeight: portfolio.totalWeight,
         completedWeight: portfolio.completedWeight,
@@ -13294,9 +13294,9 @@ var MaxiwaExecutiveDashboard = (() => {
       };
     });
   }
-  function buildKpiRows(tasks) {
+  function buildKpiRows(tasks, holidays = [], asOfDate = /* @__PURE__ */ new Date()) {
     return Object.entries(groupBy(tasks, mainKpi)).map(([name, items]) => {
-      const portfolio = buildPortfolio(items);
+      const portfolio = buildPortfolio(items, holidays, asOfDate);
       return {
         name,
         total: items.length,
@@ -13319,10 +13319,10 @@ var MaxiwaExecutiveDashboard = (() => {
       };
     }).sort((a, b) => b.total - a.total);
   }
-  function buildKpiWeightRows(tasks) {
+  function buildKpiWeightRows(tasks, holidays = [], asOfDate = /* @__PURE__ */ new Date()) {
     return Object.entries(groupBy(tasks, (task) => `${teamName(task)}|${mainKpi(task)}|${subKpi(task)}`)).map(([key, items]) => {
       const [team, main, sub] = key.split("|");
-      const portfolio = buildPortfolio(items);
+      const portfolio = buildPortfolio(items, holidays, asOfDate);
       return {
         team,
         main,
@@ -13480,6 +13480,7 @@ var MaxiwaExecutiveDashboard = (() => {
   }
   function TeamDetailModal({ team, holidays = [], onClose }) {
     if (!team) return null;
+    const riskAsOfDate = team.asOfDate || /* @__PURE__ */ new Date();
     const members = team.members || [];
     const kpiBreakdown = Object.entries(groupBy(team.items || [], mainKpi)).map(([name, items]) => ({
       name,
@@ -13490,7 +13491,7 @@ var MaxiwaExecutiveDashboard = (() => {
       scores: calcWeightedScores(items)
     })).sort((a, b) => b.total - a.total || b.fail - a.fail).slice(0, 12);
     const peopleBreakdown = Object.entries(groupBy(team.items || [], personName)).map(([name, items]) => {
-      const portfolio = buildPortfolio(items, holidays);
+      const portfolio = buildPortfolio(items, holidays, riskAsOfDate);
       const member = members.find((item) => item.name === name);
       return {
         name,
@@ -13503,7 +13504,7 @@ var MaxiwaExecutiveDashboard = (() => {
         score: portfolio.weightedScore
       };
     }).sort((a, b) => (b.score || 0) - (a.score || 0) || b.total - a.total).slice(0, 10);
-    const urgent = (team.items || []).filter(isActive).map((task) => ({ task, days: daysUntil(task, holidays), weight: taskWeight(task) })).filter((item) => item.days !== null).sort((a, b) => a.days - b.days || b.weight - a.weight).slice(0, 10);
+    const urgent = (team.items || []).filter(isActive).map((task) => ({ task, days: daysUntil(task, holidays, riskAsOfDate), weight: taskWeight(task) })).filter((item) => item.days !== null).sort((a, b) => a.days - b.days || b.weight - a.weight).slice(0, 10);
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "modal-backdrop", onClick: onClose }, /* @__PURE__ */ import_react.default.createElement("div", { className: "modal-card team-modal-card", onClick: (event) => event.stopPropagation() }, /* @__PURE__ */ import_react.default.createElement("button", { className: "modal-close no-print", onClick: onClose, "aria-label": "Close" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark" })), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0 flex-1" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black" }, "Team Drilldown"), /* @__PURE__ */ import_react.default.createElement("h2", { className: "section-title mt-2 mb-1" }, team.team), /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `mx-badge ${healthClass(team.health)}` }, "Health ", team.health), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-neutral" }, "Top KPI: ", team.topKpi)), /* @__PURE__ */ import_react.default.createElement("div", { className: "team-member-strip mt-5", "aria-label": `${team.team} members` }, /* @__PURE__ */ import_react.default.createElement("div", { className: "team-member-avatars" }, members.slice(0, 9).map((member) => /* @__PURE__ */ import_react.default.createElement(Avatar, { key: member.key || member.name, item: member.profile || member, name: member.name, className: "team-member-avatar" })), members.length > 9 && /* @__PURE__ */ import_react.default.createElement("span", { className: "team-member-more" }, "+", members.length - 9)), /* @__PURE__ */ import_react.default.createElement("div", { className: "team-member-copy" }, /* @__PURE__ */ import_react.default.createElement("strong", null, fmtNum(members.length), " team member", members.length === 1 ? "" : "s"), /* @__PURE__ */ import_react.default.createElement("span", null, members.slice(0, 4).map((member) => member.name).join(", ") || "No member profile found")))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mini-metric-grid modal-metrics" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("span", null, "Total"), /* @__PURE__ */ import_react.default.createElement("strong", null, fmtNum(team.total))), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("span", null, "Backlog"), /* @__PURE__ */ import_react.default.createElement("strong", null, fmtNum(team.backlog))), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("span", null, "W.SLA"), /* @__PURE__ */ import_react.default.createElement("strong", null, fmtPct(team.sla))), /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("span", null, "SLA Fail"), /* @__PURE__ */ import_react.default.createElement("strong", null, fmtNum(team.slaFail))))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-6 team-modal-grid" }, /* @__PURE__ */ import_react.default.createElement("section", { className: "mx-soft p-5" }, /* @__PURE__ */ import_react.default.createElement("h3", { className: "m-0 text-lg font-black" }, "KPI Mix \u0E02\u0E2D\u0E07\u0E17\u0E35\u0E21"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 grid gap-3 team-modal-scroll" }, kpiBreakdown.map((row) => /* @__PURE__ */ import_react.default.createElement("div", { key: row.name }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex justify-between gap-3 mb-2 text-sm" }, /* @__PURE__ */ import_react.default.createElement("strong", { className: "truncate" }, row.name), /* @__PURE__ */ import_react.default.createElement("span", null, fmtNum(row.total), " \u0E07\u0E32\u0E19 / SLA ", fmtPct(row.scores.sla))), /* @__PURE__ */ import_react.default.createElement(HorizontalBar, { value: team.total ? Math.round(row.total / team.total * 1e3) / 10 : 0, color: row.fail ? "var(--mx-warning)" : "var(--mx-info)" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-neutral" }, "Active ", fmtNum(row.active)), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-good" }, "Done ", fmtNum(row.completed)), /* @__PURE__ */ import_react.default.createElement("span", { className: `mx-badge ${row.fail ? "status-bad" : "status-good"}` }, "Fail ", fmtNum(row.fail))))), !kpiBreakdown.length && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25 KPI \u0E02\u0E2D\u0E07\u0E17\u0E35\u0E21\u0E19\u0E35\u0E49"))), /* @__PURE__ */ import_react.default.createElement("section", { className: "mx-soft p-5" }, /* @__PURE__ */ import_react.default.createElement("h3", { className: "m-0 text-lg font-black" }, "People Performance"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 grid gap-3 team-modal-scroll" }, peopleBreakdown.map((person, index) => /* @__PURE__ */ import_react.default.createElement("div", { key: person.name, className: "team-person-row" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center gap-3 min-w-0" }, /* @__PURE__ */ import_react.default.createElement(Avatar, { item: person.profile || person, name: person.name, className: "team-person-avatar" }), /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "font-black truncate" }, String(index + 1).padStart(2, "0"), " ", person.name), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-1 text-xs text-[var(--mx-muted)]" }, fmtNum(person.active), " active / ", fmtNum(person.overdue), " overdue"))), /* @__PURE__ */ import_react.default.createElement("span", { className: `mx-badge ${healthClass(person.score)}` }, fmtPct(person.score)))), !peopleBreakdown.length && /* @__PURE__ */ import_react.default.createElement("div", { className: "text-sm text-[var(--mx-muted)]" }, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E23\u0E32\u0E22\u0E1A\u0E38\u0E04\u0E04\u0E25\u0E02\u0E2D\u0E07\u0E17\u0E35\u0E21\u0E19\u0E35\u0E49")))), /* @__PURE__ */ import_react.default.createElement("section", { className: "mt-5 mx-soft p-5" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-col md:flex-row md:items-end md:justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", null, /* @__PURE__ */ import_react.default.createElement("h3", { className: "m-0 text-lg font-black" }, "Urgent Team Queue"), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-1 mb-0 text-sm text-[var(--mx-muted)]" }, "\u0E07\u0E32\u0E19 active \u0E17\u0E35\u0E48\u0E43\u0E01\u0E25\u0E49\u0E04\u0E23\u0E1A\u0E01\u0E33\u0E2B\u0E19\u0E14\u0E2B\u0E23\u0E37\u0E2D\u0E21\u0E35\u0E04\u0E27\u0E32\u0E21\u0E40\u0E2A\u0E35\u0E48\u0E22\u0E07 SLA \u0E02\u0E2D\u0E07\u0E17\u0E35\u0E21\u0E19\u0E35\u0E49")), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-info" }, fmtNum(urgent.length), " items")), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-4 team-urgent-grid" }, urgent.map(({ task, days, weight }) => {
       const [label, klass] = riskBadge(days);
       return /* @__PURE__ */ import_react.default.createElement("div", { key: task.id || `${task.job}-${task.deadline}`, className: "insight-card p-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("strong", { className: "truncate" }, extractJobCode(task.job)), /* @__PURE__ */ import_react.default.createElement("span", { className: `mx-badge ${klass}` }, label)), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 text-xs text-[var(--mx-muted)] line-clamp-2" }, task.job || "-"), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 flex flex-wrap gap-2" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-neutral" }, personName(task)), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-neutral" }, fmtDate(task.deadline)), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-info" }, "weight ", weight)));
@@ -13521,6 +13522,7 @@ var MaxiwaExecutiveDashboard = (() => {
   }
   function EmployeeDetailModal({ person, holidays = [], onClose }) {
     if (!person) return null;
+    const riskAsOfDate = person.asOfDate || /* @__PURE__ */ new Date();
     const kpiBreakdown = Object.entries(groupBy(person.items, mainKpi)).map(([name, items]) => ({ name, total: items.length, scores: calcWeightedScores(items), completed: items.filter(isCompleted).length, fail: items.filter(isCompletedLate).length })).sort((a, b) => b.total - a.total);
     const statusBreakdown = Object.entries(groupBy(person.items, (task) => task.status || "Unknown")).map(([status, items]) => ({ status, total: items.length, pct: person.total ? Math.round(items.length / person.total * 1e3) / 10 : 0 })).sort((a, b) => b.total - a.total);
     const completedTasks = person.items.filter(isCompleted).sort((a, b) => new Date(b.completiondate || b.deadline || 0) - new Date(a.completiondate || a.deadline || 0));
@@ -13532,7 +13534,7 @@ var MaxiwaExecutiveDashboard = (() => {
     const activeCount = person.items.filter(isActive).length;
     const pendingCount = person.items.filter((task) => normalizeStatus(task) === "pending").length;
     const onHoldCount = person.items.filter((task) => normalizeStatus(task) === "on hold" || normalizeStatus(task) === "on_hold").length;
-    const urgent = person.items.filter(isActive).map((task) => ({ task, days: daysUntil(task, holidays), weight: taskWeight(task) })).filter((item) => item.days !== null).sort((a, b) => a.days - b.days || b.weight - a.weight).slice(0, 8);
+    const urgent = person.items.filter(isActive).map((task) => ({ task, days: daysUntil(task, holidays, riskAsOfDate), weight: taskWeight(task) })).filter((item) => item.days !== null).sort((a, b) => a.days - b.days || b.weight - a.weight).slice(0, 8);
     const topKpiRows = kpiBreakdown.slice(0, 6);
     const topStatusRows = statusBreakdown.slice(0, 4);
     const topUrgent = urgent.slice(0, 4);
@@ -13676,7 +13678,8 @@ var MaxiwaExecutiveDashboard = (() => {
     const tasks = filterPerformanceTasks(state.tasks || []);
     const staffDirectory = state.staff || [];
     const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
-    const portfolio = useMemo(() => buildPortfolio(tasks, holidaySet), [tasks, holidaySet]);
+    const riskAsOfDate = useMemo(() => getPerformanceRiskAsOfDate(month, year), [month, year]);
+    const portfolio = useMemo(() => buildPortfolio(tasks, holidaySet, riskAsOfDate), [tasks, holidaySet, riskAsOfDate]);
     const periodLabel = `${month === 0 ? "\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19" : MONTH_NAMES[month - 1]} ${year}`;
     const staffByName = useMemo(() => {
       const map = {};
@@ -13694,7 +13697,7 @@ var MaxiwaExecutiveDashboard = (() => {
       }
       return map;
     }, [staffDirectory, state.user]);
-    const teamRows = useMemo(() => buildGroupRows(tasks, teamName, holidaySet).map((row) => {
+    const teamRows = useMemo(() => buildGroupRows(tasks, teamName, holidaySet, riskAsOfDate).map((row) => {
       const memberMap = {};
       (row.items || []).forEach((task) => {
         const name = personName(task);
@@ -13712,9 +13715,9 @@ var MaxiwaExecutiveDashboard = (() => {
         activeWeightShare: portfolio.activeWeight ? roundMetric(row.activeWeight / portfolio.activeWeight * 100, 1) : 0,
         riskWeightShare: portfolio.overdueWeight + portfolio.atRiskWeight ? roundMetric((row.overdueWeight + row.atRiskWeight) / (portfolio.overdueWeight + portfolio.atRiskWeight) * 100, 1) : 0
       };
-    }).sort((a, b) => b.overdueWeight * 3 + b.atRiskWeight + b.backlog / Math.max(b.total, 1) - (a.overdueWeight * 3 + a.atRiskWeight + a.backlog / Math.max(a.total, 1)) || b.totalWeight - a.totalWeight), [tasks, staffByName, holidaySet, portfolio.totalWeight, portfolio.activeWeight, portfolio.overdueWeight, portfolio.atRiskWeight]);
+    }).sort((a, b) => b.overdueWeight * 3 + b.atRiskWeight + b.backlog / Math.max(b.total, 1) - (a.overdueWeight * 3 + a.atRiskWeight + a.backlog / Math.max(a.total, 1)) || b.totalWeight - a.totalWeight), [tasks, staffByName, holidaySet, riskAsOfDate, portfolio.totalWeight, portfolio.activeWeight, portfolio.overdueWeight, portfolio.atRiskWeight]);
     const personRows = useMemo(() => {
-      const rows = buildGroupRows(tasks, (task) => `${personName(task)}|${teamName(task)}`, holidaySet);
+      const rows = buildGroupRows(tasks, (task) => `${personName(task)}|${teamName(task)}`, holidaySet, riskAsOfDate);
       const teamWeightTotals = {};
       const teamActiveTotals = {};
       const teamRiskTotals = {};
@@ -13737,10 +13740,10 @@ var MaxiwaExecutiveDashboard = (() => {
           riskWeightShare: teamRiskTotals[team] ? roundMetric((row.overdueWeight + row.atRiskWeight) / teamRiskTotals[team] * 100, 1) : 0
         };
       }).sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.totalWeight - a.totalWeight);
-    }, [tasks, staffByName, holidaySet]);
+    }, [tasks, staffByName, holidaySet, riskAsOfDate]);
     const statusRows = useMemo(() => Object.entries(groupBy(tasks, (task) => task.status || "Unknown")).map(([status, items]) => ({ status, total: items.length, pct: tasks.length ? Math.round(items.length / tasks.length * 1e3) / 10 : 0 })).sort((a, b) => b.total - a.total), [tasks]);
-    const kpiRows = useMemo(() => buildKpiRows(tasks), [tasks]);
-    const kpiWeightRows = useMemo(() => buildKpiWeightRows(tasks), [tasks]);
+    const kpiRows = useMemo(() => buildKpiRows(tasks, holidaySet, riskAsOfDate), [tasks, holidaySet, riskAsOfDate]);
+    const kpiWeightRows = useMemo(() => buildKpiWeightRows(tasks, holidaySet, riskAsOfDate), [tasks, holidaySet, riskAsOfDate]);
     const teams = useMemo(() => [...new Set(teamRows.map((row) => row.team))], [teamRows]);
     const monthlyTrend = useMemo(() => {
       const sla = [];
@@ -13798,11 +13801,11 @@ var MaxiwaExecutiveDashboard = (() => {
         series: { sla, completion: trendCompletion, risk, total, completed }
       };
     }, [tasks, year, month, holidaySet]);
-    const criticalQueue = useMemo(() => portfolio.active.map((task) => ({ task, days: daysUntil(task, holidaySet), weight: taskWeight(task) })).filter((item) => item.days !== null).sort((a, b) => {
+    const criticalQueue = useMemo(() => portfolio.active.map((task) => ({ task, days: daysUntil(task, holidaySet, riskAsOfDate), weight: taskWeight(task) })).filter((item) => item.days !== null).sort((a, b) => {
       const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;
       const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
       return riskA - riskB || a.days - b.days || b.weight - a.weight;
-    }).slice(0, 12), [portfolio.active, holidaySet]);
+    }).slice(0, 12), [portfolio.active, holidaySet, riskAsOfDate]);
     return /* @__PURE__ */ import_react.default.createElement(Shell, null, /* @__PURE__ */ import_react.default.createElement("header", { className: "mx-card stage-header p-5 md:p-8" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "executive-header-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-3" }, state.user && /* @__PURE__ */ import_react.default.createElement(Avatar, { item: state.user, name: state.user.name || state.user.empId, className: "header-avatar" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-info" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-display" }), " Performance View"), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-neutral" }, "METRIX Verity"), state.user && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-good" }, state.user.team)), /* @__PURE__ */ import_react.default.createElement("h1", { className: "display-title mt-6 mb-0 break-words" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "block" }, "Performance Overview"), /* @__PURE__ */ import_react.default.createElement("span", { className: "block" }, "SLA & KPI Command Center")), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-4 mb-0 max-w-[84ch] text-base md:text-[18px] leading-8 text-[var(--mx-muted)]" }, "\u0E2A\u0E23\u0E38\u0E1B SLA, \u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01 KPI, \u0E20\u0E32\u0E23\u0E30\u0E07\u0E32\u0E19\u0E23\u0E32\u0E22\u0E17\u0E35\u0E21, \u0E1C\u0E25\u0E07\u0E32\u0E19\u0E23\u0E32\u0E22\u0E1A\u0E38\u0E04\u0E04\u0E25 \u0E41\u0E25\u0E30\u0E04\u0E27\u0E32\u0E21\u0E40\u0E2A\u0E35\u0E48\u0E22\u0E07\u0E2A\u0E33\u0E04\u0E31\u0E0D\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E40\u0E1B\u0E34\u0E14\u0E19\u0E33\u0E40\u0E2A\u0E19\u0E2D\u0E1C\u0E39\u0E49\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E44\u0E14\u0E49\u0E17\u0E31\u0E19\u0E17\u0E35")), /* @__PURE__ */ import_react.default.createElement("div", { className: "no-print control-panel executive-controls" }, /* @__PURE__ */ import_react.default.createElement(
       "button",
       {

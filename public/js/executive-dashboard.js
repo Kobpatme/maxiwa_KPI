@@ -131,7 +131,8 @@ function isOnProcess(task) {
 }
 
 function taskWeight(task) {
-  const raw = task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight ?? 1;
+  const extra = normalizeExtraData(task?.extra_data);
+  const raw = extra.kpi_effective_weight ?? task?.kpi_effective_weight ?? task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight ?? 1;
   const weight = typeof raw === 'string' ? Number.parseFloat(raw.replace('%', '').trim()) : Number(raw);
   return Number.isFinite(weight) && weight > 0 ? weight : 1;
 }
@@ -302,9 +303,19 @@ function getEffectiveDeadline(task, holidays = []) {
   return activeHoldDays > 0 ? addBusinessDays(task.deadline, activeHoldDays, holidays) : normalizeDateOnly(task.deadline);
 }
 
-function daysUntil(task, holidays = []) {
+function daysUntil(task, holidays = [], asOfDate = new Date()) {
   if (!task?.deadline) return null;
-  return businessDaysBetween(new Date(), getEffectiveDeadline(task, holidays), holidays);
+  return businessDaysBetween(asOfDate, getEffectiveDeadline(task, holidays), holidays);
+}
+
+function getPerformanceRiskAsOfDate(month, year) {
+  const selectedMonth = Number(month || 0);
+  const selectedYear = Number(year || 0);
+  const today = normalizeDateOnly(new Date()) || new Date();
+  if (!selectedMonth || !selectedYear) return today;
+  const periodEnd = normalizeDateOnly(new Date(selectedYear, selectedMonth, 0));
+  if (!periodEnd) return today;
+  return periodEnd < today ? periodEnd : today;
 }
 
 function extractJobCode(job) {
@@ -416,43 +427,31 @@ function groupBy(items, getKey) {
 function calcWeightedScores(tasks) {
   if (window.calcWeightedScores) return window.calcWeightedScores(tasks || []);
 
-  const groups = {};
-  (tasks || []).forEach((task) => {
-    if (isCancelled(task)) return;
-    const key = mainKpi(task);
-    const weight = taskWeight(task);
-    if (!groups[key]) groups[key] = { weight, total: 0, completed: 0, onTime: 0 };
-    else if (groups[key].weight === 1 && weight !== 1) groups[key].weight = weight;
-    groups[key].total += 1;
-    if (isCompleted(task)) {
-      groups[key].completed += 1;
-      if (isCompletedOnTime(task)) groups[key].onTime += 1;
-    }
-  });
-
   let totalWeight = 0;
   let completedWeight = 0;
-  let slaWeight = 0;
   let onTimeWeight = 0;
-  Object.values(groups).forEach((group) => {
-    const weight = Math.max(1, Number(group.weight || 1));
-    if (group.total > 0) {
-      totalWeight += weight;
-      completedWeight += weight * (group.completed / group.total);
+  let cancelledWeight = 0;
+  (tasks || []).forEach((task) => {
+    const weight = taskWeight(task);
+    if (isCancelled(task)) {
+      cancelledWeight += weight;
+      return;
     }
-    if (group.completed > 0) {
-      slaWeight += weight;
-      onTimeWeight += weight * (group.onTime / group.completed);
+    totalWeight += weight;
+    if (isCompleted(task)) {
+      completedWeight += weight;
+      if (isCompletedOnTime(task)) onTimeWeight += weight;
     }
   });
 
   return {
-    sla: slaWeight > 0 ? Math.round((onTimeWeight / slaWeight) * 100) : null,
+    sla: completedWeight > 0 ? Math.round((onTimeWeight / completedWeight) * 100) : null,
     completion: totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100) : null,
     totalWeight,
     completedWeight,
     onTimeWeight,
-    slaWeight,
+    slaWeight: completedWeight,
+    cancelledWeight,
   };
 }
 
@@ -487,7 +486,7 @@ function avgBusinessCloseDays(tasks = [], holidays = []) {
   return days.length ? roundMetric(days.reduce((sum, value) => sum + value, 0) / days.length, 1) : null;
 }
 
-function buildAgingBuckets(activeTasks = [], holidays = []) {
+function buildAgingBuckets(activeTasks = [], holidays = [], asOfDate = new Date()) {
   const buckets = {
     dueSoon: { label: 'Due <=3bd', total: 0, weight: 0, items: [] },
     overdue1to3: { label: 'Overdue 1-3bd', total: 0, weight: 0, items: [] },
@@ -496,7 +495,7 @@ function buildAgingBuckets(activeTasks = [], holidays = []) {
     noDeadline: { label: 'No deadline', total: 0, weight: 0, items: [] },
   };
   (activeTasks || []).forEach((task) => {
-    const days = daysUntil(task, holidays);
+    const days = daysUntil(task, holidays, asOfDate);
     let key = 'noDeadline';
     if (days !== null && days >= 0 && days <= 3) key = 'dueSoon';
     else if (days !== null && days < 0 && Math.abs(days) <= 3) key = 'overdue1to3';
@@ -541,27 +540,27 @@ function taskDateMatchesPeriod(task, fields, year, monthIndex, day = null, maxDa
   return day === null || d.getDate() === Number(day);
 }
 
-function taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidays = [], maxDate = null) {
+function taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidays = [], maxDate = null, asOfDate = new Date()) {
   if (!isActive(task)) return false;
   const deadline = getEffectiveDeadline(task, holidays);
   if (!deadline) return false;
   if (maxDate && isAfterDateOnly(deadline, maxDate)) return false;
   if (deadline.getFullYear() !== Number(year) || deadline.getMonth() !== Number(monthIndex)) return false;
   if (day !== null && deadline.getDate() !== Number(day)) return false;
-  const days = businessDaysBetween(new Date(), deadline, holidays);
+  const days = businessDaysBetween(asOfDate, deadline, holidays);
   return days !== null && days <= 3;
 }
 
-function buildPortfolio(tasks, holidays = []) {
+function buildPortfolio(tasks, holidays = [], asOfDate = new Date()) {
   const active = tasks.filter(isActive);
   const completed = tasks.filter(isCompleted);
   const onProcess = tasks.filter(isOnProcess);
   const overdue = active.filter((task) => {
-    const days = daysUntil(task, holidays);
+    const days = daysUntil(task, holidays, asOfDate);
     return days !== null && days < 0;
   });
   const atRisk = active.filter((task) => {
-    const days = daysUntil(task, holidays);
+    const days = daysUntil(task, holidays, asOfDate);
     return days !== null && days >= 0 && days <= 3;
   });
   const slaPass = tasks.filter(isCompletedOnTime);
@@ -578,7 +577,7 @@ function buildPortfolio(tasks, holidays = []) {
   const atRiskWeight = sumWeight(atRisk);
   const avgWeightPerTask = tasks.length ? roundMetric(totalWeight / tasks.length, 1) : 0;
   const avgCloseDays = avgBusinessCloseDays(tasks, holidays);
-  const aging = buildAgingBuckets(active, holidays);
+  const aging = buildAgingBuckets(active, holidays, asOfDate);
   const dataQuality = buildDataQuality(tasks);
   const riskPenalty = totalWeight ? Math.min(15, roundMetric(((overdueWeight * 1.2 + atRiskWeight * 0.45) / totalWeight) * 10, 1)) : 0;
   const riskAdjustedScore = weightedScore === null || weightedScore === undefined
@@ -610,9 +609,9 @@ function buildPortfolio(tasks, holidays = []) {
   };
 }
 
-function buildGroupRows(tasks, getKey, holidays = []) {
+function buildGroupRows(tasks, getKey, holidays = [], asOfDate = new Date()) {
   return Object.entries(groupBy(tasks, getKey)).map(([name, items]) => {
-    const portfolio = buildPortfolio(items, holidays);
+    const portfolio = buildPortfolio(items, holidays, asOfDate);
     const topKpiEntry = Object.entries(groupBy(items, mainKpi)).sort((a, b) => b[1].length - a[1].length)[0];
     const health = Math.round(((portfolio.scores.sla ?? portfolio.completion ?? 0) + (portfolio.completion ?? portfolio.scores.sla ?? 0)) / 2)
       - portfolio.overdue.length * 5
@@ -620,6 +619,7 @@ function buildGroupRows(tasks, getKey, holidays = []) {
     return {
       name,
       items,
+      asOfDate,
       total: items.length,
       totalWeight: portfolio.totalWeight,
       completedWeight: portfolio.completedWeight,
@@ -650,9 +650,9 @@ function buildGroupRows(tasks, getKey, holidays = []) {
   });
 }
 
-function buildKpiRows(tasks) {
+function buildKpiRows(tasks, holidays = [], asOfDate = new Date()) {
   return Object.entries(groupBy(tasks, mainKpi)).map(([name, items]) => {
-    const portfolio = buildPortfolio(items);
+    const portfolio = buildPortfolio(items, holidays, asOfDate);
     return {
       name,
       total: items.length,
@@ -676,10 +676,10 @@ function buildKpiRows(tasks) {
   }).sort((a, b) => b.total - a.total);
 }
 
-function buildKpiWeightRows(tasks) {
+function buildKpiWeightRows(tasks, holidays = [], asOfDate = new Date()) {
   return Object.entries(groupBy(tasks, (task) => `${teamName(task)}|${mainKpi(task)}|${subKpi(task)}`)).map(([key, items]) => {
     const [team, main, sub] = key.split('|');
-    const portfolio = buildPortfolio(items);
+    const portfolio = buildPortfolio(items, holidays, asOfDate);
     return {
       team,
       main,
@@ -1255,6 +1255,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
 
 function TeamDetailModal({ team, holidays = [], onClose }) {
   if (!team) return null;
+  const riskAsOfDate = team.asOfDate || new Date();
   const members = team.members || [];
   const kpiBreakdown = Object.entries(groupBy(team.items || [], mainKpi))
     .map(([name, items]) => ({
@@ -1269,7 +1270,7 @@ function TeamDetailModal({ team, holidays = [], onClose }) {
     .slice(0, 12);
   const peopleBreakdown = Object.entries(groupBy(team.items || [], personName))
     .map(([name, items]) => {
-      const portfolio = buildPortfolio(items, holidays);
+      const portfolio = buildPortfolio(items, holidays, riskAsOfDate);
       const member = members.find((item) => item.name === name);
       return {
         name,
@@ -1286,7 +1287,7 @@ function TeamDetailModal({ team, holidays = [], onClose }) {
     .slice(0, 10);
   const urgent = (team.items || [])
     .filter(isActive)
-    .map((task) => ({ task, days: daysUntil(task, holidays), weight: taskWeight(task) }))
+    .map((task) => ({ task, days: daysUntil(task, holidays, riskAsOfDate), weight: taskWeight(task) }))
     .filter((item) => item.days !== null)
     .sort((a, b) => a.days - b.days || b.weight - a.weight)
     .slice(0, 10);
@@ -1498,6 +1499,7 @@ function TeamsPanel({ teamRows, holidays = [] }) {
 
 function EmployeeDetailModal({ person, holidays = [], onClose }) {
   if (!person) return null;
+  const riskAsOfDate = person.asOfDate || new Date();
   const kpiBreakdown = Object.entries(groupBy(person.items, mainKpi))
     .map(([name, items]) => ({ name, total: items.length, scores: calcWeightedScores(items), completed: items.filter(isCompleted).length, fail: items.filter(isCompletedLate).length }))
     .sort((a, b) => b.total - a.total);
@@ -1525,7 +1527,7 @@ function EmployeeDetailModal({ person, holidays = [], onClose }) {
   const onHoldCount = person.items.filter((task) => normalizeStatus(task) === 'on hold' || normalizeStatus(task) === 'on_hold').length;
   const urgent = person.items
     .filter(isActive)
-    .map((task) => ({ task, days: daysUntil(task, holidays), weight: taskWeight(task) }))
+    .map((task) => ({ task, days: daysUntil(task, holidays, riskAsOfDate), weight: taskWeight(task) }))
     .filter((item) => item.days !== null)
     .sort((a, b) => a.days - b.days || b.weight - a.weight)
     .slice(0, 8);
@@ -2186,7 +2188,8 @@ function App() {
   const tasks = filterPerformanceTasks(state.tasks || []);
   const staffDirectory = state.staff || [];
   const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
-  const portfolio = useMemo(() => buildPortfolio(tasks, holidaySet), [tasks, holidaySet]);
+  const riskAsOfDate = useMemo(() => getPerformanceRiskAsOfDate(month, year), [month, year]);
+  const portfolio = useMemo(() => buildPortfolio(tasks, holidaySet, riskAsOfDate), [tasks, holidaySet, riskAsOfDate]);
   const periodLabel = `${month === 0 ? 'ทุกเดือน' : MONTH_NAMES[month - 1]} ${year}`;
   const staffByName = useMemo(() => {
     const map = {};
@@ -2205,7 +2208,7 @@ function App() {
     return map;
   }, [staffDirectory, state.user]);
 
-  const teamRows = useMemo(() => buildGroupRows(tasks, teamName, holidaySet)
+  const teamRows = useMemo(() => buildGroupRows(tasks, teamName, holidaySet, riskAsOfDate)
     .map((row) => {
       const memberMap = {};
       (row.items || []).forEach((task) => {
@@ -2227,10 +2230,10 @@ function App() {
         riskWeightShare: (portfolio.overdueWeight + portfolio.atRiskWeight) ? roundMetric(((row.overdueWeight + row.atRiskWeight) / (portfolio.overdueWeight + portfolio.atRiskWeight)) * 100, 1) : 0,
       };
     })
-    .sort((a, b) => ((b.overdueWeight * 3 + b.atRiskWeight + b.backlog / Math.max(b.total, 1)) - (a.overdueWeight * 3 + a.atRiskWeight + a.backlog / Math.max(a.total, 1))) || (b.totalWeight - a.totalWeight)), [tasks, staffByName, holidaySet, portfolio.totalWeight, portfolio.activeWeight, portfolio.overdueWeight, portfolio.atRiskWeight]);
+    .sort((a, b) => ((b.overdueWeight * 3 + b.atRiskWeight + b.backlog / Math.max(b.total, 1)) - (a.overdueWeight * 3 + a.atRiskWeight + a.backlog / Math.max(a.total, 1))) || (b.totalWeight - a.totalWeight)), [tasks, staffByName, holidaySet, riskAsOfDate, portfolio.totalWeight, portfolio.activeWeight, portfolio.overdueWeight, portfolio.atRiskWeight]);
 
   const personRows = useMemo(() => {
-    const rows = buildGroupRows(tasks, (task) => `${personName(task)}|${teamName(task)}`, holidaySet);
+    const rows = buildGroupRows(tasks, (task) => `${personName(task)}|${teamName(task)}`, holidaySet, riskAsOfDate);
     const teamWeightTotals = {};
     const teamActiveTotals = {};
     const teamRiskTotals = {};
@@ -2256,14 +2259,14 @@ function App() {
       };
     })
     .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.totalWeight - a.totalWeight);
-  }, [tasks, staffByName, holidaySet]);
+  }, [tasks, staffByName, holidaySet, riskAsOfDate]);
 
   const statusRows = useMemo(() => Object.entries(groupBy(tasks, (task) => task.status || 'Unknown'))
     .map(([status, items]) => ({ status, total: items.length, pct: tasks.length ? Math.round((items.length / tasks.length) * 1000) / 10 : 0 }))
     .sort((a, b) => b.total - a.total), [tasks]);
 
-  const kpiRows = useMemo(() => buildKpiRows(tasks), [tasks]);
-  const kpiWeightRows = useMemo(() => buildKpiWeightRows(tasks), [tasks]);
+  const kpiRows = useMemo(() => buildKpiRows(tasks, holidaySet, riskAsOfDate), [tasks, holidaySet, riskAsOfDate]);
+  const kpiWeightRows = useMemo(() => buildKpiWeightRows(tasks, holidaySet, riskAsOfDate), [tasks, holidaySet, riskAsOfDate]);
   const teams = useMemo(() => [...new Set(teamRows.map((row) => row.team))], [teamRows]);
 
   const monthlyTrend = useMemo(() => {
@@ -2330,14 +2333,14 @@ function App() {
   }, [tasks, year, month, holidaySet]);
 
   const criticalQueue = useMemo(() => portfolio.active
-    .map((task) => ({ task, days: daysUntil(task, holidaySet), weight: taskWeight(task) }))
+    .map((task) => ({ task, days: daysUntil(task, holidaySet, riskAsOfDate), weight: taskWeight(task) }))
     .filter((item) => item.days !== null)
     .sort((a, b) => {
       const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;
       const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
       return (riskA - riskB) || (a.days - b.days) || (b.weight - a.weight);
     })
-    .slice(0, 12), [portfolio.active, holidaySet]);
+    .slice(0, 12), [portfolio.active, holidaySet, riskAsOfDate]);
 
   return (
     <Shell>

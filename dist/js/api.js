@@ -364,8 +364,18 @@ async function saveSupabaseSystemLinks(systemLinks) {
   return { ok: true, systemLinks };
 }
 
+function taskExtraData(task) {
+  const extra = task?.extra_data;
+  if (!extra) return {};
+  if (typeof extra === "string") {
+    try { return JSON.parse(extra) || {}; } catch { return {}; }
+  }
+  return typeof extra === "object" ? extra : {};
+}
+
 function taskWeight(task) {
-  const raw = task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight ?? 1;
+  const extra = taskExtraData(task);
+  const raw = extra.kpi_effective_weight ?? task?.kpi_effective_weight ?? task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight ?? 1;
   const weight = typeof raw === "string"
     ? Number.parseFloat(raw.replace("%", "").trim())
     : Number(raw);
@@ -422,31 +432,36 @@ function summarizeKpiGroups(kpiGroups) {
 
 function calcWeightedScores(input) {
   if (Array.isArray(input)) {
-    const kpiGroups = {};
+    let totalWeight = 0;
+    let completedWeight = 0;
+    let onTimeWeight = 0;
+    let cancelledWeight = 0;
 
-    input.forEach((task) => {
+    (input || []).forEach((task) => {
       const status = String(task?.status || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
-      const key = kpiGroupKey(task);
       const weight = taskWeight(task);
-      if (!kpiGroups[key]) {
-        kpiGroups[key] = { weight, total: 0, completed: 0, onTime: 0, cancelled: 0 };
-      } else if (kpiGroups[key].weight === 1 && weight !== 1) {
-        kpiGroups[key].weight = weight;
-      }
 
       if (status === "cancelled") {
-        kpiGroups[key].cancelled += 1;
+        cancelledWeight += weight;
         return;
       }
 
-      kpiGroups[key].total += 1;
+      totalWeight += weight;
       if (status === "completed") {
-        kpiGroups[key].completed += 1;
-        if (isTaskCompletedOnTime(task)) kpiGroups[key].onTime += 1;
+        completedWeight += weight;
+        if (isTaskCompletedOnTime(task)) onTimeWeight += weight;
       }
     });
 
-    return summarizeKpiGroups(kpiGroups);
+    return {
+      sla: completedWeight > 0 ? Math.round((onTimeWeight / completedWeight) * 100) : null,
+      completion: totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100) : null,
+      totalWeight,
+      completedWeight,
+      onTimeWeight,
+      slaWeight: completedWeight,
+      cancelledWeight,
+    };
   }
 
   return summarizeKpiGroups(input);

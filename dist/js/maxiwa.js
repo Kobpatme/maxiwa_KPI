@@ -13466,8 +13466,9 @@ var MaxiwaKpiApp = (() => {
     return ssrNumber ? { ssrNumber } : {};
   }
   function getTaskWeight(task) {
-    var _a, _b, _c, _d;
-    const raw = (_d = (_c = (_b = (_a = task == null ? void 0 : task.mainkpiweight) != null ? _a : task == null ? void 0 : task.main_weight) != null ? _b : task == null ? void 0 : task.weight) != null ? _c : task == null ? void 0 : task.kpiweight) != null ? _d : 1;
+    var _a, _b, _c, _d, _e, _f;
+    const extra = normalizeExtraData(task == null ? void 0 : task.extra_data);
+    const raw = (_f = (_e = (_d = (_c = (_b = (_a = extra.kpi_effective_weight) != null ? _a : task == null ? void 0 : task.kpi_effective_weight) != null ? _b : task == null ? void 0 : task.mainkpiweight) != null ? _c : task == null ? void 0 : task.main_weight) != null ? _d : task == null ? void 0 : task.weight) != null ? _e : task == null ? void 0 : task.kpiweight) != null ? _f : 1;
     const weight = typeof raw === "string" ? Number.parseFloat(raw.replace("%", "").trim()) : Number(raw);
     return Number.isFinite(weight) && weight > 0 ? weight : 1;
   }
@@ -13508,45 +13509,31 @@ var MaxiwaKpiApp = (() => {
   }
   function calcTaskWeightedScores(tasks) {
     if (window.calcWeightedScores) return window.calcWeightedScores(tasks || []);
-    const groups = {};
-    (tasks || []).forEach((task) => {
-      const key = getKpiGroupKey(task);
-      const weight = getTaskWeight(task);
-      const status = statusKey(task == null ? void 0 : task.status);
-      if (!groups[key]) groups[key] = { weight, total: 0, completed: 0, onTime: 0, cancelled: 0 };
-      else if (groups[key].weight === 1 && weight !== 1) groups[key].weight = weight;
-      if (status === "cancelled") {
-        groups[key].cancelled += 1;
-        return;
-      }
-      groups[key].total += 1;
-      if (status === "completed") {
-        groups[key].completed += 1;
-        if (isCompletedOnTime(task)) groups[key].onTime += 1;
-      }
-    });
     let totalWeight = 0;
     let completedWeight = 0;
-    let slaWeight = 0;
     let onTimeWeight = 0;
-    Object.values(groups).forEach((group) => {
-      const weight = getTaskWeight({ weight: group.weight });
-      if (group.total > 0) {
-        totalWeight += weight;
-        completedWeight += weight * (group.completed / group.total);
+    let cancelledWeight = 0;
+    (tasks || []).forEach((task) => {
+      const weight = getTaskWeight(task);
+      const status = statusKey(task == null ? void 0 : task.status);
+      if (status === "cancelled") {
+        cancelledWeight += weight;
+        return;
       }
-      if (group.completed > 0) {
-        slaWeight += weight;
-        onTimeWeight += weight * (group.onTime / group.completed);
+      totalWeight += weight;
+      if (status === "completed") {
+        completedWeight += weight;
+        if (isCompletedOnTime(task)) onTimeWeight += weight;
       }
     });
     return {
-      sla: slaWeight > 0 ? Math.round(onTimeWeight / slaWeight * 100) : null,
+      sla: completedWeight > 0 ? Math.round(onTimeWeight / completedWeight * 100) : null,
       completion: totalWeight > 0 ? Math.round(completedWeight / totalWeight * 100) : null,
       totalWeight,
       completedWeight,
       onTimeWeight,
-      slaWeight
+      slaWeight: completedWeight,
+      cancelledWeight
     };
   }
   function WeightFormulaStrip({ scores }) {
@@ -14703,9 +14690,18 @@ var MaxiwaKpiApp = (() => {
       changed: true
     };
   }
-  function getDaysUntilDeadline(task, holidays = []) {
+  function getDaysUntilDeadline(task, holidays = [], asOfDate = /* @__PURE__ */ new Date()) {
     if (!(task == null ? void 0 : task.deadline)) return null;
-    return businessDaysBetween(/* @__PURE__ */ new Date(), getEffectiveDeadline(task, holidays), holidays);
+    return businessDaysBetween(asOfDate, getEffectiveDeadline(task, holidays), holidays);
+  }
+  function getPerformanceRiskAsOfDate(month, year) {
+    const selectedMonth = Number(month || 0);
+    const selectedYear = Number(year || 0);
+    const today = normalizeDateOnly(/* @__PURE__ */ new Date()) || /* @__PURE__ */ new Date();
+    if (!selectedMonth || !selectedYear) return today;
+    const periodEnd = normalizeDateOnly(new Date(selectedYear, selectedMonth, 0));
+    if (!periodEnd) return today;
+    return periodEnd < today ? periodEnd : today;
   }
   function getExecutiveHealthClass(value) {
     if (value === null || value === void 0) return "mx-status-cancelled";
@@ -14721,14 +14717,15 @@ var MaxiwaKpiApp = (() => {
     }
     const tasks = filterPerformanceTasks(getExecutiveTasks(data));
     const holidaySet = useMemo(() => buildHolidaySet([...holidays || [], ...data && data.holidays || []]), [holidays, data]);
+    const riskAsOfDate = useMemo(() => getPerformanceRiskAsOfDate(filterMonth, filterYear), [filterMonth, filterYear]);
     const activeTasks = tasks.filter(isActiveTask);
     const completedTasks = tasks.filter((task) => statusEquals(task.status, "Completed"));
     const overdueTasks = activeTasks.filter((task) => {
-      const days = getDaysUntilDeadline(task, holidaySet);
+      const days = getDaysUntilDeadline(task, holidaySet, riskAsOfDate);
       return days !== null && days < 0;
     });
     const atRiskTasks = activeTasks.filter((task) => {
-      const days = getDaysUntilDeadline(task, holidaySet);
+      const days = getDaysUntilDeadline(task, holidaySet, riskAsOfDate);
       return days !== null && days >= 0 && days <= 3;
     });
     const scores = calcTaskWeightedScores(tasks);
@@ -14747,18 +14744,18 @@ var MaxiwaKpiApp = (() => {
       const teamScores = calcTaskWeightedScores(teamTasks);
       const active = teamTasks.filter(isActiveTask);
       const overdue = active.filter((task) => {
-        const days = getDaysUntilDeadline(task, holidaySet);
+        const days = getDaysUntilDeadline(task, holidaySet, riskAsOfDate);
         return days !== null && days < 0;
       }).length;
       const atRisk = active.filter((task) => {
-        const days = getDaysUntilDeadline(task, holidaySet);
+        const days = getDaysUntilDeadline(task, holidaySet, riskAsOfDate);
         return days !== null && days >= 0 && days <= 3;
       }).length;
       const teamCompletion = (_a2 = teamScores.completion) != null ? _a2 : teamTasks.length ? Math.round(teamTasks.filter((task) => statusEquals(task.status, "Completed")).length / teamTasks.length * 100) : null;
       const health = Math.round((((_c = (_b = teamScores.sla) != null ? _b : teamCompletion) != null ? _c : 0) + ((_d = teamCompletion != null ? teamCompletion : teamScores.sla) != null ? _d : 0)) / 2) - overdue * 5 - atRisk * 2;
       return { team, total: teamTasks.length, active: active.length, overdue, atRisk, sla: teamScores.sla, completion: teamCompletion, health };
     }).sort((a, b) => a.overdue - b.overdue || a.atRisk - b.atRisk || b.health - a.health);
-    const criticalQueue = activeTasks.map((task) => ({ task, days: getDaysUntilDeadline(task, holidaySet), weight: getTaskWeight(task) })).filter((item) => item.days !== null).sort((a, b) => {
+    const criticalQueue = activeTasks.map((task) => ({ task, days: getDaysUntilDeadline(task, holidaySet, riskAsOfDate), weight: getTaskWeight(task) })).filter((item) => item.days !== null).sort((a, b) => {
       const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;
       const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
       return riskA - riskB || a.days - b.days || b.weight - a.weight;
