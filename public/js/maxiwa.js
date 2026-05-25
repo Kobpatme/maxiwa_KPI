@@ -184,7 +184,8 @@ function filterKpisForUser(kpis, user) {
 function normalizeAppUser(user, fallbackEmpId = '') {
   if (!user) return null;
   const normalizedEmpId = String(user.empId || user.empid || fallbackEmpId).trim();
-  return { ...user, empId: normalizedEmpId, empid: normalizedEmpId };
+  const photo = getPhotoSource(user);
+  return { ...user, empId: normalizedEmpId, empid: normalizedEmpId, pigurl: photo || user.pigurl || '' };
 }
 
 function isTeamManagerRole(role) {
@@ -741,7 +742,7 @@ function filterDashboardByScopeDate(dashboard, scopeDateValue) {
   return {
     ...dashboard,
     tasks,
-    summary: buildPeopleSummaryFromTasks(tasks),
+    summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(tasks), dashboard.staff || []),
   };
 }
 
@@ -987,6 +988,14 @@ function personNameTeamKey(person = {}) {
   return `${personKey(person.name)}::${personKey(person.team)}`;
 }
 
+function getPhotoSource(item = {}) {
+  return item?.pigurl || item?.pigUrl || item?.pigURL || item?.picurl || item?.picUrl
+    || item?.picture || item?.pictureUrl || item?.profilePicture || item?.profile_picture
+    || item?.avatar || item?.avatarUrl || item?.photoUrl || item?.photo_url
+    || item?.profileUrl || item?.profile_url || item?.imageUrl || item?.image_url
+    || item?.image || item?.photo || '';
+}
+
 function buildPersonTaskIndex(tasks = []) {
   const buckets = new Map();
   filterPerformanceTasks(tasks || []).forEach((task) => {
@@ -1012,17 +1021,20 @@ function enrichPeopleWithProfiles(summary = [], staff = []) {
   if (!Array.isArray(summary) || summary.length === 0 || !Array.isArray(staff) || staff.length === 0) return summary || [];
   const byEmp = new Map();
   const byNameTeam = new Map();
+  const byName = new Map();
   staff.filter((person) => !isResignedPerson(person)).forEach((person) => {
     const normalized = normalizeAppUser(person);
     const emp = personKey(normalized.empId || normalized.empid);
     if (emp) byEmp.set(emp, normalized);
     const nameTeam = personNameTeamKey(normalized);
     if (nameTeam !== '::') byNameTeam.set(nameTeam, normalized);
+    const name = personKey(normalized.name);
+    if (name && !byName.has(name)) byName.set(name, normalized);
   });
   return (summary || []).map((person) => {
     const emp = personKey(person.empId || person.empid);
-    const profile = (emp && byEmp.get(emp)) || byNameTeam.get(personNameTeamKey(person));
-    return profile ? { ...profile, ...person, pigurl: profile.pigurl || person.pigurl || '' } : person;
+    const profile = (emp && byEmp.get(emp)) || byNameTeam.get(personNameTeamKey(person)) || byName.get(personKey(person.name));
+    return profile ? { ...profile, ...person, pigurl: getPhotoSource(profile) || getPhotoSource(person) || '' } : person;
   });
 }
 
@@ -1966,7 +1978,7 @@ function normalizePhotoUrl(value) {
 
 function UserAvatar({ user, size = 'lg' }) {
   const [imgFailed, setImgFailed] = useState(false);
-  const rawPhoto = user?.pigurl || user?.pigUrl || user?.pigURL || user?.picurl || user?.picUrl || user?.picture || user?.pictureUrl || user?.profilePicture || user?.profile_picture || user?.avatar || user?.avatarUrl || user?.photoUrl || user?.photo_url || user?.profileUrl || user?.profile_url || user?.imageUrl || user?.image_url || user?.image || user?.photo || '';
+  const rawPhoto = getPhotoSource(user);
   const photo = normalizePhotoUrl(rawPhoto);
   useEffect(() => {
     setImgFailed(false);

@@ -12887,7 +12887,8 @@ var MaxiwaKpiApp = (() => {
   function normalizeAppUser(user, fallbackEmpId = "") {
     if (!user) return null;
     const normalizedEmpId = String(user.empId || user.empid || fallbackEmpId).trim();
-    return { ...user, empId: normalizedEmpId, empid: normalizedEmpId };
+    const photo = getPhotoSource(user);
+    return { ...user, empId: normalizedEmpId, empid: normalizedEmpId, pigurl: photo || user.pigurl || "" };
   }
   function isTeamManagerRole(role) {
     return TEAM_MANAGER_ROLES.includes(role);
@@ -13387,7 +13388,7 @@ var MaxiwaKpiApp = (() => {
     return {
       ...dashboard,
       tasks,
-      summary: buildPeopleSummaryFromTasks(tasks)
+      summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(tasks), dashboard.staff || [])
     };
   }
   function hasScopeDateFilter(scopeDateValue) {
@@ -13573,6 +13574,9 @@ var MaxiwaKpiApp = (() => {
   function personNameTeamKey(person = {}) {
     return `${personKey(person.name)}::${personKey(person.team)}`;
   }
+  function getPhotoSource(item = {}) {
+    return (item == null ? void 0 : item.pigurl) || (item == null ? void 0 : item.pigUrl) || (item == null ? void 0 : item.pigURL) || (item == null ? void 0 : item.picurl) || (item == null ? void 0 : item.picUrl) || (item == null ? void 0 : item.picture) || (item == null ? void 0 : item.pictureUrl) || (item == null ? void 0 : item.profilePicture) || (item == null ? void 0 : item.profile_picture) || (item == null ? void 0 : item.avatar) || (item == null ? void 0 : item.avatarUrl) || (item == null ? void 0 : item.photoUrl) || (item == null ? void 0 : item.photo_url) || (item == null ? void 0 : item.profileUrl) || (item == null ? void 0 : item.profile_url) || (item == null ? void 0 : item.imageUrl) || (item == null ? void 0 : item.image_url) || (item == null ? void 0 : item.image) || (item == null ? void 0 : item.photo) || "";
+  }
   function buildPersonTaskIndex(tasks = []) {
     const buckets = /* @__PURE__ */ new Map();
     filterPerformanceTasks(tasks || []).forEach((task) => {
@@ -13596,17 +13600,20 @@ var MaxiwaKpiApp = (() => {
     if (!Array.isArray(summary) || summary.length === 0 || !Array.isArray(staff) || staff.length === 0) return summary || [];
     const byEmp = /* @__PURE__ */ new Map();
     const byNameTeam = /* @__PURE__ */ new Map();
+    const byName = /* @__PURE__ */ new Map();
     staff.filter((person) => !isResignedPerson(person)).forEach((person) => {
       const normalized = normalizeAppUser(person);
       const emp = personKey(normalized.empId || normalized.empid);
       if (emp) byEmp.set(emp, normalized);
       const nameTeam = personNameTeamKey(normalized);
       if (nameTeam !== "::") byNameTeam.set(nameTeam, normalized);
+      const name = personKey(normalized.name);
+      if (name && !byName.has(name)) byName.set(name, normalized);
     });
     return (summary || []).map((person) => {
       const emp = personKey(person.empId || person.empid);
-      const profile = emp && byEmp.get(emp) || byNameTeam.get(personNameTeamKey(person));
-      return profile ? { ...profile, ...person, pigurl: profile.pigurl || person.pigurl || "" } : person;
+      const profile = emp && byEmp.get(emp) || byNameTeam.get(personNameTeamKey(person)) || byName.get(personKey(person.name));
+      return profile ? { ...profile, ...person, pigurl: getPhotoSource(profile) || getPhotoSource(person) || "" } : person;
     });
   }
   function enrichSummaryWithTaskWeights(summary, tasks, taskIndex = buildPersonTaskIndex(tasks)) {
@@ -14208,7 +14215,7 @@ var MaxiwaKpiApp = (() => {
   }
   function UserAvatar({ user, size = "lg" }) {
     const [imgFailed, setImgFailed] = useState(false);
-    const rawPhoto = (user == null ? void 0 : user.pigurl) || (user == null ? void 0 : user.pigUrl) || (user == null ? void 0 : user.pigURL) || (user == null ? void 0 : user.picurl) || (user == null ? void 0 : user.picUrl) || (user == null ? void 0 : user.picture) || (user == null ? void 0 : user.pictureUrl) || (user == null ? void 0 : user.profilePicture) || (user == null ? void 0 : user.profile_picture) || (user == null ? void 0 : user.avatar) || (user == null ? void 0 : user.avatarUrl) || (user == null ? void 0 : user.photoUrl) || (user == null ? void 0 : user.photo_url) || (user == null ? void 0 : user.profileUrl) || (user == null ? void 0 : user.profile_url) || (user == null ? void 0 : user.imageUrl) || (user == null ? void 0 : user.image_url) || (user == null ? void 0 : user.image) || (user == null ? void 0 : user.photo) || "";
+    const rawPhoto = getPhotoSource(user);
     const photo = normalizePhotoUrl(rawPhoto);
     useEffect(() => {
       setImgFailed(false);
