@@ -1292,7 +1292,7 @@ function TeamPerformancePulsePanel({ rows = [], emptyText = 'No team data in thi
         {rows.map(({ person, detail }, index) => {
           const slaScore = person.weightedSlaScore ?? detail.scores.sla;
           const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
-          const totalWeight = person.totalWeight ?? detail.scores.totalWeight;
+          const activeWeightShare = calcActiveWeightShare(detail.tasks);
           const primaryRisk = detail.riskItems[0];
           const dialogId = `team-pulse-person-detail-${String(person.empId || person.empid || person.name || index).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
           return (
@@ -1306,6 +1306,7 @@ function TeamPerformancePulsePanel({ rows = [], emptyText = 'No team data in thi
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
+                        <div className="mb-3"><UserAvatar user={person} /></div>
                         <div className="font-extrabold text-lg leading-tight break-words">{person.name}</div>
                         <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team || '-'} / {person.empId || person.empid || 'No employee ID'}</div>
                       </div>
@@ -1326,8 +1327,8 @@ function TeamPerformancePulsePanel({ rows = [], emptyText = 'No team data in thi
                         <div className="mt-1 text-xl font-extrabold">{formatScorePercent(completionScore)}</div>
                       </div>
                       <div className="mx-muted-card rounded-lg p-3">
-                        <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Weight</div>
-                        <div className="mt-1 text-xl font-extrabold">{formatWeightUnits(totalWeight)}</div>
+                        <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Active Weight</div>
+                        <div className="mt-1 text-xl font-extrabold">{formatScorePercent(activeWeightShare)}</div>
                       </div>
                     </div>
 
@@ -3343,6 +3344,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
     const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks, taskIndex);
     const risky = tasks.filter((t) => statusIn(t.status, ['Pending', 'On Hold'])).length;
     const orgScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
+    const activeWeightShare = calcActiveWeightShare(tasks);
     const avgSla = orgScores && orgScores.sla !== null
       ? orgScores.sla
       : (summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0);
@@ -3357,7 +3359,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
         <div className="mx-grid-auto">
           <MetricCard label="Active Tasks" value={tasks.length} sub="โหลดจากระบบเดิมแบบตรง ๆ" icon="fa-briefcase" />
           <MetricCard label="Risk Queue" value={risky} sub="Pending / On Hold ต้องติดตาม" icon="fa-triangle-exclamation" accent="var(--mx-amber)" />
-          <MetricCard label="Total Weight" value={orgScores ? formatWeightUnits(orgScores.totalWeight) : '-'} sub="น้ำหนักงานรวมที่ใช้คำนวณ" icon="fa-scale-balanced" accent="var(--mx-blue)" />
+          <MetricCard label="Active Weight" value={formatScorePercent(activeWeightShare)} sub={`น้ำหนักงาน active จากรวม ${orgScores ? formatWeightUnits(orgScores.totalWeight) : '-'}`} icon="fa-scale-balanced" accent="var(--mx-blue)" />
           <MetricCard label="Completion" value={orgScores ? formatScorePercent(orgScores.completion) : '-'} sub={completionMetricSub(orgScores)} icon="fa-check-double" accent="var(--mx-green)" />
           <MetricCard label="Avg SLA" value={`${avgSla}%`} sub={orgScores ? slaMetricSub(orgScores, avgSla) : 'weighted SLA across visible staff'} icon="fa-chart-line" accent="var(--mx-teal)" />
           <MetricCard label="People" value={summary.length} sub="จำนวนคนในมุมผู้จัดการ" icon="fa-users-viewfinder" accent="var(--mx-blue)" />
