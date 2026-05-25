@@ -893,14 +893,21 @@ function formatScorePercent(value) {
   return value !== null && value !== undefined ? `${value}%` : '-';
 }
 
+function formatWeightShare(value, total) {
+  const numerator = Number(value);
+  const denominator = Number(total);
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return '0%';
+  return formatWeightPercent((numerator / denominator) * 100);
+}
+
 function completionMetricSub(scores) {
   if (!scores || scores.completion === null || scores.completion === undefined) return 'คำนวณจากน้ำหนักงาน';
-  return `สำเร็จ ${scores.completion}% จากน้ำหนักรวม ${formatWeightUnits(scores.totalWeight)}`;
+  return `สำเร็จ ${scores.completion}% จากน้ำหนักรวม 100%`;
 }
 
 function slaMetricSub(scores, score = scores?.sla) {
   if (!scores || score === null || score === undefined) return 'คำนวณจากฐาน SLA';
-  return `ตรงเวลา ${score}% จากฐาน SLA ${formatWeightPercent(getSlaWeight(scores))}`;
+  return `ตรงเวลา ${score}% จากฐาน SLA ${formatWeightShare(getSlaWeight(scores), scores.totalWeight)}`;
 }
 
 function calcTaskWeightedScores(tasks) {
@@ -946,10 +953,10 @@ function WeightFormulaStrip({ scores }) {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <span className="mx-badge mx-status-completed">น้ำหนักตรงเวลา {formatWeightPercent(scores.onTimeWeight)}</span>
-          <span className="mx-badge mx-status-process">น้ำหนักเสร็จ {formatWeightPercent(scores.completedWeight)}</span>
-          <span className="mx-badge mx-status-process">ฐาน SLA {formatWeightPercent(getSlaWeight(scores))}</span>
-          <span className="mx-badge mx-status-cancelled">รวม {formatWeightUnits(scores.totalWeight)}</span>
+          <span className="mx-badge mx-status-completed">น้ำหนักตรงเวลา {formatWeightShare(scores.onTimeWeight, scores.totalWeight)}</span>
+          <span className="mx-badge mx-status-process">น้ำหนักเสร็จ {formatWeightShare(scores.completedWeight, scores.totalWeight)}</span>
+          <span className="mx-badge mx-status-process">ฐาน SLA {formatWeightShare(getSlaWeight(scores), scores.totalWeight)}</span>
+          <span className="mx-badge mx-status-cancelled">รวม 100%</span>
         </div>
       </div>
     </div>
@@ -1153,7 +1160,6 @@ function LeadPersonDetailModal({ row, dialogId }) {
   const { person, detail } = row;
   const slaScore = person.weightedSlaScore ?? detail.scores.sla;
   const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
-  const totalWeight = person.totalWeight ?? detail.scores.totalWeight;
   const activeWeightShare = calcActiveWeightShare(detail.tasks);
   const riskList = detail.riskItems.slice(0, 5);
   const statusItems = [
@@ -1203,7 +1209,7 @@ function LeadPersonDetailModal({ row, dialogId }) {
             <div className="mx-muted-card rounded-lg p-4">
               <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Active Weight</div>
               <div className="mt-2 text-3xl font-extrabold">{formatScorePercent(activeWeightShare)}</div>
-              <div className="mt-1 text-xs text-[var(--mx-muted)]">น้ำหนักงาน active จากรวม {formatWeightUnits(totalWeight)}</div>
+              <div className="mt-1 text-xs text-[var(--mx-muted)]">น้ำหนักงาน active จากรวม 100%</div>
             </div>
             <div className="mx-muted-card rounded-lg p-4">
               <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--mx-muted)] font-black">Risk</div>
@@ -2988,7 +2994,7 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <span className="mx-badge mx-status-cancelled">{task.team || '-'}</span>
-                  <span className="mx-badge mx-status-process">weight {formatWeight(weight)}</span>
+                  <span className="mx-badge mx-status-process">Weight {formatWeightPercent(weight)}</span>
                   <span className={cn('mx-badge', getStatusClass(task.status))}>{task.status || '-'}</span>
                 </div>
               </div>
@@ -3221,7 +3227,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
       <div className="grid gap-5">
         <div className="mx-grid-auto">
           <MetricCard label="Team Members" value={summary.length} sub="กำลังแสดงตามสิทธิ์การเข้าถึง" icon="fa-users" />
-          <MetricCard label="Active Weight" value={formatScorePercent(activeWeightShare)} sub={`น้ำหนักงาน active จากรวม ${teamScores ? formatWeightUnits(teamScores.totalWeight) : '-'}`} icon="fa-scale-balanced" accent="var(--mx-blue)" />
+          <MetricCard label="Active Weight" value={formatScorePercent(activeWeightShare)} sub="น้ำหนักงาน active จากรวม 100%" icon="fa-scale-balanced" accent="var(--mx-blue)" />
           <MetricCard label="Weighted Completion" value={teamScores ? formatScorePercent(teamScores.completion) : '-'} sub={completionMetricSub(teamScores)} icon="fa-check-double" accent="var(--mx-green)" />
           <MetricCard label="Avg SLA" value={`${avgSla}%`} sub={teamScores ? slaMetricSub(teamScores, avgSla) : 'ค่าเฉลี่ย weighted SLA score'} icon="fa-chart-line" accent="var(--mx-teal)" />
           <MetricCard label="Period" value={data.period || '-'} sub="ช่วงเวลาที่กำลังดู" icon="fa-calendar-days" accent="var(--mx-amber)" />
@@ -3232,7 +3238,6 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
             {leadRows.map(({ person, detail }, index) => {
               const slaScore = person.weightedSlaScore ?? detail.scores.sla;
               const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
-              const totalWeight = person.totalWeight ?? detail.scores.totalWeight;
               const activeWeightShare = calcActiveWeightShare(detail.tasks);
               const primaryRisk = detail.riskItems[0];
               const dialogId = `lead-person-detail-${String(person.empId || person.empid || person.name || index).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
@@ -3359,7 +3364,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
         <div className="mx-grid-auto">
           <MetricCard label="Active Tasks" value={tasks.length} sub="โหลดจากระบบเดิมแบบตรง ๆ" icon="fa-briefcase" />
           <MetricCard label="Risk Queue" value={risky} sub="Pending / On Hold ต้องติดตาม" icon="fa-triangle-exclamation" accent="var(--mx-amber)" />
-          <MetricCard label="Active Weight" value={formatScorePercent(activeWeightShare)} sub={`น้ำหนักงาน active จากรวม ${orgScores ? formatWeightUnits(orgScores.totalWeight) : '-'}`} icon="fa-scale-balanced" accent="var(--mx-blue)" />
+          <MetricCard label="Active Weight" value={formatScorePercent(activeWeightShare)} sub="น้ำหนักงาน active จากรวม 100%" icon="fa-scale-balanced" accent="var(--mx-blue)" />
           <MetricCard label="Completion" value={orgScores ? formatScorePercent(orgScores.completion) : '-'} sub={completionMetricSub(orgScores)} icon="fa-check-double" accent="var(--mx-green)" />
           <MetricCard label="Avg SLA" value={`${avgSla}%`} sub={orgScores ? slaMetricSub(orgScores, avgSla) : 'weighted SLA across visible staff'} icon="fa-chart-line" accent="var(--mx-teal)" />
           <MetricCard label="People" value={summary.length} sub="จำนวนคนในมุมผู้จัดการ" icon="fa-users-viewfinder" accent="var(--mx-blue)" />
@@ -3368,21 +3373,25 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
         <TeamPerformancePulsePanel rows={managerRows} emptyText="No people data in this scope." />
         <Panel title="Performance Scoreboard" subtitle="เห็นคะแนน, ปริมาณงาน, และจุดที่ควรติดตามทันที">
           <div className="grid md:grid-cols-2 gap-3">
-            {topPeople.map((person) => (
+            {topPeople.map((person) => {
+              const personDetail = summarizeLeadPersonTasks(person, taskIndex, holidaySet);
+              const personActiveWeightShare = calcActiveWeightShare(personDetail.tasks);
+              return (
               <div key={person.empId || person.name} className="mx-data-card">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-bold">{person.name}</div>
                     <div className="mt-1 text-sm text-[var(--mx-muted)]">{person.team} • Total {person.totalTasks}</div>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="mx-badge mx-status-cancelled">Weight {formatWeightUnits(person.totalWeight)}</span>
-                      <span className="mx-badge mx-status-completed">Completion {person.weightedCompletionScore ?? '-'}%</span>
+                      <span className="mx-badge mx-status-cancelled">Active Weight {formatScorePercent(personActiveWeightShare)}</span>
+                      <span className="mx-badge mx-status-completed">Completion {formatScorePercent(person.weightedCompletionScore)}</span>
                     </div>
                   </div>
-                  <span className="mx-badge mx-status-process">{person.weightedSlaScore ?? '-'}%</span>
+                  <span className="mx-badge mx-status-process">{formatScorePercent(person.weightedSlaScore)}</span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </Panel>
       </div>
