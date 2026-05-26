@@ -522,6 +522,24 @@ function formatDate(value, withTime = false) {
     : { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+function formatBangkokDate(value = new Date()) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(d).map((part) => [part.type, part.value])
+    );
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  } catch {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+}
+
 function parseJsonSafe(value, fallback = null) {
   try { return JSON.parse(value); } catch { return fallback; }
 }
@@ -4485,6 +4503,11 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
   const [adminSearch, setAdminSearch] = useState('');
   const [kpiSearch, setKpiSearch] = useState('');
   const [kpiTeamFilter, setKpiTeamFilter] = useState('');
+  const [holidayYearFilter, setHolidayYearFilter] = useState('all');
+  const [holidaySourceFilter, setHolidaySourceFilter] = useState('all');
+  const [holidayStatusFilter, setHolidayStatusFilter] = useState('all');
+  const [holidaySyncStartYear, setHolidaySyncStartYear] = useState(() => Number(formatBangkokDate(new Date()).slice(0, 4)) || new Date().getFullYear());
+  const [holidaySyncYearCount, setHolidaySyncYearCount] = useState(2);
   const [selectedOverrideEmpId, setSelectedOverrideEmpId] = useState('');
   const [kpiOverrideDrafts, setKpiOverrideDrafts] = useState({});
   const [saving, setSaving] = useState('');
@@ -4506,18 +4529,65 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
   };
   const filteredStaff = staff.filter((s) => matches(s.name, s.empId, s.empid, s.department, s.departmentId, s.team, s.role, roleScope(s)));
   const filteredKpis = kpis.filter((k) => matches(k.main, k.sub, k.team, k.days, k.main_weight) && matchesKpi(k));
-  const filteredHolidays = holidays.filter((h) => matches(h.name, h.holiday_date, h.is_active ? 'active' : 'inactive'));
   const holidaySource = (holiday) => String(holiday.source || holiday.holiday_source || holiday.type || '').toLowerCase();
+  const thaiPublicHolidayNamePattern = /(thai|thailand|new year|makha|chakri|songkran|coronation|ploughing|visakha|asarnha|lent|queen|king|chulalongkorn|constitution|father|mother|substitution|observed|วันขึ้นปีใหม่|มาฆบูชา|จักรี|สงกรานต์|ฉัตรมงคล|พืชมงคล|วิสาขบูชา|อาสาฬหบูชา|เข้าพรรษา|เฉลิมพระชนมพรรษา|ปิยมหาราช|รัฐธรรมนูญ|วันพ่อ|วันแม่)/i;
   const isThaiPublicHoliday = (holiday) => (
     holidaySource(holiday).includes('thai') ||
     String(holiday.country_code || holiday.countryCode || '').toUpperCase() === 'TH' ||
     String(holiday.id || '').startsWith('th-public-') ||
     String(holiday.external_id || holiday.externalId || '').startsWith('iapp-th-') ||
     String(holiday.external_id || holiday.externalId || '').startsWith('nager.date-th-') ||
-    String(holiday.external_id || holiday.externalId || '').startsWith('nager-th-')
+    String(holiday.external_id || holiday.externalId || '').startsWith('nager-th-') ||
+    thaiPublicHolidayNamePattern.test(String(holiday.name || ''))
   );
+  const holidayDateValue = (holiday = {}) => String(holiday.holiday_date || holiday.date || '').slice(0, 10);
+  const holidayYearValue = (holiday = {}) => holidayDateValue(holiday).slice(0, 4);
+  const holidayProviderLabel = (holiday = {}) => {
+    const provider = String(holiday.provider || '').trim();
+    if (provider) return provider.toLowerCase() === 'iapp' ? 'iApp API' : provider;
+    const externalId = String(holiday.external_id || holiday.externalId || '').toLowerCase();
+    if (externalId.startsWith('iapp-th-')) return 'iApp API';
+    if (externalId.startsWith('nager')) return 'Nager.Date';
+    return isThaiPublicHoliday(holiday) ? 'Thai Public' : 'Company';
+  };
+  const holidayYears = [...new Set(holidays.map(holidayYearValue).filter(Boolean))].sort((a, b) => Number(b) - Number(a));
+  const holidayMatchesFilters = (holiday) => {
+    const sourceGroup = isThaiPublicHoliday(holiday) ? 'thai' : 'company';
+    const statusGroup = isActiveHoliday(holiday) ? 'active' : 'inactive';
+    const year = holidayYearValue(holiday);
+    return (holidayYearFilter === 'all' || year === holidayYearFilter) &&
+      (holidaySourceFilter === 'all' || sourceGroup === holidaySourceFilter) &&
+      (holidayStatusFilter === 'all' || statusGroup === holidayStatusFilter);
+  };
+  const filteredHolidays = holidays
+    .filter((h) => matches(h.name, holidayDateValue(h), isActiveHoliday(h) ? 'active' : 'inactive', holidayProviderLabel(h)))
+    .filter(holidayMatchesFilters)
+    .sort((a, b) => holidayDateValue(a).localeCompare(holidayDateValue(b)) || String(a.name || '').localeCompare(String(b.name || '')));
   const companyHolidays = filteredHolidays.filter((holiday) => !isThaiPublicHoliday(holiday));
   const thaiPublicHolidays = filteredHolidays.filter((holiday) => isThaiPublicHoliday(holiday));
+  const activeHolidayCount = holidays.filter(isActiveHoliday).length;
+  const inactiveHolidayCount = Math.max(0, holidays.length - activeHolidayCount);
+  const todayBangkok = formatBangkokDate(new Date());
+  const upcomingHoliday = [...holidays]
+    .filter((holiday) => isActiveHoliday(holiday) && holidayDateValue(holiday) >= todayBangkok)
+    .sort((a, b) => holidayDateValue(a).localeCompare(holidayDateValue(b)))[0];
+  const holidayDateCounts = holidays.reduce((acc, holiday) => {
+    const date = holidayDateValue(holiday);
+    if (date) acc[date] = (acc[date] || 0) + 1;
+    return acc;
+  }, {});
+  const duplicateHolidayDates = Object.entries(holidayDateCounts).filter(([, count]) => count > 1);
+  const holidaySyncYears = Array.from(
+    { length: Math.max(1, Math.min(5, Number(holidaySyncYearCount) || 2)) },
+    (_, index) => Number(holidaySyncStartYear) + index
+  );
+  const thaiHolidayYearSet = new Set(holidays.filter(isThaiPublicHoliday).map(holidayYearValue).filter(Boolean));
+  const syncCoverageMissingYears = holidaySyncYears.filter((year) => !thaiHolidayYearSet.has(String(year)));
+  const calendarHealthStatus = duplicateHolidayDates.length > 0
+    ? { label: 'ต้องตรวจซ้ำ', className: 'mx-status-hold', detail: `พบวันที่ซ้ำ ${duplicateHolidayDates.length} วัน` }
+    : syncCoverageMissingYears.length > 0
+      ? { label: 'ยังไม่ครบช่วงปี', className: 'mx-status-pending', detail: `ขาดปี ${syncCoverageMissingYears.join(', ')}` }
+      : { label: 'พร้อมใช้งาน', className: 'mx-status-completed', detail: `ครบช่วงปี ${holidaySyncYears[0]}-${holidaySyncYears[holidaySyncYears.length - 1]}` };
   const normalizedSystemLinks = normalizeSystemLinks(systemLinks);
 
   useEffect(() => {
@@ -4790,7 +4860,7 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
   };
 
   const kpiFormFromItem = (item = {}) => ({
-      id: item.id,
+      id: item.id || '',
       main: item.main || item.mainkpi || '',
       sub: item.sub || item.subkpi || '',
       team: item.team || '',
@@ -4895,7 +4965,7 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
       id: item.id,
       holiday_date: item.holiday_date || '',
       name: item.name || '',
-      is_active: item.is_active !== false,
+      is_active: isActiveHoliday(item),
       source: item.source || item.holiday_source || item.type || (isThaiPublicHoliday(item) ? 'thai_public' : 'company'),
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -5327,11 +5397,14 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
   };
 
   const syncThaiHolidays = async () => {
-    const year = new Date().getFullYear();
     await runAdminAction(
       'thaiHolidaySync',
-      async () => adminPost('admin/syncThaiHolidays', { years: [year, year + 1] }, user.empId),
-      'ดึงวันหยุดไทยสำเร็จ'
+      async () => {
+        const res = await adminPost('admin/syncThaiHolidays', { years: holidaySyncYears, provider: 'iapp' }, user.empId);
+        if (!Number(res.imported || 0)) return { error: 'ดึงข้อมูลสำเร็จ แต่ไม่พบรายการวันหยุดไทยจาก API สำหรับปีที่เลือก' };
+        return res;
+      },
+      `ดึงวันหยุดไทยสำเร็จ (${holidaySyncYears[0]}-${holidaySyncYears[holidaySyncYears.length - 1]})`
     );
   };
 
@@ -5352,33 +5425,64 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
     await recalcTaskKpiValues();
   };
 
-  const renderHolidayGroup = (title, subtitle, items, badge) => (
+  const holidayDisplayDate = (date) => {
+    if (!date) return '-';
+    const d = new Date(`${date}T00:00:00+07:00`);
+    if (Number.isNaN(d.getTime())) return date;
+    return new Intl.DateTimeFormat('th-TH', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }).format(d);
+  };
+
+  const clearHolidayFilters = () => {
+    setAdminSearch('');
+    setHolidayYearFilter('all');
+    setHolidaySourceFilter('all');
+    setHolidayStatusFilter('all');
+  };
+
+  const renderHolidayGroup = (title, subtitle, items, tone = 'company') => (
     <div className="grid gap-3">
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-1">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-2">
         <div>
           <div className="font-bold">{title}</div>
           <div className="text-sm text-[var(--mx-muted)]">{subtitle}</div>
         </div>
-        <span className="text-xs font-bold uppercase tracking-wide text-[var(--mx-muted)]">{items.length} รายการ</span>
+        <span className={cn('mx-badge', tone === 'thai' ? 'mx-status-process' : 'mx-status-cancelled')}>{items.length} รายการ</span>
       </div>
-      {items.slice(0, 80).map((holiday) => (
-        <div key={holiday.id || holiday.holiday_date} className="mx-data-card">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="font-bold">{holiday.name}</div>
-                <span className="rounded-md border border-[var(--mx-border)] px-2 py-1 text-xs text-[var(--mx-muted)]">{badge}</span>
+      <div className="grid gap-2 max-h-[520px] overflow-y-auto pr-1">
+        {items.slice(0, 120).map((holiday) => {
+          const date = holidayDateValue(holiday);
+          const active = isActiveHoliday(holiday);
+          const duplicate = date && holidayDateCounts[date] > 1;
+          return (
+            <div key={holiday.id || holiday.external_id || holiday.externalId || date} className="mx-data-card">
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={cn('mx-badge', active ? 'mx-status-completed' : 'mx-status-cancelled')}>{active ? 'Active' : 'Inactive'}</span>
+                    <span className="mx-badge mx-status-process">{holidayProviderLabel(holiday)}</span>
+                    {duplicate && <span className="mx-badge mx-status-hold">วันที่ซ้ำ</span>}
+                  </div>
+                  <div className="mt-2 font-extrabold break-words">{holiday.name || '-'}</div>
+                  <div className="mt-1 text-sm text-[var(--mx-muted)]">{date || '-'} / {holidayDisplayDate(date)}</div>
+                </div>
+                <div className="flex gap-2 md:justify-end">
+                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editHoliday(holiday)} title="แก้ไขวันหยุด">
+                    <i className="fa-solid fa-pen"></i>
+                  </button>
+                  <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeHoliday(holiday)} disabled={!holiday.id && !date} title="ลบวันหยุด">
+                    <i className="fa-solid fa-trash"></i>
+                  </button>
+                </div>
               </div>
-              <div className="mt-1 text-sm text-[var(--mx-muted)]">{holiday.holiday_date} / {holiday.is_active ? 'Active' : 'Inactive'}</div>
             </div>
-            <div className="flex gap-2">
-              <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => editHoliday(holiday)}>แก้ไข</button>
-              <button className="mx-btn mx-btn-soft !py-2 !px-3" onClick={() => removeHoliday(holiday.id)} disabled={!holiday.id}>ลบ</button>
-            </div>
+          );
+        })}
+        {items.length === 0 && (
+          <div className="mx-muted-card rounded-lg p-4 text-sm text-[var(--mx-muted)]">
+            ไม่พบวันหยุดตามตัวกรองนี้
           </div>
-        </div>
-      ))}
-      {items.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบวันหยุด</div>}
+        )}
+      </div>
     </div>
   );
 
@@ -5392,9 +5496,12 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
     await runAdminAction(`delete-team-${id}`, async () => adminDelete(`admin/deleteTeam?id=${encodeURIComponent(id)}`, user.empId), 'ลบทีมสำเร็จ');
   };
 
-  const removeHoliday = async (id) => {
+  const removeHoliday = async (holiday) => {
     if (!window.confirm('ยืนยันการลบวันหยุดนี้?')) return;
-    await runAdminAction(`delete-holiday-${id}`, async () => adminDelete(`admin/deleteHoliday?id=${encodeURIComponent(id)}`, user.empId), 'ลบวันหยุดสำเร็จ');
+    const id = holiday?.id || '';
+    const holidayDate = holiday?.holiday_date || '';
+    const query = id ? `admin/deleteHoliday?id=${encodeURIComponent(id)}` : `admin/deleteHoliday?holiday_date=${encodeURIComponent(holidayDate)}`;
+    await runAdminAction(`delete-holiday-${id || holidayDate}`, async () => adminDelete(query, user.empId), 'ลบวันหยุดสำเร็จ');
   };
 
   const removeKpi = async (id) => {
@@ -5793,34 +5900,157 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
     </Panel>
   );
 
-  const CalendarControls = () => (
-    <Panel
-      title="ปฏิทิน SLA"
-      subtitle="จัดการวันหยุดที่มีผลต่อการคำนวณกำหนดส่ง"
-      actions={[
-        <button key="sync-thai" className="mx-btn mx-btn-soft" onClick={syncThaiHolidays} disabled={saving === 'thaiHolidaySync'}>
-          <i className="fa-solid fa-cloud-arrow-down mr-2"></i>{saving === 'thaiHolidaySync' ? 'กำลังดึงข้อมูล...' : 'ดึงวันหยุดไทย'}
-        </button>,
-        <button key="recalc" className="mx-btn mx-btn-soft" onClick={recalc} disabled={saving === 'recalc'}>
-          <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังคำนวณ...' : 'คำนวณ Deadline ใหม่'}
-        </button>,
-      ]}
-    >
+  const CalendarControls = () => {
+    const isEditingHoliday = Boolean(holidayForm.id || (holidayForm.holiday_date && holidays.some((holiday) => holidayDateValue(holiday) === holidayForm.holiday_date)));
+    const yearOptions = Array.from({ length: 9 }, (_, index) => holidaySyncStartYear - 4 + index);
+    return (
       <div className="grid gap-5">
-        <div className="mx-muted-card rounded-lg p-4">
-          <div className="grid md:grid-cols-[180px_1fr_150px] gap-3">
-            <input className="mx-input" type="date" value={holidayForm.holiday_date} onChange={(e) => setHolidayForm((p) => ({ ...p, holiday_date: e.target.value }))} />
-            <input className="mx-input" placeholder="ชื่อวันหยุด" value={holidayForm.name} onChange={(e) => setHolidayForm((p) => ({ ...p, name: e.target.value }))} />
-            <button className="mx-btn mx-btn-primary" onClick={saveHoliday} disabled={saving === 'holiday'}>{saving === 'holiday' ? 'กำลังบันทึก...' : 'บันทึก'}</button>
+        <div className="mx-grid-auto">
+          <MetricCard label="Holidays" value={holidays.length} sub="รายการทั้งหมดในปฏิทิน SLA" icon="fa-calendar-days" accent="var(--mx-amber)" />
+          <MetricCard label="Active" value={activeHolidayCount} sub="ใช้ตัดวันทำการในการคำนวณ" icon="fa-circle-check" accent="var(--mx-green)" />
+          <MetricCard label="Thai Public" value={holidays.filter(isThaiPublicHoliday).length} sub="ข้อมูลจากแหล่งภายนอก" icon="fa-cloud-arrow-down" accent="var(--mx-blue)" />
+          <MetricCard label="Company" value={holidays.filter((holiday) => !isThaiPublicHoliday(holiday)).length} sub="รายการที่ Admin ดูแลเอง" icon="fa-building" accent="var(--mx-teal)" />
+          <MetricCard label="Coverage" value={syncCoverageMissingYears.length ? `${holidaySyncYears.length - syncCoverageMissingYears.length}/${holidaySyncYears.length}` : 'Ready'} sub={calendarHealthStatus.detail} icon="fa-shield-halved" accent={syncCoverageMissingYears.length || duplicateHolidayDates.length ? 'var(--mx-amber)' : 'var(--mx-green)'} />
+        </div>
+
+        <Panel
+          title="ปฏิทิน SLA"
+          subtitle="จัดการวันหยุดที่มีผลต่อการคำนวณกำหนดส่ง"
+          actions={[
+            <button key="sync-thai" className="mx-btn mx-btn-soft" onClick={syncThaiHolidays} disabled={saving === 'thaiHolidaySync'}>
+              <i className="fa-solid fa-cloud-arrow-down mr-2"></i>{saving === 'thaiHolidaySync' ? 'กำลังดึงข้อมูล...' : `ดึงวันหยุดไทย ${holidaySyncYears[0]}-${holidaySyncYears[holidaySyncYears.length - 1]}`}
+            </button>,
+            <button key="recalc" className="mx-btn mx-btn-primary" onClick={recalc} disabled={saving === 'recalc'}>
+              <i className="fa-solid fa-rotate mr-2"></i>{saving === 'recalc' ? 'กำลังคำนวณ...' : 'คำนวณ Deadline ใหม่'}
+            </button>,
+          ]}
+        >
+          <div className="grid gap-5">
+            <div className="mx-muted-card rounded-lg p-4">
+              <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="mx-badge mx-status-process">Timezone Asia/Bangkok</span>
+                    <span className={cn('mx-badge', calendarHealthStatus.className)}>{calendarHealthStatus.label}</span>
+                    {upcomingHoliday && <span className="mx-badge mx-status-completed">ถัดไป {holidayDateValue(upcomingHoliday)}</span>}
+                    {duplicateHolidayDates.length > 0 && <span className="mx-badge mx-status-hold">วันที่ซ้ำ {duplicateHolidayDates.length} วัน</span>}
+                  </div>
+                  <div className="mt-3 font-extrabold text-lg">
+                    {upcomingHoliday ? `${upcomingHoliday.name || 'วันหยุดถัดไป'} / ${holidayDisplayDate(holidayDateValue(upcomingHoliday))}` : 'ยังไม่มีวันหยุดถัดไปในระบบ'}
+                  </div>
+                  <div className="mt-1 text-sm text-[var(--mx-muted)]">หลังแก้ไขวันหยุด ให้กดคำนวณ Deadline ใหม่เพื่อให้งานเดิมใช้ปฏิทินล่าสุด</div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button className="mx-btn mx-btn-soft" onClick={() => setHolidayForm(emptyHolidayForm)}>
+                    <i className="fa-solid fa-plus mr-2"></i>เพิ่มรายการใหม่
+                  </button>
+                  <button className="mx-btn mx-btn-soft" onClick={clearHolidayFilters}>
+                    <i className="fa-solid fa-filter-circle-xmark mr-2"></i>ล้างตัวกรอง
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid xl:grid-cols-[0.9fr_1.1fr] gap-5">
+              <div className="mx-muted-card rounded-lg p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-extrabold">{isEditingHoliday ? 'แก้ไขวันหยุด' : 'เพิ่มวันหยุด'}</div>
+                    <div className="text-sm text-[var(--mx-muted)]">กำหนดวันที่ ชื่อ แหล่งที่มา และสถานะการใช้งาน</div>
+                  </div>
+                  {isEditingHoliday && <span className="mx-badge mx-status-pending">Editing</span>}
+                </div>
+                <div className="mt-4 grid gap-3">
+                  <input className="mx-input" type="date" value={holidayForm.holiday_date} onChange={(e) => setHolidayForm((p) => ({ ...p, holiday_date: e.target.value }))} />
+                  <input className="mx-input" placeholder="ชื่อวันหยุด" value={holidayForm.name} onChange={(e) => setHolidayForm((p) => ({ ...p, name: e.target.value }))} />
+                  <select className="mx-select" value={holidayForm.source || 'company'} onChange={(e) => setHolidayForm((p) => ({ ...p, source: e.target.value }))}>
+                    <option value="company">วันหยุดบริษัท</option>
+                    <option value="thai_public">วันหยุดไทยจากภายนอก</option>
+                  </select>
+                  <label className="flex items-center gap-3 rounded-lg border border-[var(--mx-border)] bg-white/5 px-3 py-3 text-sm font-bold">
+                    <input type="checkbox" checked={Boolean(holidayForm.is_active)} onChange={(e) => setHolidayForm((p) => ({ ...p, is_active: e.target.checked }))} />
+                    ใช้วันหยุดนี้ในการคำนวณ SLA
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="mx-btn mx-btn-primary" onClick={saveHoliday} disabled={saving === 'holiday'}>
+                      <i className="fa-solid fa-floppy-disk mr-2"></i>{saving === 'holiday' ? 'กำลังบันทึก...' : 'บันทึกวันหยุด'}
+                    </button>
+                    <button className="mx-btn mx-btn-soft" onClick={() => setHolidayForm(emptyHolidayForm)}>
+                      <i className="fa-solid fa-xmark mr-2"></i>ยกเลิก
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mx-muted-card rounded-lg p-4">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                  <div>
+                    <div className="font-extrabold">ค้นหา กรอง และเตรียมช่วงปี</div>
+                    <div className="text-sm text-[var(--mx-muted)]">แสดง {filteredHolidays.length} จาก {holidays.length} รายการ / ช่วง sync {holidaySyncYears[0]}-{holidaySyncYears[holidaySyncYears.length - 1]}</div>
+                  </div>
+                  <span className="mx-badge mx-status-process">Admin Control</span>
+                </div>
+                <div className="mt-4 grid md:grid-cols-2 xl:grid-cols-4 gap-3">
+                  <input className="mx-input md:col-span-2" placeholder="ค้นหาชื่อ วันที่ หรือแหล่งที่มา" value={adminSearch} onChange={(e) => setAdminSearch(e.target.value)} />
+                  <select className="mx-select" value={holidayYearFilter} onChange={(e) => setHolidayYearFilter(e.target.value)}>
+                    <option value="all">ทุกปี</option>
+                    {holidayYears.map((yearOption) => <option key={yearOption} value={yearOption}>{yearOption}</option>)}
+                  </select>
+                  <select className="mx-select" value={holidaySourceFilter} onChange={(e) => setHolidaySourceFilter(e.target.value)}>
+                    <option value="all">ทุกแหล่งที่มา</option>
+                    <option value="company">วันหยุดบริษัท</option>
+                    <option value="thai">วันหยุดไทยภายนอก</option>
+                  </select>
+                  <select className="mx-select" value={holidayStatusFilter} onChange={(e) => setHolidayStatusFilter(e.target.value)}>
+                    <option value="all">ทุกสถานะ</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                  <select className="mx-select" value={holidaySyncStartYear} onChange={(e) => setHolidaySyncStartYear(Number(e.target.value) || holidaySyncStartYear)}>
+                    {yearOptions.map((yearOption) => <option key={yearOption} value={yearOption}>เริ่ม sync {yearOption}</option>)}
+                  </select>
+                  <select className="mx-select" value={holidaySyncYearCount} onChange={(e) => setHolidaySyncYearCount(Number(e.target.value) || 2)}>
+                    <option value="1">1 ปี</option>
+                    <option value="2">2 ปี</option>
+                    <option value="3">3 ปี</option>
+                    <option value="4">4 ปี</option>
+                    <option value="5">5 ปี</option>
+                  </select>
+                </div>
+                <div className="mt-4 grid md:grid-cols-3 gap-3">
+                  <div className="rounded-lg border border-[var(--mx-border)] bg-white/5 p-3">
+                    <div className="text-xs font-extrabold uppercase tracking-wide text-[var(--mx-muted)]">Sync Source</div>
+                    <div className="mt-2 font-extrabold">iApp API</div>
+                    <div className="mt-1 text-sm text-[var(--mx-muted)]">พร้อมต่อ provider อื่นผ่าน field provider/external_id</div>
+                  </div>
+                  <div className="rounded-lg border border-[var(--mx-border)] bg-white/5 p-3">
+                    <div className="text-xs font-extrabold uppercase tracking-wide text-[var(--mx-muted)]">Coverage</div>
+                    <div className="mt-2 font-extrabold">{calendarHealthStatus.label}</div>
+                    <div className="mt-1 text-sm text-[var(--mx-muted)]">{calendarHealthStatus.detail}</div>
+                  </div>
+                  <div className="rounded-lg border border-[var(--mx-border)] bg-white/5 p-3">
+                    <div className="text-xs font-extrabold uppercase tracking-wide text-[var(--mx-muted)]">Recalculate</div>
+                    <div className="mt-2 font-extrabold">Manual Control</div>
+                    <div className="mt-1 text-sm text-[var(--mx-muted)]">Admin เลือกเวลาปรับ Deadline หลังตรวจข้อมูลแล้ว</div>
+                  </div>
+                </div>
+                {duplicateHolidayDates.length > 0 && (
+                  <div className="mt-4 rounded-lg border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.08)] p-3 text-sm text-[var(--mx-text)]">
+                    พบวันที่ซ้ำ: {duplicateHolidayDates.slice(0, 6).map(([date]) => date).join(', ')}{duplicateHolidayDates.length > 6 ? '...' : ''}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid xl:grid-cols-2 gap-4">
+              {renderHolidayGroup('วันหยุดบริษัท', 'รายการที่ Admin เพิ่มหรือแก้ไขเอง', companyHolidays, 'company')}
+              {renderHolidayGroup('วันหยุดไทยจากภายนอก', 'ข้อมูลจาก iApp API สำหรับประเทศไทย', thaiPublicHolidays, 'thai')}
+            </div>
           </div>
-        </div>
-        <div className="grid lg:grid-cols-2 gap-4">
-          {renderHolidayGroup('วันหยุดบริษัท', 'รายการที่ Admin เพิ่มหรือแก้ไขเอง', companyHolidays, 'Company')}
-          {renderHolidayGroup('วันหยุดไทยจากภายนอก', 'ข้อมูลจาก iApp API สำหรับประเทศไทย', thaiPublicHolidays, 'iApp API')}
-        </div>
+        </Panel>
       </div>
-    </Panel>
-  );
+    );
+  };
 
   const AuditPanel = () => (
     <Panel title="ประวัติการแก้ไข" subtitle="ตรวจสอบการเปลี่ยนแปลงของระบบโดยไม่ต้องเข้า backend">

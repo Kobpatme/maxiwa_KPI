@@ -1136,18 +1136,43 @@ function pickHolidayArray(data) {
   for (const key of ["data", "items", "holidays", "holiday", "results", "rows"]) {
     if (Array.isArray(data[key])) return data[key];
   }
+  for (const key of ["data", "result", "response", "payload"]) {
+    const nested = pickHolidayArray(data[key]);
+    if (nested.length > 0) return nested;
+  }
   return [];
 }
 
-function normalizeThaiHolidayResponse(data, year, provider = "iapp") {
+export function normalizeThaiHolidayDate(value) {
+  const text = String(value || "").trim();
+  const ymd = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  const dmy = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  const match = ymd || dmy;
+  if (!match) return "";
+  let year = Number(ymd ? match[1] : match[3]);
+  const rawMonth = Number(ymd ? match[2] : match[2]);
+  const rawDay = Number(ymd ? match[3] : match[1]);
+  const month = String(rawMonth).padStart(2, "0");
+  const day = String(rawDay).padStart(2, "0");
+  if (year >= 2400) year -= 543;
+  if (!year || rawMonth < 1 || rawMonth > 12 || rawDay < 1 || rawDay > 31) return "";
+  return `${year}-${month}-${day}`;
+}
+
+export function normalizeThaiHolidayResponse(data, year, provider = "iapp") {
   const rows = pickHolidayArray(data);
   return rows.map((item) => {
-    const date = String(item.date || item.holiday_date || item.holidayDate || item.startDate || item.start_date || "").slice(0, 10);
+    const rawDate = item.date || item.holiday_date || item.holidayDate || item.holiday_date_ad || item.date_ad
+      || item.startDate || item.start_date || item.start || item.day || item.holiday
+      || item.date_th || item.holiday_date_th || item.date_buddhist;
+    const date = normalizeThaiHolidayDate(
+      rawDate
+    );
     if (!date || (year && !date.startsWith(String(year)))) return null;
     return {
       date,
-      localName: item.localName || item.local_name || item.nameTh || item.name_th || item.name || item.title || item.summary || "",
-      name: item.name || item.nameEn || item.name_en || item.localName || item.title || item.summary || "",
+      localName: item.localName || item.local_name || item.nameTh || item.name_th || item.nameThai || item.name_thai || item.thaiName || item.thai_name || item.name || item.title || item.summary || "",
+      name: item.name || item.nameEn || item.name_en || item.nameEnglish || item.name_english || item.englishName || item.english_name || item.localName || item.title || item.summary || "",
       countryCode: "TH",
       global: item.global ?? item.active ?? true,
       types: item.types || item.type || ["Public"],
@@ -1173,15 +1198,6 @@ async function fetchThaiPublicHolidaysForYear(env, year) {
 
 async function upsertHolidayRow(env, row, columns) {
   const shaped = shapeWithColumns(row, columns);
-  if (shaped.id && (!columns || columns.has("id"))) {
-    const rows = await supabaseWrite(env, "holidays", {
-      query: "on_conflict=id",
-      body: shaped,
-      prefer: "resolution=merge-duplicates,return=representation",
-    });
-    return rows[0] || shaped;
-  }
-
   const date = shaped.holiday_date || row.holiday_date;
   const existing = date
     ? await supabaseFetch(env, "holidays", `select=*&holiday_date=eq.${encodeEq(date)}&limit=1`).then((rows) => rows[0]).catch(() => null)
@@ -1202,6 +1218,14 @@ async function upsertHolidayRow(env, row, columns) {
     });
     return rows[0] || { ...existing, ...shaped };
   }
+  if (shaped.id && (!columns || columns.has("id"))) {
+    const rows = await supabaseWrite(env, "holidays", {
+      query: "on_conflict=id",
+      body: shaped,
+      prefer: "resolution=merge-duplicates,return=representation",
+    });
+    return rows[0] || shaped;
+  }
   const rows = await supabaseWrite(env, "holidays", { body: shaped });
   return rows[0] || shaped;
 }
@@ -1219,7 +1243,6 @@ async function syncThaiPublicHolidays(env, body = {}) {
       if (!date) continue;
       const provider = item.provider || "iapp";
       rawRows.push({
-        id: `th-public-${date}`,
         holiday_date: date,
         name: item.localName || item.name || `Thailand public holiday ${date}`,
         is_active: true,
@@ -1234,16 +1257,7 @@ async function syncThaiPublicHolidays(env, body = {}) {
   }
 
   let synced = [];
-  const rows = rawRows.map((row) => shapeWithColumns(row, holidayColumns));
-  if (rows.length > 0 && holidayColumns.has("id") && rows.every((row) => row.id)) {
-    synced = await supabaseWrite(env, "holidays", {
-      query: "on_conflict=id",
-      body: rows,
-      prefer: "resolution=merge-duplicates,return=representation",
-    });
-  } else {
-    for (const row of rawRows) synced.push(await upsertHolidayRow(env, row, holidayColumns));
-  }
+  for (const row of rawRows) synced.push(await upsertHolidayRow(env, row, holidayColumns));
 
   return { ok: true, years, imported: synced.length, holidays: synced };
 }
@@ -2231,22 +2245,21 @@ async function handleApi(request, env, apiPath) {
   if (apiPath === "admin/saveHoliday" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     const source = body.source || body.holiday_source || body.type || "company";
-    const row = await shapeForTable(env, "holidays", {
+    const columns = await tableColumns(env, "holidays");
+    const row = shapeWithColumns({
       ...body,
       source,
       holiday_source: source,
       type: source,
-    });
-    const holidays = row.id
-      ? await supabaseWrite(env, "holidays", { method: "PATCH", query: `id=eq.${encodeEq(row.id)}`, body: row })
-      : await supabaseWrite(env, "holidays", { body: row });
+    }, columns);
+    const holiday = await upsertHolidayRow(env, row, columns || new Set(["id", "holiday_date", "name", "is_active"]));
     const recalculated = await recalculateDeadlines(env);
     await writeAudit(env, {
       action: "save_holiday",
       changedBy: request.headers.get("x-admin-empid"),
-      details: { id: (holidays[0] || row).id || null, recalculated },
+      details: { id: holiday.id || null, holiday_date: holiday.holiday_date || row.holiday_date || null, recalculated },
     });
-    return jsonResponse(request, { ok: true, holiday: holidays[0] || row, recalculated }, 200, { "X-Maxiwa-Backend": "supabase" });
+    return jsonResponse(request, { ok: true, holiday, recalculated }, 200, { "X-Maxiwa-Backend": "supabase" });
   }
 
   if (apiPath === "admin/syncThaiHolidays" && request.method === "POST") {
@@ -2284,11 +2297,19 @@ async function handleApi(request, env, apiPath) {
       Kpi: { table: "kpis", column: "id", param: "id" },
       Holiday: { table: "holidays", column: "id", param: "id" },
     }[type];
-    const value = url.searchParams.get(config.param);
+    let value = type === "Holiday"
+      ? (url.searchParams.get(config.param) || url.searchParams.get("holiday_date") || url.searchParams.get("date"))
+      : url.searchParams.get(config.param);
     if (!value) return jsonResponse(request, { error: "Delete id is required" }, 400, { "X-Maxiwa-Backend": "supabase" });
     if (type === "User") {
       const userColumns = await tableColumns(env, "users");
       config.column = userColumns?.has("empid") ? "empid" : (userColumns?.has("empId") ? "empId" : "empid");
+    } else if (type === "Holiday") {
+      const dateValue = url.searchParams.get("holiday_date") || url.searchParams.get("date");
+      if (dateValue) {
+        value = dateValue;
+        config.column = "holiday_date";
+      }
     }
     await supabaseWrite(env, config.table, {
       method: "DELETE",

@@ -7,6 +7,8 @@ import {
   bangkokDateKey,
   businessDaysBetween,
   normalizeCompletionDate,
+  normalizeThaiHolidayDate,
+  normalizeThaiHolidayResponse,
 } from "../public/_worker.js";
 
 function loadApiWeightedScores() {
@@ -76,6 +78,21 @@ test("Active holiday flags handle strings and numbers", () => {
 test("Completion date normalizes to Bangkok date", () => {
   assert.equal(normalizeCompletionDate("2026-05-24T18:30:00.000Z"), "2026-05-25");
   assert.equal(normalizeCompletionDate("2026-05-24"), "2026-05-24");
+});
+
+test("Thai holiday parser handles AD, Buddhist year, and nested arrays", () => {
+  assert.equal(normalizeThaiHolidayDate("2026-04-13"), "2026-04-13");
+  assert.equal(normalizeThaiHolidayDate("13/04/2569"), "2026-04-13");
+  const rows = normalizeThaiHolidayResponse({
+    result: {
+      data: [
+        { holiday_date_th: "13/04/2569", name_th: "Songkran" },
+        { date: "2027-01-01", name: "Different year" },
+      ],
+    },
+  }, 2026, "iapp");
+  assert.deepEqual(rows.map((row) => row.date), ["2026-04-13"]);
+  assert.equal(rows[0].provider, "iapp");
 });
 
 test("Weighted score uses task-level effective weights", () => {
