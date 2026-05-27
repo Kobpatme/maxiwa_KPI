@@ -56,6 +56,7 @@ async function serveStatic(req, res) {
   const url = new URL(req.url || "/", `http://${host}:${port}`);
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === "/") pathname = "/index.html";
+  if (!path.extname(pathname)) pathname = path.posix.join(pathname, "index.html");
   const filePath = path.normalize(path.join(distRoot, pathname));
   if (!filePath.startsWith(path.normalize(distRoot))) {
     res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });

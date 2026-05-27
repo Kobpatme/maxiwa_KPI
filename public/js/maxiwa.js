@@ -181,6 +181,53 @@ function filterKpisForUser(kpis, user) {
   return (kpis || []).filter((kpi) => isKpiAssignedToUser(user, kpi));
 }
 
+function buildTaskKpiCatalog(tasks = []) {
+  const map = new Map();
+  (tasks || []).forEach((task) => {
+    if (!task?.subkpi && !task?.subKpi && !task?.sub) return;
+    const item = {
+      id: task.kpi_id || task.kpiId || '',
+      team: task.team || '',
+      main: task.mainkpi || task.mainKpi || task.main || '',
+      sub: task.subkpi || task.subKpi || task.sub || '',
+      weight: getTaskWeight(task),
+    };
+    const key = kpiCompositeKeyOf(item);
+    if (!map.has(key)) map.set(key, item);
+  });
+  return Array.from(map.values());
+}
+
+function summarizePersonAssignedSubKpis(person, kpis = [], personTasks = []) {
+  const personTeam = String(person?.team || '').trim().toLowerCase();
+  const catalogRows = (kpis || []).filter((kpi) => {
+    const kpiTeam = String(kpi?.team || '').trim().toLowerCase();
+    return !personTeam || !kpiTeam || kpiTeam === personTeam;
+  });
+  const sourceRows = catalogRows.length ? catalogRows : buildTaskKpiCatalog(personTasks);
+  const seen = new Set();
+  return sourceRows
+    .filter((kpi) => isKpiAssignedToUser(person, kpi))
+    .map((kpi) => {
+      const key = kpiRuleKeyOf(kpi);
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return {
+        key,
+        main: kpiMainValueOf(kpi) || '-',
+        sub: kpiSubValueOf(kpi) || '-',
+        team: kpi.team || person?.team || '-',
+        baseWeight: getKpiBaseWeight(kpi),
+        effectiveWeight: getEffectiveKpiWeight(person, kpi),
+        overridden: Boolean(getPersonalKpiOverride(person, kpi)),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (Number(b.effectiveWeight || 0) - Number(a.effectiveWeight || 0))
+      || String(a.main).localeCompare(String(b.main), 'th')
+      || String(a.sub).localeCompare(String(b.sub), 'th'));
+}
+
 function normalizeAppUser(user, fallbackEmpId = '') {
   if (!user) return null;
   const normalizedEmpId = String(user.empId || user.empid || fallbackEmpId).trim();
@@ -1109,7 +1156,7 @@ function buildPeopleSummaryFromTasks(tasks = []) {
   return Array.from(people.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'th'));
 }
 
-function summarizeLeadPersonTasks(person, tasksOrIndex = [], holidays = []) {
+function summarizeLeadPersonTasks(person, tasksOrIndex = [], holidays = [], kpis = []) {
   const personTasks = Array.isArray(tasksOrIndex)
     ? filterPerformanceTasks(tasksOrIndex || []).filter((task) => taskMatchesPerson(task, person))
     : tasksForPerson(tasksOrIndex, person);
@@ -1140,7 +1187,8 @@ function summarizeLeadPersonTasks(person, tasksOrIndex = [], holidays = []) {
     if (statusEquals(task.status, 'Completed')) kpiMap[key].completed += 1;
     kpiMap[key].weight = Math.max(kpiMap[key].weight, getTaskWeight(task));
   });
-  const kpiMix = Object.values(kpiMap).sort((a, b) => (b.weight - a.weight) || (b.active - a.active)).slice(0, 3);
+  const performedSubKpis = Object.values(kpiMap).sort((a, b) => (b.weight - a.weight) || (b.active - a.active) || (b.tasks - a.tasks));
+  const kpiMix = performedSubKpis.slice(0, 3);
   const weighted = calcTaskWeightedScores(personTasks);
   return {
     tasks: personTasks,
@@ -1154,6 +1202,7 @@ function summarizeLeadPersonTasks(person, tasksOrIndex = [], holidays = []) {
     dueSoon,
     riskItems,
     kpiMix,
+    performedSubKpis,
     scores: weighted,
   };
 }
@@ -1190,6 +1239,7 @@ function LeadPersonDetailModal({ row, dialogId }) {
   const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
   const activeWeightShare = calcActiveWeightShare(detail.tasks);
   const riskList = detail.riskItems.slice(0, 5);
+  const performedSubKpis = detail.performedSubKpis || [];
   const statusItems = [
     ['Pending', detail.pending, 'mx-status-pending'],
     ['On Process', detail.inProcess, 'mx-status-process'],
@@ -1246,24 +1296,30 @@ function LeadPersonDetailModal({ row, dialogId }) {
             </div>
           </div>
 
-          <div className="grid lg:grid-cols-[0.85fr_1.15fr] gap-5">
+          <div className="grid lg:grid-cols-[1.05fr_0.95fr] gap-5">
             <div className="grid gap-5">
               <div className="mx-muted-card rounded-lg p-4">
                 <div className="text-sm font-extrabold">สถานะงานทั้งหมด</div>
-                <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-2">
                   {statusItems.map(([label, value, klass]) => (
                     <div key={label} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-3">
                       <span className={cn('mx-badge', klass)}>{label}</span>
-                      <div className="mt-2 text-2xl font-extrabold">{value}</div>
+                      <div className="mt-2 text-xl font-extrabold">{value}</div>
                     </div>
                   ))}
                 </div>
               </div>
 
               <div className="mx-muted-card rounded-lg p-4">
-                <div className="text-sm font-extrabold">Sub KPI Mix ที่กินโหลด</div>
-                <div className="mt-3 grid gap-2">
-                  {detail.kpiMix.map((item) => (
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-extrabold">Sub KPI ที่บุคคลนี้ปฏิบัติ</div>
+                    <div className="mt-1 text-xs text-[var(--mx-muted)]">รายการ Sub KPI จากงานจริงของบุคคลนี้ในช่วงที่เลือก</div>
+                  </div>
+                  <span className="mx-badge mx-status-process flex-shrink-0">{performedSubKpis.length} รายการ</span>
+                </div>
+                <div className="mt-3 grid gap-2 max-h-72 overflow-y-auto pr-1">
+                  {performedSubKpis.map((item) => (
                     <div key={item.name} className="rounded-lg border border-[var(--mx-line)] bg-[var(--mx-surface)] p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -1274,7 +1330,7 @@ function LeadPersonDetailModal({ row, dialogId }) {
                       </div>
                     </div>
                   ))}
-                  {detail.kpiMix.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่มี Sub KPI active สำหรับคนนี้</div>}
+                  {performedSubKpis.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ยังไม่มี Sub KPI ที่บุคคลนี้ปฏิบัติในช่วงที่เลือก</div>}
                 </div>
               </div>
             </div>
@@ -1319,9 +1375,19 @@ function LeadPersonDetailModal({ row, dialogId }) {
 }
 
 // ─── UI Primitives ─────────────────────────────────────────────────────────────
-function TeamPerformancePulsePanel({ rows = [], emptyText = 'No team data in this scope.' }) {
+function TeamPerformancePulsePanel({
+  rows = [],
+  emptyText = 'No team data in this scope.',
+  title = 'Team Performance Pulse',
+  subtitle = 'Team member pulse view for the selected scope',
+}) {
+  const [selectedRow, setSelectedRow] = useState(null);
+  const dialogId = 'team-pulse-person-detail';
+  useEffect(() => {
+    if (selectedRow) document.getElementById(dialogId)?.showModal();
+  }, [selectedRow]);
   return (
-    <Panel title="Team Performance Pulse" subtitle="Team member pulse view for the selected scope">
+    <Panel title={title} subtitle={subtitle}>
       <div className="grid gap-4">
         {rows.map(({ person, detail }, index) => {
           const slaScore = person.weightedSlaScore ?? detail.scores.sla;
@@ -1329,13 +1395,12 @@ function TeamPerformancePulsePanel({ rows = [], emptyText = 'No team data in thi
           const activeWeightShare = calcActiveWeightShare(detail.tasks);
           const primaryRisk = detail.riskItems[0];
           const rowKey = personRowKey(person, index);
-          const dialogId = `team-pulse-person-detail-${rowKey}`;
           return (
             <React.Fragment key={rowKey}>
               <button
                 type="button"
                 className="mx-data-card text-left w-full cursor-pointer transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[var(--mx-info)]"
-                onClick={() => document.getElementById(dialogId)?.showModal()}
+                onClick={() => setSelectedRow({ person, detail })}
               >
                 <div className="grid xl:grid-cols-[minmax(240px,0.85fr)_minmax(360px,1.15fr)] gap-5">
                   <div className="min-w-0">
@@ -1420,12 +1485,12 @@ function TeamPerformancePulsePanel({ rows = [], emptyText = 'No team data in thi
                   </div>
                 </div>
               </button>
-              <LeadPersonDetailModal row={{ person, detail }} dialogId={dialogId} />
             </React.Fragment>
           );
         })}
         {rows.length === 0 && <div className="mx-data-card text-center text-[var(--mx-muted)]">{emptyText}</div>}
       </div>
+      <LeadPersonDetailModal row={selectedRow} dialogId={dialogId} />
     </Panel>
   );
 }
@@ -2458,9 +2523,10 @@ function useAppData(user, view) {
         return;
       }
       if (isTeamManagerRole(user.role)) {
-        const [tasksRes, staffRes] = await Promise.all([
+        const [tasksRes, staffRes, kpisRes] = await Promise.all([
           API.getAllTasks(monthParam, filterYear, user.team, user.empId),
           API.getAllStaffInTeam(user.team, user.empId).catch(() => ({ staff: [] })),
+          API.getKPIsByTeam(user.team).catch(() => ({ kpis: [] })),
         ]);
         const tasks = tasksRes.tasks || [];
         const staff = staffRes.staff || [];
@@ -2469,6 +2535,7 @@ function useAppData(user, view) {
             summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(tasks), staff),
             tasks,
             staff,
+            kpis: kpisRes.kpis || [],
             period: tasksRes.period,
             holidays: tasksRes.holidays || [],
           },
@@ -2477,9 +2544,10 @@ function useAppData(user, view) {
         return;
       }
       if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
-        const [tasksRes, staffRes] = await Promise.all([
+        const [tasksRes, staffRes, kpisRes] = await Promise.all([
           API.getAllTasks(monthParam, filterYear, 'all', user.empId),
           API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
+          API.getKPIsByTeam('').catch(() => ({ kpis: [] })),
         ]);
         const visibleTasks = filterByAllowedTeams(user, tasksRes.tasks || []);
         const staff = filterByAllowedTeams(user, staffRes.staff || []);
@@ -2488,6 +2556,7 @@ function useAppData(user, view) {
             summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(visibleTasks), staff),
             tasks: visibleTasks,
             staff,
+            kpis: kpisRes.kpis || [],
             holidays: tasksRes.holidays || [],
           },
           loading: false,
@@ -3246,12 +3315,18 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
     const holidaySet = buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]);
     const taskIndex = buildPersonTaskIndex(tasks);
     const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks, taskIndex);
+    const kpis = data.kpis || [];
     const teamScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
     const activeWeightShare = calcActiveWeightShare(tasks);
     const avgSla = teamScores && teamScores.sla !== null
       ? teamScores.sla
       : (summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0);
-    const leadRows = summary.map((person) => ({ person, detail: summarizeLeadPersonTasks(person, taskIndex, holidaySet) }));
+    const leadRows = summary.map((person) => ({ person, detail: summarizeLeadPersonTasks(person, taskIndex, holidaySet, kpis) }));
+    const [selectedLeadRow, setSelectedLeadRow] = useState(null);
+    const selectedLeadDialogId = 'lead-person-detail';
+    useEffect(() => {
+      if (selectedLeadRow) document.getElementById(selectedLeadDialogId)?.showModal();
+    }, [selectedLeadRow]);
     return (
       <div className="grid gap-5">
         <div className="mx-grid-auto">
@@ -3270,13 +3345,13 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
               const activeWeightShare = calcActiveWeightShare(detail.tasks);
               const primaryRisk = detail.riskItems[0];
               const rowKey = personRowKey(person, index);
-              const dialogId = `lead-person-detail-${rowKey}`;
+              const dialogId = selectedLeadDialogId;
               return (
                 <React.Fragment key={rowKey}>
                   <button
                     type="button"
                     className="mx-data-card text-left w-full cursor-pointer transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[var(--mx-info)]"
-                    onClick={() => document.getElementById(dialogId)?.showModal()}
+                    onClick={() => setSelectedLeadRow({ person, detail })}
                   >
                     <div className="grid xl:grid-cols-[minmax(240px,0.85fr)_minmax(360px,1.15fr)] gap-5">
                       <div className="min-w-0">
@@ -3361,13 +3436,13 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
                       </div>
                     </div>
                   </button>
-                  <LeadPersonDetailModal row={{ person, detail }} dialogId={dialogId} />
                 </React.Fragment>
               );
             })}
             {leadRows.length === 0 && <div className="mx-data-card text-center text-[var(--mx-muted)]">ไม่มีข้อมูลทีมในช่วงที่เลือก</div>}
           </div>
         </Panel>
+        <LeadPersonDetailModal row={selectedLeadRow} dialogId={selectedLeadDialogId} />
       </div>
     );
   }
@@ -3377,6 +3452,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
     const holidaySet = buildHolidaySet([...(holidays || []), ...((data && data.holidays) || [])]);
     const taskIndex = buildPersonTaskIndex(tasks);
     const summary = enrichSummaryWithTaskWeights(data.summary || [], tasks, taskIndex);
+    const kpis = data.kpis || [];
     const risky = tasks.filter((t) => statusIn(t.status, ['Pending', 'On Hold'])).length;
     const orgScores = tasks.length > 0 ? calcTaskWeightedScores(tasks) : null;
     const activeWeightShare = calcActiveWeightShare(tasks);
@@ -3385,7 +3461,7 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
       : (summary.length ? Math.round(summary.reduce((s, p) => s + (Number(p.weightedSlaScore) || 0), 0) / summary.length) : 0);
     const topPeople = [...summary].sort((a, b) => (b.weightedSlaScore || 0) - (a.weightedSlaScore || 0)).slice(0, 6);
     const managerRows = summary
-      .map((person) => ({ person, detail: summarizeLeadPersonTasks(person, taskIndex, holidaySet) }))
+      .map((person) => ({ person, detail: summarizeLeadPersonTasks(person, taskIndex, holidaySet, kpis) }))
       .sort((a, b) => (b.detail.overdue - a.detail.overdue)
         || (b.detail.dueSoon - a.detail.dueSoon)
         || ((b.person.weightedSlaScore ?? b.detail.scores.sla ?? 0) - (a.person.weightedSlaScore ?? a.detail.scores.sla ?? 0)));

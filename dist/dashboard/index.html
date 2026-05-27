@@ -1111,14 +1111,16 @@
       display: grid;
       grid-template-columns: minmax(0, 1.08fr) minmax(340px, .92fr);
       grid-template-areas:
-        "main attention"
+        "assigned attention"
         "status speed"
-        "recent fail";
+        "main recent"
+        "fail fail";
       gap: 16px;
       margin-top: 18px;
       align-items: start;
     }
     .employee-main-panel { grid-area: main; }
+    .employee-assigned-kpi-panel { grid-area: assigned; }
     .employee-attention-panel { grid-area: attention; }
     .employee-status-panel { grid-area: status; }
     .employee-speed-panel { grid-area: speed; }
@@ -1315,10 +1317,11 @@
       .employee-detail-layout {
         grid-template-columns: 1fr;
         grid-template-areas:
+          "assigned"
           "attention"
-          "main"
           "status"
           "speed"
+          "main"
           "recent"
           "fail";
       }

@@ -159,6 +159,109 @@ function hasExplicitSubKpi(task) {
   return Boolean(String(task?.subkpi ?? task?.subKpi ?? task?.sub ?? '').trim());
 }
 
+function kpiMainValue(item = {}) {
+  return item.main || item.mainkpi || item.mainKpi || '';
+}
+
+function kpiSubValue(item = {}) {
+  return item.sub || item.subkpi || item.subKpi || '';
+}
+
+function kpiCompositeKey(item = {}) {
+  const team = String(item.team || '').trim().toLowerCase();
+  const main = String(kpiMainValue(item) || '').trim().toLowerCase();
+  const sub = String(kpiSubValue(item) || '').trim().toLowerCase();
+  return `${team}::${main}::${sub}`;
+}
+
+function kpiRuleKey(item = {}) {
+  return String(item.id || kpiCompositeKey(item));
+}
+
+function kpiOverrideKeys(item = {}) {
+  return [item.id ? String(item.id) : '', kpiCompositeKey(item)].filter(Boolean);
+}
+
+function readKpiWeight(value, fallback = '') {
+  const raw = typeof value === 'object' && value !== null
+    ? (value.weight ?? value.main_weight ?? value.mainWeight)
+    : value;
+  const number = typeof raw === 'string' ? Number.parseFloat(raw.replace('%', '').trim()) : Number(raw);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function kpiBaseWeight(kpi) {
+  return readKpiWeight(kpi?.main_weight ?? kpi?.mainWeight ?? kpi?.weight, 1);
+}
+
+function personalKpiOverride(user, kpi) {
+  const overrides = userPermissions(user).kpiOverrides || user?.kpiOverrides || {};
+  for (const key of kpiOverrideKeys(kpi)) {
+    const weight = readKpiWeight(overrides[key], '');
+    if (weight) return weight;
+  }
+  return '';
+}
+
+function kpiAssignments(user) {
+  return userPermissions(user).kpiAssignments || user?.kpiAssignments || {};
+}
+
+function isKpiAssignedToPerson(user, kpi) {
+  const assignments = kpiAssignments(user);
+  if (Object.keys(assignments).length === 0) return true;
+  return kpiOverrideKeys(kpi).some((key) => assignments[key] === true);
+}
+
+function taskKpiCatalog(tasks = []) {
+  const map = new Map();
+  (tasks || []).forEach((task) => {
+    if (!hasExplicitSubKpi(task)) return;
+    const item = {
+      id: task.kpi_id || task.kpiId || '',
+      team: teamName(task),
+      main: mainKpi(task),
+      sub: subKpi(task),
+      weight: taskWeight(task),
+    };
+    const key = kpiCompositeKey(item);
+    if (!map.has(key)) map.set(key, item);
+  });
+  return Array.from(map.values());
+}
+
+function assignedSubKpisForPerson(person, kpis = []) {
+  const profile = person?.profile || person || {};
+  const personTeam = String(person?.team || profile.team || '').trim().toLowerCase();
+  const catalogRows = (kpis || []).filter((kpi) => {
+    const kpiTeam = String(kpi?.team || '').trim().toLowerCase();
+    return !personTeam || !kpiTeam || kpiTeam === personTeam;
+  });
+  const sourceRows = catalogRows.length ? catalogRows : taskKpiCatalog(person?.items || []);
+  const seen = new Set();
+  return sourceRows
+    .filter((kpi) => isKpiAssignedToPerson(profile, kpi))
+    .map((kpi) => {
+      const key = kpiRuleKey(kpi);
+      if (seen.has(key)) return null;
+      seen.add(key);
+      const override = personalKpiOverride(profile, kpi);
+      return {
+        key,
+        main: kpiMainValue(kpi) || '-',
+        sub: kpiSubValue(kpi) || '-',
+        team: kpi.team || person?.team || '-',
+        baseWeight: kpiBaseWeight(kpi),
+        effectiveWeight: override || kpiBaseWeight(kpi),
+        overridden: Boolean(override),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (Number(b.effectiveWeight || 0) - Number(a.effectiveWeight || 0))
+      || String(a.main).localeCompare(String(b.main), 'th')
+      || String(a.sub).localeCompare(String(b.sub), 'th'));
+}
+
 function personName(task) {
   return String(task?.name || task?.assignee || task?.owner || task?.empName || task?.empId || task?.empid || 'Unassigned').trim();
 }
@@ -1513,7 +1616,7 @@ function TeamsPanel({ teamRows, holidays = [] }) {
   );
 }
 
-function EmployeeDetailModal({ person, holidays = [], onClose }) {
+function EmployeeDetailModal({ person, holidays = [], kpis = [], onClose }) {
   if (!person) return null;
   const riskAsOfDate = person.asOfDate || new Date();
   const kpiBreakdown = Object.entries(groupBy(person.items, mainKpi))
@@ -1548,6 +1651,15 @@ function EmployeeDetailModal({ person, holidays = [], onClose }) {
     .sort((a, b) => a.days - b.days || b.weight - a.weight)
     .slice(0, 8);
   const topKpiRows = kpiBreakdown.slice(0, 6);
+  const performedSubKpis = Object.entries(groupBy(person.items, subKpi))
+    .map(([name, items]) => ({
+      name,
+      total: items.length,
+      active: items.filter(isActive).length,
+      completed: items.filter(isCompleted).length,
+      weight: Math.max(...items.map(taskWeight), 1),
+    }))
+    .sort((a, b) => b.weight - a.weight || b.active - a.active || b.total - a.total);
   const topStatusRows = statusBreakdown.slice(0, 4);
   const topUrgent = urgent.slice(0, 4);
   const topRecentCompleted = recentCompleted.slice(0, 4);
@@ -1639,6 +1751,33 @@ function EmployeeDetailModal({ person, holidays = [], onClose }) {
               {!topKpiRows.length && <div className="text-sm text-[var(--mx-muted)]">No KPI ownership records for this person.</div>}
             </div>
           </section>
+          <section className="mx-soft p-5 employee-assigned-kpi-panel">
+            <div className="panel-heading-row">
+              <div>
+                <h3 className="m-0 text-lg font-black">Sub KPI ที่บุคคลนี้ปฏิบัติ</h3>
+                <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">รายการ Sub KPI จากงานจริงของบุคคลนี้ในช่วงที่เลือก</p>
+              </div>
+              <span className="mx-badge status-info">{fmtNum(performedSubKpis.length)} รายการ</span>
+            </div>
+            <div className="mt-4 grid gap-3 max-h-80 overflow-y-auto pr-1">
+              {performedSubKpis.map((row) => (
+                <div key={row.name} className="employee-kpi-row">
+                  <div className="min-w-0">
+                    <div className="flex justify-between gap-3 mb-1 text-sm">
+                      <strong className="truncate">{row.name}</strong>
+                      <span>{fmtNum(row.total)} jobs</span>
+                    </div>
+                    <div className="text-xs text-[var(--mx-muted)]">Active {fmtNum(row.active)} • Done {fmtNum(row.completed)} • Total {fmtNum(row.total)}</div>
+                  </div>
+                  <div className="employee-kpi-score">
+                    <span>Weight</span>
+                    <strong>{fmtPct(row.weight)}</strong>
+                  </div>
+                </div>
+              ))}
+              {!performedSubKpis.length && <div className="text-sm text-[var(--mx-muted)]">ยังไม่มี Sub KPI ที่บุคคลนี้ปฏิบัติในช่วงที่เลือก</div>}
+            </div>
+          </section>
           <section className="mx-soft p-5 employee-attention-panel">
             <div className="panel-heading-row">
               <div>
@@ -1724,7 +1863,7 @@ function EmployeeDetailModal({ person, holidays = [], onClose }) {
   );
 }
 
-function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilter, tasks, selectedPerson, setSelectedPerson, holidays = [] }) {
+function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilter, tasks, selectedPerson, setSelectedPerson, holidays = [], kpis = [] }) {
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [employeeBandFilter, setEmployeeBandFilter] = useState('all');
   const [employeeSort, setEmployeeSort] = useState({ key: 'weightedScore', direction: 'desc' });
@@ -1822,7 +1961,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
           </tbody>
         </DataTable>
       </section>
-      <EmployeeDetailModal person={selectedPerson} holidays={holidays} onClose={() => setSelectedPerson(null)} />
+      <EmployeeDetailModal person={selectedPerson} holidays={holidays} kpis={kpis} onClose={() => setSelectedPerson(null)} />
     </div>
   );
 }
@@ -2116,7 +2255,7 @@ function App() {
   const [kpiSearch, setKpiSearch] = useState('');
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [theme, setTheme] = useState(getInitialExecutiveTheme);
-  const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [], holidays: [] });
+  const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [], holidays: [], kpis: [] });
 
   const years = useMemo(() => {
     const now = new Date().getFullYear();
@@ -2172,6 +2311,16 @@ function App() {
         console.warn('Performance View staff image load failed:', staffError);
         staff = [];
       }
+      let kpis = user.kpis || [];
+      try {
+        if (!isSelfScopedRole(user.role)) {
+          const kpiTeam = isTeamScopedRole(user.role) ? user.team : '';
+          const kpisRes = await API.getKPIsByTeam(kpiTeam);
+          kpis = kpisRes.kpis || kpis;
+        }
+      } catch {
+        // Fall back to KPI data returned during login and task-derived KPI rows.
+      }
       let holidays = taskHolidays;
       try {
         if (user.role === 'Admin') {
@@ -2181,7 +2330,7 @@ function App() {
       } catch {
         // If holiday access is restricted, risk displays still use weekend-aware business days.
       }
-      setState({ loading: false, error: '', user, tasks, staff, holidays });
+      setState({ loading: false, error: '', user, tasks, staff, holidays, kpis });
       const url = new URL(window.location.href);
       url.searchParams.set('empId', cleanEmpId);
       url.searchParams.set('month', String(month));
@@ -2422,7 +2571,7 @@ function App() {
 
       {activeTab === 'overview' && <OverviewPanel portfolio={portfolio} teamRows={teamRows} kpiRows={kpiRows} statusRows={statusRows} criticalQueue={criticalQueue} monthlyTrend={monthlyTrend} periodLabel={periodLabel} riskAsOfDate={riskAsOfDate} user={state.user} empId={empId} tasks={tasks} />}
       {activeTab === 'teams' && <TeamsPanel teamRows={teamRows} holidays={holidaySet} />}
-      {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} selectedPerson={selectedPerson} setSelectedPerson={setSelectedPerson} holidays={holidaySet} />}
+      {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} selectedPerson={selectedPerson} setSelectedPerson={setSelectedPerson} holidays={holidaySet} kpis={state.kpis} />}
       {activeTab === 'kpi' && <KpiAnalysisPanel kpiRows={kpiRows} personRows={personRows} teamRows={teamRows} />}
       {activeTab === 'weights' && <KpiWeightsPanel kpiWeightRows={kpiWeightRows} kpiSearch={kpiSearch} setKpiSearch={setKpiSearch} />}
     </Shell>
