@@ -2563,12 +2563,21 @@ function useAppData(user, view) {
         });
         return;
       }
-      const [dashboardRes, staffRes] = await Promise.all([
-        API.getDashboardData(),
-        API.getAllStaff(user.empId),
+      const [tasksRes, staffRes, kpisRes] = await Promise.all([
+        API.getAllTasks(monthParam, filterYear, 'all', user.empId),
+        API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
+        API.getKPIsByTeam('').catch(() => ({ kpis: [] })),
       ]);
+      const tasks = tasksRes.tasks || [];
+      const staff = staffRes.staff || [];
       safeSet({
-        dashboard: { summary: dashboardRes.tasks || [], staff: staffRes.staff || [], kpis: dashboardRes.kpis || [], holidays: dashboardRes.holidays || [] },
+        dashboard: {
+          summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(tasks), staff),
+          tasks,
+          staff,
+          kpis: kpisRes.kpis || [],
+          holidays: tasksRes.holidays || [],
+        },
         loading: false,
       });
     } catch (e) {

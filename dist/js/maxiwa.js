@@ -14452,52 +14452,61 @@ var MaxiwaKpiApp = (() => {
           return;
         }
         if (isTeamManagerRole(user.role)) {
-          const [tasksRes, staffRes2, kpisRes] = await Promise.all([
+          const [tasksRes2, staffRes2, kpisRes2] = await Promise.all([
             API.getAllTasks(monthParam, filterYear, user.team, user.empId),
             API.getAllStaffInTeam(user.team, user.empId).catch(() => ({ staff: [] })),
             API.getKPIsByTeam(user.team).catch(() => ({ kpis: [] }))
           ]);
-          const tasks = tasksRes.tasks || [];
-          const staff = staffRes2.staff || [];
+          const tasks2 = tasksRes2.tasks || [];
+          const staff2 = staffRes2.staff || [];
           safeSet({
             dashboard: {
-              summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(tasks), staff),
-              tasks,
-              staff,
-              kpis: kpisRes.kpis || [],
-              period: tasksRes.period,
-              holidays: tasksRes.holidays || []
+              summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(tasks2), staff2),
+              tasks: tasks2,
+              staff: staff2,
+              kpis: kpisRes2.kpis || [],
+              period: tasksRes2.period,
+              holidays: tasksRes2.holidays || []
             },
             loading: false
           });
           return;
         }
         if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
-          const [tasksRes, staffRes2, kpisRes] = await Promise.all([
+          const [tasksRes2, staffRes2, kpisRes2] = await Promise.all([
             API.getAllTasks(monthParam, filterYear, "all", user.empId),
             API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
             API.getKPIsByTeam("").catch(() => ({ kpis: [] }))
           ]);
-          const visibleTasks = filterByAllowedTeams(user, tasksRes.tasks || []);
-          const staff = filterByAllowedTeams(user, staffRes2.staff || []);
+          const visibleTasks = filterByAllowedTeams(user, tasksRes2.tasks || []);
+          const staff2 = filterByAllowedTeams(user, staffRes2.staff || []);
           safeSet({
             dashboard: {
-              summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(visibleTasks), staff),
+              summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(visibleTasks), staff2),
               tasks: visibleTasks,
-              staff,
-              kpis: kpisRes.kpis || [],
-              holidays: tasksRes.holidays || []
+              staff: staff2,
+              kpis: kpisRes2.kpis || [],
+              holidays: tasksRes2.holidays || []
             },
             loading: false
           });
           return;
         }
-        const [dashboardRes, staffRes] = await Promise.all([
-          API.getDashboardData(),
-          API.getAllStaff(user.empId)
+        const [tasksRes, staffRes, kpisRes] = await Promise.all([
+          API.getAllTasks(monthParam, filterYear, "all", user.empId),
+          API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
+          API.getKPIsByTeam("").catch(() => ({ kpis: [] }))
         ]);
+        const tasks = tasksRes.tasks || [];
+        const staff = staffRes.staff || [];
         safeSet({
-          dashboard: { summary: dashboardRes.tasks || [], staff: staffRes.staff || [], kpis: dashboardRes.kpis || [], holidays: dashboardRes.holidays || [] },
+          dashboard: {
+            summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(tasks), staff),
+            tasks,
+            staff,
+            kpis: kpisRes.kpis || [],
+            holidays: tasksRes.holidays || []
+          },
           loading: false
         });
       } catch (e) {
