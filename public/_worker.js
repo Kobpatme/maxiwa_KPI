@@ -1586,10 +1586,13 @@ async function readTasksForRecalculation(env, targetEmpId = "") {
   return readAll(env, "tasks");
 }
 
-async function readTaskRecalculationPage(env, offset = 0, limit = PAGE_SIZE) {
+async function readTaskRecalculationPage(env, { cursor = "", offset = 0, limit = PAGE_SIZE } = {}) {
+  const cleanCursor = String(cursor || "").trim();
   const safeOffset = Math.max(0, Number(offset) || 0);
   const safeLimit = Math.min(PAGE_SIZE, Math.max(1, Number(limit) || PAGE_SIZE));
-  const query = `select=*&order=id.asc&limit=${safeLimit}&offset=${safeOffset}`;
+  const query = cleanCursor
+    ? `select=*&order=id.asc&id=gt.${encodeEq(cleanCursor)}&limit=${safeLimit}`
+    : `select=*&order=id.asc&limit=${safeLimit}`;
   return supabaseFetch(env, "tasks", query).catch(() =>
     supabaseFetch(env, "tasks", `select=*&limit=${safeLimit}&offset=${safeOffset}`)
   );
@@ -1823,15 +1826,16 @@ async function saveAdminAnnouncement(env, announcement, changedBy = "") {
   return next;
 }
 
-async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = "", offset = null, limit = null, returnStats = false } = {}) {
+async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = "", cursor = "", offset = null, limit = null, returnStats = false } = {}) {
   const cleanTargetEmpId = String(targetEmpId || "").trim();
   const normalizedTargetEmpId = cleanTargetEmpId.toUpperCase();
   const targetUser = normalizedTargetEmpId ? await readTargetUser(env, cleanTargetEmpId) : null;
   const pageLimit = limit === null || limit === undefined ? null : Math.min(PAGE_SIZE, Math.max(1, Number(limit) || PAGE_SIZE));
   const pageOffset = offset === null || offset === undefined ? 0 : Math.max(0, Number(offset) || 0);
+  const pageCursor = String(cursor || "").trim();
   const usePage = pageLimit !== null;
   const [tasks, kpis, holidays] = await Promise.all([
-    (usePage ? readTaskRecalculationPage(env, pageOffset, pageLimit) : readTasksForRecalculation(env, cleanTargetEmpId)).catch(() => []),
+    (usePage ? readTaskRecalculationPage(env, { cursor: pageCursor, offset: pageOffset, limit: pageLimit }) : readTasksForRecalculation(env, cleanTargetEmpId)).catch(() => []),
     readAll(env, "kpis").catch(() => []),
     readAll(env, "holidays").catch(() => []),
   ]);
@@ -1930,10 +1934,14 @@ async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = ""
   }
 
   if (returnStats) {
+    const lastTask = tasks[tasks.length - 1] || null;
+    const nextCursor = lastTask?.id ? String(lastTask.id) : "";
     return {
       updated,
       failed,
       scanned: tasks.length,
+      cursor: pageCursor,
+      nextCursor,
       offset: pageOffset,
       limit: pageLimit || tasks.length,
       nextOffset: usePage ? pageOffset + tasks.length : null,
@@ -2363,11 +2371,12 @@ async function handleApi(request, env, apiPath) {
     }
     const limit = body.limit === undefined || body.limit === null ? null : Number(body.limit);
     const offset = body.offset === undefined || body.offset === null ? null : Number(body.offset);
+    const cursor = String(body.cursor || "").trim();
     const usePage = Number.isFinite(limit) && limit > 0;
     const result = await recalculateTasks(env, {
       updateKpiValues: true,
       targetEmpId,
-      ...(usePage ? { offset, limit, returnStats: true } : {}),
+      ...(usePage ? { cursor, offset, limit, returnStats: true } : {}),
     });
     return jsonResponse(
       request,

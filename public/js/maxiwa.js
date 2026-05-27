@@ -5514,17 +5514,32 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
     await runAdminAction(
       'recalc-tasks',
       async () => {
-        const limit = 250;
+        const limit = 50;
         let offset = 0;
+        let cursor = '';
         let totalUpdated = 0;
         let totalScanned = 0;
         let totalFailed = 0;
+        const postBatch = async (payload) => {
+          let lastError;
+          for (let attempt = 0; attempt < 4; attempt += 1) {
+            try {
+              return await adminPost('admin/recalculateTaskKpiValues', payload, user.empId);
+            } catch (error) {
+              lastError = error;
+              if (!(error?.status >= 500 || error?.status === 408 || error?.status === 429)) throw error;
+              await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+            }
+          }
+          throw lastError;
+        };
         for (let guard = 0; guard < 1000; guard += 1) {
-          const res = await adminPost('admin/recalculateTaskKpiValues', { empId: selectedOverrideEmpId, offset, limit }, user.empId);
+          const res = await postBatch({ empId: selectedOverrideEmpId, cursor, offset, limit });
           totalUpdated += Number(res.updated || 0);
           totalScanned += Number(res.scanned || 0);
           totalFailed += Number(res.failed || 0);
           if (res.done) break;
+          cursor = String(res.nextCursor || '');
           offset = Number(res.nextOffset || (offset + limit));
         }
         if (totalFailed > 0) {
