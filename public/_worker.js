@@ -1552,15 +1552,6 @@ async function readTasksForParams(env, params = {}) {
   }
 }
 
-function uniqueRowsById(rows = []) {
-  const unique = new Map();
-  for (const row of rows || []) {
-    const key = row?.id ? `id:${row.id}` : JSON.stringify(row);
-    if (!unique.has(key)) unique.set(key, row);
-  }
-  return Array.from(unique.values());
-}
-
 async function readTargetUser(env, targetEmpId) {
   const cleanTargetEmpId = String(targetEmpId || "").trim();
   if (!cleanTargetEmpId) return null;
@@ -1575,31 +1566,24 @@ async function readTargetUser(env, targetEmpId) {
   return findUserByEmpId(env, cleanTargetEmpId).catch(() => null);
 }
 
-async function readTasksForRecalculation(env, targetEmpId = "", targetUser = null) {
+async function readTasksForRecalculation(env, targetEmpId = "") {
   const cleanTargetEmpId = String(targetEmpId || "").trim();
   const normalizedTargetEmpId = cleanTargetEmpId.toUpperCase();
   if (!normalizedTargetEmpId) return readAll(env, "tasks");
 
-  const columns = await tableColumns(env, "tasks").catch(() => null);
-  if (!columns) return readAll(env, "tasks");
+  // Personal KPI recalculation must inspect every task because legacy rows can
+  // be missing employee id columns, use mixed casing, or predate user renames.
+  // The row filter in recalculateTasks still limits writes to the selected user.
+  return readAll(env, "tasks");
+}
 
-  const queries = [];
-  const empIdValues = Array.from(new Set([cleanTargetEmpId, normalizedTargetEmpId].filter(Boolean)));
-  for (const column of ["empid", "empId", "assignedToEmpId"]) {
-    if (columns.has(column)) {
-      for (const value of empIdValues) queries.push(`select=*&${column}=eq.${encodeEq(value)}`);
-    }
-  }
-
-  const targetName = String(targetUser?.name || "").trim();
-  const targetTeam = String(targetUser?.team || "").trim();
-  if (targetName && targetTeam && columns.has("name") && columns.has("team")) {
-    queries.push(`select=*&name=eq.${encodeEq(targetName)}&team=eq.${encodeEq(targetTeam)}`);
-  }
-
-  if (queries.length === 0) return readAll(env, "tasks");
-  const pages = await Promise.all(queries.map((query) => readAll(env, "tasks", query).catch(() => [])));
-  return uniqueRowsById(pages.flat());
+async function readTaskRecalculationPage(env, offset = 0, limit = PAGE_SIZE) {
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const safeLimit = Math.min(PAGE_SIZE, Math.max(1, Number(limit) || PAGE_SIZE));
+  const query = `select=*&order=id.asc&limit=${safeLimit}&offset=${safeOffset}`;
+  return supabaseFetch(env, "tasks", query).catch(() =>
+    supabaseFetch(env, "tasks", `select=*&limit=${safeLimit}&offset=${safeOffset}`)
+  );
 }
 
 function summarizeTasks(tasks) {
@@ -1830,12 +1814,15 @@ async function saveAdminAnnouncement(env, announcement, changedBy = "") {
   return next;
 }
 
-async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = "" } = {}) {
+async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = "", offset = null, limit = null, returnStats = false } = {}) {
   const cleanTargetEmpId = String(targetEmpId || "").trim();
   const normalizedTargetEmpId = cleanTargetEmpId.toUpperCase();
   const targetUser = normalizedTargetEmpId ? await readTargetUser(env, cleanTargetEmpId) : null;
+  const pageLimit = limit === null || limit === undefined ? null : Math.min(PAGE_SIZE, Math.max(1, Number(limit) || PAGE_SIZE));
+  const pageOffset = offset === null || offset === undefined ? 0 : Math.max(0, Number(offset) || 0);
+  const usePage = pageLimit !== null;
   const [tasks, kpis, holidays] = await Promise.all([
-    readTasksForRecalculation(env, cleanTargetEmpId, targetUser).catch(() => []),
+    (usePage ? readTaskRecalculationPage(env, pageOffset, pageLimit) : readTasksForRecalculation(env, cleanTargetEmpId)).catch(() => []),
     readAll(env, "kpis").catch(() => []),
     readAll(env, "holidays").catch(() => []),
   ]);
@@ -1851,6 +1838,7 @@ async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = ""
     user,
   ]).filter(([key]) => key !== "::"));
   let updated = 0;
+  let failed = 0;
 
   for (const task of tasks) {
     const taskEmpId = String(task.empid || task.empId || task.assignedToEmpId || "").trim().toUpperCase();
@@ -1923,11 +1911,26 @@ async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = ""
     }
 
     if (Object.keys(patch).length > 0) {
-      const patched = await patchTask(env, task.id, patch).catch(() => null);
+      const patched = await patchTask(env, task.id, patch).catch((error) => {
+        failed += 1;
+        console.warn("Task recalculation patch failed:", task.id, error?.message || error);
+        return null;
+      });
       if (patched) updated += 1;
     }
   }
 
+  if (returnStats) {
+    return {
+      updated,
+      failed,
+      scanned: tasks.length,
+      offset: pageOffset,
+      limit: pageLimit || tasks.length,
+      nextOffset: usePage ? pageOffset + tasks.length : null,
+      done: usePage ? tasks.length < pageLimit : true,
+    };
+  }
   return updated;
 }
 
@@ -2340,9 +2343,19 @@ async function handleApi(request, env, apiPath) {
     if (!targetEmpId) {
       return jsonResponse(request, { error: "empId is required" }, 400, { "X-Maxiwa-Backend": "supabase" });
     }
+    const limit = body.limit === undefined || body.limit === null ? null : Number(body.limit);
+    const offset = body.offset === undefined || body.offset === null ? null : Number(body.offset);
+    const usePage = Number.isFinite(limit) && limit > 0;
+    const result = await recalculateTasks(env, {
+      updateKpiValues: true,
+      targetEmpId,
+      ...(usePage ? { offset, limit, returnStats: true } : {}),
+    });
     return jsonResponse(
       request,
-      { ok: true, updated: await recalculateTaskKpiValues(env, targetEmpId), empId: targetEmpId.toUpperCase() },
+      typeof result === "number"
+        ? { ok: true, updated: result, empId: targetEmpId.toUpperCase() }
+        : { ok: true, ...result, empId: targetEmpId.toUpperCase() },
       200,
       { "X-Maxiwa-Backend": "supabase" }
     );

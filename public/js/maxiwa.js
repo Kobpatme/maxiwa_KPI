@@ -4797,7 +4797,7 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
       const res = await action();
       if (res?.error) return alert(res.error);
       await onRefresh();
-      if (successMessage) alert(successMessage);
+      if (res?.message || successMessage) alert(res?.message || successMessage);
     } catch (error) {
       alert(error.message || 'ดำเนินการไม่สำเร็จ');
     } finally {
@@ -5504,7 +5504,25 @@ function AdminStudio({ user, adminData, systemLinks, adminAnnouncement, onAdminA
     if (!selectedOverrideEmpId) return alert('กรุณาเลือกพนักงานก่อน');
     await runAdminAction(
       'recalc-tasks',
-      async () => adminPost('admin/recalculateTaskKpiValues', { empId: selectedOverrideEmpId }, user.empId),
+      async () => {
+        const limit = 250;
+        let offset = 0;
+        let totalUpdated = 0;
+        let totalScanned = 0;
+        let totalFailed = 0;
+        for (let guard = 0; guard < 1000; guard += 1) {
+          const res = await adminPost('admin/recalculateTaskKpiValues', { empId: selectedOverrideEmpId, offset, limit }, user.empId);
+          totalUpdated += Number(res.updated || 0);
+          totalScanned += Number(res.scanned || 0);
+          totalFailed += Number(res.failed || 0);
+          if (res.done) break;
+          offset = Number(res.nextOffset || (offset + limit));
+        }
+        if (totalFailed > 0) {
+          return { error: `คำนวณได้บางส่วน: อัปเดต ${totalUpdated} รายการ แต่มี ${totalFailed} รายการที่บันทึกไม่สำเร็จ` };
+        }
+        return { ok: true, updated: totalUpdated, scanned: totalScanned, message: `คำนวณงานเดิมใหม่สำเร็จ อัปเดต ${totalUpdated} รายการ` };
+      },
       'คำนวณงานเดิมใหม่และปรับ mainKPI สำเร็จ'
     );
   };

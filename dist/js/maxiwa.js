@@ -15897,7 +15897,7 @@ var MaxiwaKpiApp = (() => {
         const res = await action();
         if (res == null ? void 0 : res.error) return alert(res.error);
         await onRefresh();
-        if (successMessage) alert(successMessage);
+        if ((res == null ? void 0 : res.message) || successMessage) alert((res == null ? void 0 : res.message) || successMessage);
       } catch (error) {
         alert(error.message || "\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E01\u0E32\u0E23\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
       } finally {
@@ -16422,7 +16422,25 @@ var MaxiwaKpiApp = (() => {
       if (!selectedOverrideEmpId) return alert("\u0E01\u0E23\u0E38\u0E13\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1E\u0E19\u0E31\u0E01\u0E07\u0E32\u0E19\u0E01\u0E48\u0E2D\u0E19");
       await runAdminAction(
         "recalc-tasks",
-        async () => adminPost("admin/recalculateTaskKpiValues", { empId: selectedOverrideEmpId }, user.empId),
+        async () => {
+          const limit = 250;
+          let offset = 0;
+          let totalUpdated = 0;
+          let totalScanned = 0;
+          let totalFailed = 0;
+          for (let guard = 0; guard < 1e3; guard += 1) {
+            const res = await adminPost("admin/recalculateTaskKpiValues", { empId: selectedOverrideEmpId, offset, limit }, user.empId);
+            totalUpdated += Number(res.updated || 0);
+            totalScanned += Number(res.scanned || 0);
+            totalFailed += Number(res.failed || 0);
+            if (res.done) break;
+            offset = Number(res.nextOffset || offset + limit);
+          }
+          if (totalFailed > 0) {
+            return { error: `\u0E04\u0E33\u0E19\u0E27\u0E13\u0E44\u0E14\u0E49\u0E1A\u0E32\u0E07\u0E2A\u0E48\u0E27\u0E19: \u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15 ${totalUpdated} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23 \u0E41\u0E15\u0E48\u0E21\u0E35 ${totalFailed} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E17\u0E35\u0E48\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08` };
+          }
+          return { ok: true, updated: totalUpdated, scanned: totalScanned, message: `\u0E04\u0E33\u0E19\u0E27\u0E13\u0E07\u0E32\u0E19\u0E40\u0E14\u0E34\u0E21\u0E43\u0E2B\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08 \u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15 ${totalUpdated} \u0E23\u0E32\u0E22\u0E01\u0E32\u0E23` };
+        },
         "\u0E04\u0E33\u0E19\u0E27\u0E13\u0E07\u0E32\u0E19\u0E40\u0E14\u0E34\u0E21\u0E43\u0E2B\u0E21\u0E48\u0E41\u0E25\u0E30\u0E1B\u0E23\u0E31\u0E1A mainKPI \u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08"
       );
     };
