@@ -905,6 +905,15 @@ async function readAll(env, table, queryPrefix = "select=*") {
   return rows;
 }
 
+async function readAllForDashboard(env, table) {
+  try {
+    return { rows: await readAll(env, table), error: "" };
+  } catch (error) {
+    console.warn(`Dashboard read failed for ${table}:`, error?.message || error);
+    return { rows: [], error: error?.message || `Failed to read ${table}` };
+  }
+}
+
 async function tableColumns(env, table) {
   if (TABLE_COLUMNS_CACHE.has(table)) return TABLE_COLUMNS_CACHE.get(table);
   const promise = supabaseFetch(env, table, "select=*&limit=1")
@@ -2046,12 +2055,21 @@ async function handleApi(request, env, apiPath) {
   }
 
   if (apiPath === "getDashboardData") {
-    const [tasks, kpis, holidays] = await Promise.all([
-      readAll(env, "tasks"),
-      readAll(env, "kpis"),
-      readAll(env, "holidays").catch(() => []),
+    const [tasksResult, kpisResult, holidaysResult] = await Promise.all([
+      readAllForDashboard(env, "tasks"),
+      readAllForDashboard(env, "kpis"),
+      readAllForDashboard(env, "holidays"),
     ]);
-    return jsonResponse(request, { tasks, kpis, holidays }, 200, { "X-Maxiwa-Backend": "supabase" });
+    const errors = {};
+    if (tasksResult.error) errors.tasks = tasksResult.error;
+    if (kpisResult.error) errors.kpis = kpisResult.error;
+    if (holidaysResult.error) errors.holidays = holidaysResult.error;
+    return jsonResponse(request, {
+      tasks: tasksResult.rows,
+      kpis: kpisResult.rows,
+      holidays: holidaysResult.rows,
+      errors,
+    }, 200, { "X-Maxiwa-Backend": "supabase" });
   }
 
   if (apiPath === "getEmployeeTasks" || apiPath === "getAllTasks") {
