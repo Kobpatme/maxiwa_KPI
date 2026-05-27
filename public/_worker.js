@@ -8,6 +8,7 @@ const READ_RETRY_DELAYS_MS = [500, 1200];
 const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log", "app_system_links", "app_system_settings"];
 const ADMIN_ANNOUNCEMENT_SETTING_KEY = "admin_announcement";
 const SERVER_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const TABLE_COLUMNS_CACHE = new Map();
 const OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const OPEN_METEO_TIMEOUT_MS = 8000;
@@ -905,9 +906,15 @@ async function readAll(env, table, queryPrefix = "select=*") {
 }
 
 async function tableColumns(env, table) {
-  const page = await supabaseFetch(env, table, "select=*&limit=1").catch(() => []);
-  if (page[0]) return new Set(Object.keys(page[0]));
-  return null;
+  if (TABLE_COLUMNS_CACHE.has(table)) return TABLE_COLUMNS_CACHE.get(table);
+  const promise = supabaseFetch(env, table, "select=*&limit=1")
+    .then((page) => (page[0] ? new Set(Object.keys(page[0])) : null))
+    .catch((error) => {
+      TABLE_COLUMNS_CACHE.delete(table);
+      throw error;
+    });
+  TABLE_COLUMNS_CACHE.set(table, promise);
+  return promise;
 }
 
 function shapeWithColumns(row, columns) {
@@ -1545,6 +1552,56 @@ async function readTasksForParams(env, params = {}) {
   }
 }
 
+function uniqueRowsById(rows = []) {
+  const unique = new Map();
+  for (const row of rows || []) {
+    const key = row?.id ? `id:${row.id}` : JSON.stringify(row);
+    if (!unique.has(key)) unique.set(key, row);
+  }
+  return Array.from(unique.values());
+}
+
+async function readTargetUser(env, targetEmpId) {
+  const cleanTargetEmpId = String(targetEmpId || "").trim();
+  if (!cleanTargetEmpId) return null;
+  const columns = await tableColumns(env, "users").catch(() => null);
+  const empColumns = ["empid", "empId"].filter((column) => !columns || columns.has(column));
+  for (const column of empColumns) {
+    const user = await supabaseFetch(env, "users", `select=*&${column}=eq.${encodeEq(cleanTargetEmpId)}&limit=1`)
+      .then((rows) => rows[0] || null)
+      .catch(() => null);
+    if (user) return user;
+  }
+  return findUserByEmpId(env, cleanTargetEmpId).catch(() => null);
+}
+
+async function readTasksForRecalculation(env, targetEmpId = "", targetUser = null) {
+  const cleanTargetEmpId = String(targetEmpId || "").trim();
+  const normalizedTargetEmpId = cleanTargetEmpId.toUpperCase();
+  if (!normalizedTargetEmpId) return readAll(env, "tasks");
+
+  const columns = await tableColumns(env, "tasks").catch(() => null);
+  if (!columns) return readAll(env, "tasks");
+
+  const queries = [];
+  const empIdValues = Array.from(new Set([cleanTargetEmpId, normalizedTargetEmpId].filter(Boolean)));
+  for (const column of ["empid", "empId", "assignedToEmpId"]) {
+    if (columns.has(column)) {
+      for (const value of empIdValues) queries.push(`select=*&${column}=eq.${encodeEq(value)}`);
+    }
+  }
+
+  const targetName = String(targetUser?.name || "").trim();
+  const targetTeam = String(targetUser?.team || "").trim();
+  if (targetName && targetTeam && columns.has("name") && columns.has("team")) {
+    queries.push(`select=*&name=eq.${encodeEq(targetName)}&team=eq.${encodeEq(targetTeam)}`);
+  }
+
+  if (queries.length === 0) return readAll(env, "tasks");
+  const pages = await Promise.all(queries.map((query) => readAll(env, "tasks", query).catch(() => [])));
+  return uniqueRowsById(pages.flat());
+}
+
 function summarizeTasks(tasks) {
   const people = new Map();
   for (const task of tasks || []) {
@@ -1774,12 +1831,17 @@ async function saveAdminAnnouncement(env, announcement, changedBy = "") {
 }
 
 async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = "" } = {}) {
+  const cleanTargetEmpId = String(targetEmpId || "").trim();
+  const normalizedTargetEmpId = cleanTargetEmpId.toUpperCase();
+  const targetUser = normalizedTargetEmpId ? await readTargetUser(env, cleanTargetEmpId) : null;
   const [tasks, kpis, holidays] = await Promise.all([
-    readAll(env, "tasks").catch(() => []),
+    readTasksForRecalculation(env, cleanTargetEmpId, targetUser).catch(() => []),
     readAll(env, "kpis").catch(() => []),
     readAll(env, "holidays").catch(() => []),
   ]);
-  const users = await readAll(env, "users").catch(() => []);
+  const users = normalizedTargetEmpId
+    ? (targetUser ? [targetUser] : [])
+    : await readAll(env, "users").catch(() => []);
   const usersByEmpId = new Map(users.map((user) => [
     String(user.empid || user.empId || "").trim().toUpperCase(),
     user,
@@ -1788,8 +1850,6 @@ async function recalculateTasks(env, { updateKpiValues = false, targetEmpId = ""
     `${normalizeKeyPart(user.name)}::${normalizeKeyPart(user.team)}`,
     user,
   ]).filter(([key]) => key !== "::"));
-  const normalizedTargetEmpId = String(targetEmpId || "").trim().toUpperCase();
-  const targetUser = normalizedTargetEmpId ? (usersByEmpId.get(normalizedTargetEmpId) || null) : null;
   let updated = 0;
 
   for (const task of tasks) {
@@ -2276,13 +2336,13 @@ async function handleApi(request, env, apiPath) {
 
   if (apiPath === "admin/recalculateTaskKpiValues" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
-    const targetEmpId = String(body.empId || body.empid || body.assignedToEmpId || "").trim().toUpperCase();
+    const targetEmpId = String(body.empId || body.empid || body.assignedToEmpId || "").trim();
     if (!targetEmpId) {
       return jsonResponse(request, { error: "empId is required" }, 400, { "X-Maxiwa-Backend": "supabase" });
     }
     return jsonResponse(
       request,
-      { ok: true, updated: await recalculateTaskKpiValues(env, targetEmpId), empId: targetEmpId },
+      { ok: true, updated: await recalculateTaskKpiValues(env, targetEmpId), empId: targetEmpId.toUpperCase() },
       200,
       { "X-Maxiwa-Backend": "supabase" }
     );
