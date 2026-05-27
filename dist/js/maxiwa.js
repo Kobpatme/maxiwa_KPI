@@ -13594,6 +13594,14 @@ var MaxiwaKpiApp = (() => {
   function personNameTeamKey(person = {}) {
     return `${personKey(person.name)}::${personKey(person.team)}`;
   }
+  function safeDomIdPart(value) {
+    return String(value || "").trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+  }
+  function personRowKey(person = {}, index = 0) {
+    const emp = person.empId || person.empid || "";
+    const raw = [emp, person.name, person.team, index].map(safeDomIdPart).filter(Boolean).join("-");
+    return raw || `person-${index}`;
+  }
   function getPhotoSource(item = {}) {
     return (item == null ? void 0 : item.pigurl) || (item == null ? void 0 : item.pigUrl) || (item == null ? void 0 : item.pigURL) || (item == null ? void 0 : item.picurl) || (item == null ? void 0 : item.picUrl) || (item == null ? void 0 : item.picture) || (item == null ? void 0 : item.pictureUrl) || (item == null ? void 0 : item.profilePicture) || (item == null ? void 0 : item.profile_picture) || (item == null ? void 0 : item.avatar) || (item == null ? void 0 : item.avatarUrl) || (item == null ? void 0 : item.photoUrl) || (item == null ? void 0 : item.photo_url) || (item == null ? void 0 : item.profileUrl) || (item == null ? void 0 : item.profile_url) || (item == null ? void 0 : item.imageUrl) || (item == null ? void 0 : item.image_url) || (item == null ? void 0 : item.image) || (item == null ? void 0 : item.photo) || "";
   }
@@ -13772,8 +13780,9 @@ var MaxiwaKpiApp = (() => {
       const completionScore = (_b = person.weightedCompletionScore) != null ? _b : detail.scores.completion;
       const activeWeightShare = calcActiveWeightShare(detail.tasks);
       const primaryRisk = detail.riskItems[0];
-      const dialogId = `team-pulse-person-detail-${String(person.empId || person.empid || person.name || index).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-      return /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, { key: person.empId || person.name }, /* @__PURE__ */ import_react.default.createElement(
+      const rowKey = personRowKey(person, index);
+      const dialogId = `team-pulse-person-detail-${rowKey}`;
+      return /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, { key: rowKey }, /* @__PURE__ */ import_react.default.createElement(
         "button",
         {
           type: "button",
@@ -14943,8 +14952,9 @@ var MaxiwaKpiApp = (() => {
         const completionScore = (_b = person.weightedCompletionScore) != null ? _b : detail.scores.completion;
         const activeWeightShare2 = calcActiveWeightShare(detail.tasks);
         const primaryRisk = detail.riskItems[0];
-        const dialogId = `lead-person-detail-${String(person.empId || person.empid || person.name || index).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-        return /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, { key: person.empId || person.name }, /* @__PURE__ */ import_react.default.createElement(
+        const rowKey = personRowKey(person, index);
+        const dialogId = `lead-person-detail-${rowKey}`;
+        return /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, { key: rowKey }, /* @__PURE__ */ import_react.default.createElement(
           "button",
           {
             type: "button",

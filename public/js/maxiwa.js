@@ -1013,6 +1013,16 @@ function personNameTeamKey(person = {}) {
   return `${personKey(person.name)}::${personKey(person.team)}`;
 }
 
+function safeDomIdPart(value) {
+  return String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+
+function personRowKey(person = {}, index = 0) {
+  const emp = person.empId || person.empid || '';
+  const raw = [emp, person.name, person.team, index].map(safeDomIdPart).filter(Boolean).join('-');
+  return raw || `person-${index}`;
+}
+
 function getPhotoSource(item = {}) {
   return item?.pigurl || item?.pigUrl || item?.pigURL || item?.picurl || item?.picUrl
     || item?.picture || item?.pictureUrl || item?.profilePicture || item?.profile_picture
@@ -1318,9 +1328,10 @@ function TeamPerformancePulsePanel({ rows = [], emptyText = 'No team data in thi
           const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
           const activeWeightShare = calcActiveWeightShare(detail.tasks);
           const primaryRisk = detail.riskItems[0];
-          const dialogId = `team-pulse-person-detail-${String(person.empId || person.empid || person.name || index).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+          const rowKey = personRowKey(person, index);
+          const dialogId = `team-pulse-person-detail-${rowKey}`;
           return (
-            <React.Fragment key={person.empId || person.name}>
+            <React.Fragment key={rowKey}>
               <button
                 type="button"
                 className="mx-data-card text-left w-full cursor-pointer transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[var(--mx-info)]"
@@ -3258,9 +3269,10 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
               const completionScore = person.weightedCompletionScore ?? detail.scores.completion;
               const activeWeightShare = calcActiveWeightShare(detail.tasks);
               const primaryRisk = detail.riskItems[0];
-              const dialogId = `lead-person-detail-${String(person.empId || person.empid || person.name || index).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+              const rowKey = personRowKey(person, index);
+              const dialogId = `lead-person-detail-${rowKey}`;
               return (
-                <React.Fragment key={person.empId || person.name}>
+                <React.Fragment key={rowKey}>
                   <button
                     type="button"
                     className="mx-data-card text-left w-full cursor-pointer transition duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[var(--mx-info)]"
