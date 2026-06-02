@@ -99,6 +99,7 @@ test("Thai holiday parser handles AD, Buddhist year, and nested arrays", () => {
 test("Monthly task filter excludes undated completed work", () => {
   assert.equal(taskInPeriod({ status: "Completed" }, 6, 2026, false), false);
   assert.equal(taskInPeriod({ status: "Completed", completiondate: "2026-05-31" }, 6, 2026, false), false);
+  assert.equal(taskInPeriod({ status: "Completed", startdate: "2026-05-11", deadline: "2026-06-24", completiondate: "2026-05-12" }, 6, 2026, false), false);
   assert.equal(taskInPeriod({ status: "Completed", completiondate: "2026-06-01" }, 6, 2026, false), true);
   assert.equal(taskInPeriod({ status: "On Process", startdate: "2026-05-10" }, 6, 2026, false), true);
   assert.equal(taskInPeriod({ status: "On Process" }, 6, 2026, false), false);

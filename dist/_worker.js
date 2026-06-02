@@ -1476,9 +1476,7 @@ export function dateInPeriod(value, month, year, allTime) {
 export function taskInPeriod(task, month, year, allTime) {
   if (allTime) return true;
   if (!month || !year) return true;
-  const dates = [task.startdate, task.created_at, task.deadline, task.completiondate].filter(Boolean);
-  if (dates.some((value) => dateInPeriod(value, month, year, false))) return true;
-  if (isTerminalStatus(task.status)) return false;
+  if (isTerminalStatus(task.status)) return dateInPeriod(task.completiondate, month, year, false);
 
   const startedAt = new Date(task.startdate || task.created_at || task.deadline || "");
   if (Number.isNaN(startedAt.getTime())) return false;
