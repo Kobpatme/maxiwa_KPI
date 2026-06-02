@@ -266,6 +266,16 @@ function personName(task) {
   return String(task?.name || task?.assignee || task?.owner || task?.empName || task?.empId || task?.empid || 'Unassigned').trim();
 }
 
+function taskPersonId(task) {
+  return String(task?.empId || task?.empid || task?.assignedToEmpId || '').trim();
+}
+
+function personGroupKey(task) {
+  const emp = taskPersonId(task);
+  if (emp) return `emp:${emp.toLowerCase()}`;
+  return `name:${personName(task).toLowerCase()}|team:${teamName(task).toLowerCase()}`;
+}
+
 function teamName(task) {
   return String(task?.team || 'Unassigned').trim();
 }
@@ -1898,7 +1908,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
 
       <div className="employee-grid">
         {filtered.slice(0, 36).map((row, index) => (
-          <button key={row.name} className="mx-card employee-card p-5 text-left" onClick={() => setSelectedPerson(row)}>
+          <button key={row.employeeKey || row.name} className="mx-card employee-card p-5 text-left" onClick={() => setSelectedPerson(row)}>
             <div className="flex items-start gap-4">
               <Avatar item={row.profile || row} name={row.person} />
               <div className="min-w-0 flex-1">
@@ -1949,7 +1959,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
           </thead>
           <tbody className="divide-y divide-[var(--mx-line)]">
             {filtered.map((row, index) => (
-              <tr key={row.name}>
+              <tr key={row.employeeKey || row.name}>
                 <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td>
                 <td className="p-4 font-black">{row.person}</td>
                 <td className="p-4"><span className="mx-badge status-neutral">{row.team}</span></td>
@@ -2398,25 +2408,31 @@ function App() {
     .sort((a, b) => ((b.overdueWeight * 3 + b.atRiskWeight + b.backlog / Math.max(b.total, 1)) - (a.overdueWeight * 3 + a.atRiskWeight + a.backlog / Math.max(a.total, 1))) || (b.totalWeight - a.totalWeight)), [tasks, staffByName, holidaySet, riskAsOfDate, portfolio.totalWeight, portfolio.activeWeight, portfolio.overdueWeight, portfolio.atRiskWeight]);
 
   const personRows = useMemo(() => {
-    const rows = buildGroupRows(tasks, (task) => `${personName(task)}|${teamName(task)}`, holidaySet, riskAsOfDate);
+    const rows = buildGroupRows(tasks, personGroupKey, holidaySet, riskAsOfDate);
     const teamWeightTotals = {};
     const teamActiveTotals = {};
     const teamRiskTotals = {};
     rows.forEach((row) => {
-      const [, team] = row.name.split('|');
+      const team = teamName(row.items?.[0]);
       teamWeightTotals[team] = (teamWeightTotals[team] || 0) + row.totalWeight;
       teamActiveTotals[team] = (teamActiveTotals[team] || 0) + row.activeWeight;
       teamRiskTotals[team] = (teamRiskTotals[team] || 0) + row.overdueWeight + row.atRiskWeight;
     });
     return rows.map((row) => {
-      const [person, team] = row.name.split('|');
-      const profile = staffByName[String(person || '').trim().toLowerCase()]
+      const firstTask = row.items?.[0] || {};
+      const person = personName(firstTask);
+      const team = teamName(firstTask);
+      const emp = taskPersonId(firstTask);
+      const profile = staffByName[String(emp || '').trim().toLowerCase()]
+        || staffByName[String(person || '').trim().toLowerCase()]
         || row.items.map((task) => task).find((task) => getPhotoUrl(task))
         || null;
       return {
         ...row,
+        employeeKey: row.name,
         person,
         team,
+        empId: emp,
         profile,
         workloadShare: teamWeightTotals[team] ? roundMetric((row.totalWeight / teamWeightTotals[team]) * 100, 1) : 0,
         activeWeightShare: teamActiveTotals[team] ? roundMetric((row.activeWeight / teamActiveTotals[team]) * 100, 1) : 0,
