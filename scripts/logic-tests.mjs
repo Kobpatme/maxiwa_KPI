@@ -9,6 +9,7 @@ import {
   normalizeCompletionDate,
   normalizeThaiHolidayDate,
   normalizeThaiHolidayResponse,
+  taskInPeriod,
 } from "../public/_worker.js";
 
 function loadApiWeightedScores() {
@@ -93,6 +94,14 @@ test("Thai holiday parser handles AD, Buddhist year, and nested arrays", () => {
   }, 2026, "iapp");
   assert.deepEqual(rows.map((row) => row.date), ["2026-04-13"]);
   assert.equal(rows[0].provider, "iapp");
+});
+
+test("Monthly task filter excludes undated completed work", () => {
+  assert.equal(taskInPeriod({ status: "Completed" }, 6, 2026, false), false);
+  assert.equal(taskInPeriod({ status: "Completed", completiondate: "2026-05-31" }, 6, 2026, false), false);
+  assert.equal(taskInPeriod({ status: "Completed", completiondate: "2026-06-01" }, 6, 2026, false), true);
+  assert.equal(taskInPeriod({ status: "On Process", startdate: "2026-05-10" }, 6, 2026, false), true);
+  assert.equal(taskInPeriod({ status: "On Process" }, 6, 2026, false), false);
 });
 
 test("Weighted score uses task-level effective weights", () => {

@@ -1465,23 +1465,23 @@ function buildHoldStatusUpdate(task, nextStatus, holidays = [], changedBy = "") 
   return { extra_data: extra, deadline: nextDeadline || task?.deadline || "" };
 }
 
-function dateInPeriod(value, month, year, allTime) {
+export function dateInPeriod(value, month, year, allTime) {
   if (allTime) return true;
   if (!month || !year) return true;
   const date = value ? new Date(value) : null;
-  if (!date || Number.isNaN(date.getTime())) return true;
+  if (!date || Number.isNaN(date.getTime())) return false;
   return date.getFullYear() === Number(year) && date.getMonth() + 1 === Number(month);
 }
 
-function taskInPeriod(task, month, year, allTime) {
+export function taskInPeriod(task, month, year, allTime) {
   if (allTime) return true;
   if (!month || !year) return true;
   const dates = [task.startdate, task.created_at, task.deadline, task.completiondate].filter(Boolean);
   if (dates.some((value) => dateInPeriod(value, month, year, false))) return true;
-  if (isTerminalStatus(task.status)) return dates.length === 0;
+  if (isTerminalStatus(task.status)) return false;
 
   const startedAt = new Date(task.startdate || task.created_at || task.deadline || "");
-  if (Number.isNaN(startedAt.getTime())) return true;
+  if (Number.isNaN(startedAt.getTime())) return false;
   const periodEnd = new Date(Number(year), Number(month), 0, 23, 59, 59, 999);
   return startedAt <= periodEnd;
 }
