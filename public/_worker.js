@@ -1321,6 +1321,11 @@ function normalizeExtraData(extraData) {
   return typeof extraData === "object" ? extraData : {};
 }
 
+function getSsrNumber(extraData) {
+  const ed = normalizeExtraData(extraData);
+  return ed.ssrNumber || ed.ssr_number || ed.ssrNo || ed.ssr || ed.SSR || "";
+}
+
 function userPermissions(user) {
   const raw = user?.permissions;
   if (!raw) return {};
@@ -2173,7 +2178,14 @@ async function handleApi(request, env, apiPath) {
     const q = url.searchParams.get("q") || "";
     const allTasks = await readAll(env, "tasks").catch(() => []);
     const needle = q.trim().toLowerCase();
-    const tasks = needle ? allTasks.filter((task) => String(task.job || "").toLowerCase().includes(needle)) : [];
+    const tasks = needle
+      ? allTasks.filter((task) => {
+          const jobMatch = String(task.job || "").toLowerCase().includes(needle);
+          const ssrNumber = getSsrNumber(task.extra_data);
+          const ssrMatch = String(ssrNumber).toLowerCase().includes(needle);
+          return jobMatch || ssrMatch;
+        })
+      : [];
     return jsonResponse(request, { tasks }, 200, { "X-Maxiwa-Backend": "supabase" });
   }
 
