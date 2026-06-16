@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>METRIX Verity Executive Presentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07111f;
+      --panel: rgba(11, 18, 30, 0.92);
+      --panel-2: rgba(15, 23, 42, 0.96);
+      --panel-3: rgba(17, 24, 39, 0.92);
+      --line: rgba(148, 163, 184, 0.18);
+      --text: #eff6ff;
+      --muted: #cbd5e1;
+      --accent: #0ea5a4;
+      --accent2: #7c3aed;
+      --success: #4ade80;
+      --warning: #fbbf24;
+      --danger: #fb7185;
+      --shadow: 0 18px 48px rgba(8, 15, 28, 0.45);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background:
+      radial-gradient(circle at top, #172554 0%, #07111f 35%, #020617 100%); color: var(--text); font-family: "Manrope", "IBM Plex Sans Thai", Arial, Helvetica, sans-serif; }
+    body { min-height: 100vh; }
+    a { color: inherit; text-decoration: none; }
+
+    .page {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 20px;
+      margin-bottom: 18px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(15,23,42,0.98), rgba(8,15,28,0.98));
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .brand-header { display:flex; gap:12px; align-items:center; margin-bottom:8px; }
+    .brand-logo { width:56px; height:56px; display:grid; place-items:center; }
+    .brand-logo svg { width:56px; height:56px; }
+
+    .card::after {
+      content: "";
+      position: absolute;
+      inset: auto -15% -30% auto;
+      width: 180px; height: 180px;
+      background: radial-gradient(circle, rgba(56,189,248,0.08) 0%, rgba(56,189,248,0) 60%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.35em;
+      font-size: 12px;
+      color: #bfdbfe;
+      margin-bottom: 10px;
+    }
+
+    h1, h2, h3 { margin: 0 0 10px 0; line-height: 1.1; }
+    h1 { font-size: clamp(30px, 6vw, 54px); }
+    h2 { font-size: clamp(20px, 4vw, 30px); }
+    h3 { font-size: 18px; }
+    p { margin: 0 0 8px 0; color: var(--muted); line-height: 1.45; }
+
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      border: 1px solid rgba(125,211,252,0.18); background: rgba(15,23,42,0.85); color: #e0f2fe; border-radius: 999px; padding: 8px 10px; font-size: 12px;
+    }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 6px 10px; font-weight: 700; font-size: 12px;
+      border: 1px solid rgba(148,163,184,0.18); background: rgba(15,23,42,0.95); color: #e2e8f0;
+    }
+    .badge.ok { color:#bbf7d0; border-color: rgba(74,222,128,0.18); background: rgba(22,163,74,0.08); }
+    .badge.warn { color:#fde68a; border-color: rgba(251,191,36,0.18); background: rgba(180,83,9,0.09); }
+
+    .mini-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, 1fr); margin-top: 12px; }
+    .mini-card {
+      border-radius: 18px; border: 1px solid var(--line); padding: 14px; background: linear-gradient(180deg, rgba(15,23,42,0.97), rgba(15,23,42,0.88));
+    }
+    .mini-card strong { display: block; font-size: 24px; color: #fff; }
+    .mini-card span { color: var(--muted); font-size: 13px; }
+
+    .tag-cloud { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag {
+      border: 1px solid rgba(129,140,248,0.2); background: rgba(30,41,59,0.82); color: #e2e8f0; border-radius: 999px; padding: 7px 10px; font-size: 12px;
+    }
+
+    .stats-grid { display: grid; gap: 14px; grid-template-columns: repeat(4, 1fr); margin-top: 14px; }
+    .stat {
+      border-radius: 18px; border: 1px solid var(--line); padding: 14px; background: linear-gradient(135deg, rgba(30,41,59,0.96), rgba(15,23,42,0.98));
+      min-height: 110px;
+    }
+    .score-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 12px; }
+    .score-card {
+      border-radius: 16px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(15,23,42,0.95), rgba(8,15,28,0.98));
+      padding: 12px;
+    }
+    .score-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+    .score-label { color: #bfdbfe; font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; }
+    .score-value { font-size: 20px; font-weight: 800; color: #fff; }
+    .bar-track { width: 100%; height: 8px; border-radius: 999px; background: rgba(148,163,184,0.18); overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+    .bar-fill.good { background: linear-gradient(90deg, #4ade80, #22d3ee); }
+    .bar-fill.warn { background: linear-gradient(90deg, #fbbf24, #fb7185); }
+    .legend { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .legend span { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; }
+    .mini-chart { display: grid; gap: 8px; margin-top: 12px; }
+    .mini-row { display: flex; align-items: center; gap: 8px; }
+    .mini-row strong { color: #fff; min-width: 72px; font-size: 12px; }
+    .mini-row .bar-track { flex: 1; }
+    .benefit-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, 1fr); margin-top: 14px; }
+    .benefit-card { border-radius: 12px; padding: 14px; background: linear-gradient(180deg, rgba(30,41,59,0.96), rgba(15,23,42,0.96)); border: 1px solid var(--line); display: flex; gap: 12px; align-items: center; }
+    .benefit-icon { width:56px; height:56px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; color: #07203a; background: linear-gradient(90deg, var(--accent), var(--accent2)); flex: 0 0 56px; }
+    .benefit-title { font-weight: 800; color: #fff; font-size: 15px; }
+    .benefit-desc { color: var(--muted); font-size: 13px; margin-top: 6px; }
+    .stat .label { color: #bfdbfe; text-transform: uppercase; letter-spacing: 0.18em; font-size: 11px; }
+    .stat .value { font-size: 28px; font-weight: 800; color: #fff; margin-top: 6px; }
+    .stat .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+    .section { margin-top: 18px; display: grid; gap: 18px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+
+    .bullet-list { display: grid; gap: 10px; margin-top: 10px; }
+    .bullet-item {
+      display: flex; gap: 10px; align-items: start; border: 1px solid var(--line); border-radius: 16px; padding: 10px 12px; background: rgba(15,23,42,0.88);
+    }
+    .bullet-dot {
+      width: 10px; height: 10px; border-radius: 999px; margin-top: 6px; background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 0 0 4px rgba(56,189,248,0.08);
+      flex: 0 0 10px;
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; }
+    th { background: rgba(15,23,42,0.96); color: #bfdbfe; text-transform: uppercase; letter-spacing: 0.1em; font-size: 11px; }
+    td { color: var(--muted); }
+
+    .timeline { display: grid; gap: 10px; }
+    .timeline-row {
+      display: grid; grid-template-columns: 130px 1fr; gap: 12px; align-items: start;
+      border: 1px solid var(--line); border-radius: 16px; padding: 10px; background: rgba(15,23,42,0.88);
+    }
+    .phase-chip {
+      border-radius: 999px; display: inline-flex; padding: 6px 10px; font-size: 11px; font-weight: 700; background: rgba(59,130,246,0.12); color: #bfdbfe; border: 1px solid rgba(96,165,250,0.18);
+    }
+
+    .workflow {
+      display: grid; gap: 10px; grid-template-columns: repeat(5, 1fr);
+    }
+    .step {
+      border-radius: 18px; border: 1px solid var(--line); padding: 12px; background: linear-gradient(180deg, rgba(15,23,42,0.96), rgba(8,15,28,0.98));
+      min-height: 110px;
+    }
+    .step .num { color: #38bdf8; font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: 0.18em; }
+    .step h4 { font-size: 14px; color: #fff; margin: 6px 0 6px; }
+    .step p { font-size: 12px; color: var(--muted); margin: 0; }
+
+    .risk-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .risk { border-radius: 18px; border: 1px solid var(--line); padding: 14px; background: linear-gradient(180deg, rgba(15,23,42,0.96), rgba(8,15,28,0.98)); }
+    .risk h4 { color: #fff; font-size: 15px; margin-bottom: 6px; }
+    .risk p { font-size: 13px; }
+
+    .footer-note {
+      text-align: center; color: #cbd5e1; font-size: 12px; padding: 10px 4px 0; opacity: 0.9;
+    }
+
+    @media (max-width: 1100px) {
+      .hero, .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+      .workflow { grid-template-columns: repeat(2,1fr); }
+      .stats-grid { grid-template-columns: repeat(2,1fr); }
+    }
+    @media (max-width: 700px) {
+      .page { padding: 14px; }
+      .mini-grid, .stats-grid, .workflow, .risk-grid { grid-template-columns: 1fr; }
+      .timeline-row { grid-template-columns: 1fr; }
+      .card { border-radius: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <article class="card">
+        <div class="brand-header">
+          <div class="brand-logo" aria-hidden="true">
+            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img">
+              <defs>
+                <linearGradient id="g1" x1="0" x2="1" y1="0" y2="1">
+                  <stop offset="0%" stop-color="#0ea5a4"/>
+                  <stop offset="100%" stop-color="#7c3aed"/>
+                </linearGradient>
+              </defs>
+              <rect rx="18" width="100" height="100" fill="url(#g1)" />
+              <text x="50%" y="56%" font-family="Manrope, Arial" font-weight="800" font-size="44" fill="#07203a" text-anchor="middle" dominant-baseline="middle">M</text>
+            </svg>
+          </div>
+          <div>
+            <div class="eyebrow">METRIX Verity</div>
+            <h1>ระบบ SLA/KPI รุ่นใหม่<br>พร้อมภาพรวมการตัดสินใจแบบเรียลไทม์</h1>
+          </div>
+        </div>
+        <p>METRIX Verity ถูกออกแบบให้เห็นสุขภาพการดำเนินงาน ความเสี่ยง SLA และทีมที่ต้องดำเนินการได้ทันที โดยยังคงใช้ backend/ฐานข้อมูลเดิมใน Release 1 เพื่อควบคุมความเสี่ยงและลดการหยุดทำงานขององค์กร</p>
+        <div class="pill-row">
+          <span class="badge ok">Ready for leadership review</span>
+          <span class="badge warn">Compatibility-first rollout</span>
+          <span class="badge">Cloudflare + Supabase friendly</span>
+        </div>
+        <div class="mini-grid">
+          <div class="mini-card"><strong>3</strong><span>มิติหลักของการตัดสินใจ: SLA risk, team performance, action queue</span></div>
+          <div class="mini-card"><strong>4</strong><span>Role-based views สำหรับ Staff / Lead / Manager / Admin</span></div>
+          <div class="mini-card"><strong>6</strong><span>โมดูลหลักในระบบ: Dashboard, Task, Job Tracker, Reports, Admin Studio</span></div>
+          <div class="mini-card"><strong>1</strong><span>ระบบกลางเดียวสำหรับการจัดการงานและอัปเดตผู้ใช้งาน</span></div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="eyebrow">Executive summary</div>
+        <h2>ประเด็นสำคัญสั้น ๆ</h2>
+        <div class="bullet-list">
+          <div class="bullet-item"><span class="bullet-dot"></span><div><strong>เห็นความเสี่ยง SLA ได้ทันที</strong> พร้อมงานที่ต้องเร่งก่อนหมดกำหนด</div></div>
+          <div class="bullet-item"><span class="bullet-dot"></span><div><strong>ใช้โครงสร้างเดิมเพื่อความปลอดภัย</strong> ไม่ต้องปรับฐานข้อมูลในวันแรก</div></div>
+          <div class="bullet-item"><span class="bullet-dot"></span><div><strong>Admin ทำงานในระบบ</strong> โดยไม่ต้องแก้ DB โดยตรง</div></div>
+          <div class="bullet-item"><span class="bullet-dot"></span><div><strong>Deploy ง่าย</strong> ด้วย Cloudflare Pages + Worker + Supabase / legacy proxy</div></div>
+        </div>
+        <div class="score-grid">
+          <div class="score-card">
+            <div class="score-head"><span class="score-label">SLA Health</span><span class="score-value">88%</span></div>
+            <div class="bar-track"><div class="bar-fill good" style="width:88%"></div></div>
+          </div>
+          <div class="score-card">
+            <div class="score-head"><span class="score-label">Risk Watch</span><span class="score-value">12%</span></div>
+            <div class="bar-track"><div class="bar-fill warn" style="width:12%"></div></div>
+          </div>
+          <div class="score-card">
+            <div class="score-head"><span class="score-label">Team Coverage</span><span class="score-value">94%</span></div>
+            <div class="bar-track"><div class="bar-fill" style="width:94%"></div></div>
+          </div>
+          <div class="score-card">
+            <div class="score-head"><span class="score-label">Admin Control</span><span class="score-value">100%</span></div>
+            <div class="bar-track"><div class="bar-fill good" style="width:100%"></div></div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="card">
+      <div class="eyebrow">Key value</div>
+      <h2>ผลลัพธ์ที่คาดหวัง</h2>
+      <div class="stats-grid">
+        <div class="stat"><div class="label">SLA Visibility</div><div class="value">95%+</div><div class="note">เห็นงานที่กำลังเข้าใกล้ SLA ก่อนเลยว่าหลุดกำหนด</div></div>
+        <div class="stat"><div class="label">Operational Control</div><div class="value">100%</div><div class="note">Admin สามารถจัดการผู้ใช้ ทีม KPI วันหยุด และ audit log ในระบบเอง</div></div>
+        <div class="stat"><div class="label">Deployment Model</div><div class="value">Cloudflare</div><div class="note">Pages frontend + Worker API ทำให้ deploy เบาและอัปเดตได้เร็ว</div></div>
+        <div class="stat"><div class="label">Data Safety</div><div class="value">No DB edit</div><div class="note">Release 1 ยึดระบบเดิม ไม่มี schema migration ที่บังคับ</div></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <article class="card">
+          <div class="eyebrow">System overview</div>
+          <h2>สถาปัตยกรรมหลัก</h2>
+          <div class="workflow">
+            <div class="step"><div class="num">01</div><h4>Frontend</h4><p>METRIX Verity UI / Executive dashboard / Admin Studio</p></div>
+            <div class="step"><div class="num">02</div><h4>Worker API</h4><p>Facade สำหรับ /api, Supabase connector หรือ proxy legacy backend</p></div>
+            <div class="step"><div class="num">03</div><h4>Database</h4><p>Supabase Postgres เป็น system of record สำหรับ users, tasks, kpis, holidays</p></div>
+            <div class="step"><div class="num">04</div><h4>Realtime</h4><p>แจ้ง refresh เมื่อ tasks มีการเปลี่ยนแปลงแบบ real-time</p></div>
+            <div class="step"><div class="num">05</div><h4>Reporting</h4><p>Dashboard, job tracker, SLA risk, weighted KPI และ audit insight</p></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="eyebrow">Role mapping</div>
+          <h2>ผู้ใช้งานแต่ละระดับ</h2>
+          <div class="bullet-list">
+            <div class="bullet-item"><span class="bullet-dot"></span><div><strong>Staff</strong> — ดูงานตัวเอง รับงาน อัปเดตสถานะ และเพิ่ม note</div></div>
+            <div class="bullet-item"><span class="bullet-dot"></span><div><strong>Lead</strong> — ดูสุขภาพทีม, มอบหมายงาน, ติดตามเป้าหมาย</div></div>
+            <div class="bullet-item"><span class="bullet-dot"></span><div><strong>Manager / Executive</strong> — ดู SLA risk, KPI health, team matrix และรายงานในมุมบริหาร</div></div>
+            <div class="bullet-item"><span class="bullet-dot"></span><div><strong>Admin</strong> — จัดการ user, team, KPI, holidays, permissions, audit log ภายในระบบ</div></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <article class="card">
+        <div class="eyebrow">Operational flow</div>
+        <h2>ภาพรวมการทำงานแบบสั้น</h2>
+        <div class="mini-chart">
+          <div class="mini-row"><strong>Login</strong><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div></div>
+          <div class="mini-row"><strong>Assign</strong><div class="bar-track"><div class="bar-fill good" style="width:86%"></div></div></div>
+          <div class="mini-row"><strong>Monitor</strong><div class="bar-track"><div class="bar-fill" style="width:73%"></div></div></div>
+          <div class="mini-row"><strong>Report</strong><div class="bar-track"><div class="bar-fill good" style="width:91%"></div></div></div>
+        </div>
+        <div class="legend"><span>Role-based</span><span>Realtime</span><span>Audit-ready</span><span>Executive view</span></div>
+        <div class="timeline" style="margin-top: 12px;">
+        <div class="timeline">
+          <div class="timeline-row"><div><span class="phase-chip">1. Login</span></div><div>ผู้ใช้เข้าสู่ระบบด้วย Employee ID และระบบโหลด user profile, role, team, permissions</div></div>
+          <div class="timeline-row"><div><span class="phase-chip">2. Action</span></div><div>Staff / Lead / Manager สร้าง รับงาน ปรับสถานะ แก้ไขรายละเอียด หรือจัดสรรงานตามสิทธิ์</div></div>
+          <div class="timeline-row"><div><span class="phase-chip">3. SLA Engine</span></div><div>ระบบคำนวณ deadline จาก KPI days + working days + holidays และจัดกลุ่มความเสี่ยงเป็น Healthy / Approaching / Overdue</div></div>
+          <div class="timeline-row"><div><span class="phase-chip">4. Audit & Report</span></div><div>ทุกการเปลี่ยนแปลงบันทึกลง audit_log เพื่อให้ตรวจสอบย้อนหลังและใช้รายงานผู้บริหาร</div></div>
+          <div class="timeline-row"><div><span class="phase-chip">5. Decision</span></div><div>ผู้บริหารและผู้จัดการมองกราฟ SLA, workload, KPI และงานที่ต้องดำเนินการในหน้าเดียว</div></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <article class="card">
+          <div class="eyebrow">Module map</div>
+          <h2>โมดูลหลักที่ครอบคลุม</h2>
+          <table>
+            <thead>
+              <tr><th>Module</th><th>Primary user</th><th>Value</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Executive Dashboard</td><td>Manager / Executive</td><td>ภาพรวม SLA, KPI, งานเสี่ยง, workload</td></tr>
+              <tr><td>Task Center</td><td>Lead / Manager / Admin</td><td>ค้นหา กรอง แก้ไข ลบ และติดตามงาน</td></tr>
+              <tr><td>Job Tracker</td><td>ทุก role ตามสิทธิ์</td><td>ดูงานตาม job code, timeline, duplicate signal</td></tr>
+              <tr><td>Reports</td><td>Manager / Executive</td><td>สรุป performance, weighted KPI, trend analytics</td></tr>
+              <tr><td>Admin Studio</td><td>Admin</td><td>users, teams, kpis, holidays, permissions, audit</td></tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card">
+          <div class="eyebrow">Resources needed</div>
+          <h2>ทรัพยากรสำคัญที่ต้องเตรียม</h2>
+          <table>
+            <thead>
+              <tr><th>Category</th><th>Requirement</th><th>Why it matters</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Hosting</td><td>Cloudflare Pages + Worker</td><td>รองรับ frontend static และ API facade</td></tr>
+              <tr><td>Database</td><td>Supabase Postgres / legacy backend</td><td>system of record ของงานและ KPI</td></tr>
+              <tr><td>Secrets</td><td>SUPABASE_URL, SERVICE_ROLE_KEY, MAXIWA_*</td><td>ให้ worker ทำงานแบบ production</td></tr>
+              <tr><td>Operations</td><td>Admin, IT, UAT Lead</td><td>ดูแลตั้งค่า, UAT, rollout, support</td></tr>
+            </tbody>
+          </table>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <article class="card">
+        <div class="eyebrow">Executive infographic</div>
+        <h2>ภาพข้อมูลที่ช่วยตัดสินใจ</h2>
+        <div class="grid-3">
+          <div class="mini-card"><strong>1</strong><span>ภาพรวม SLA / KPI / งานเสี่ยง ในหน้าเดียว</span></div>
+          <div class="mini-card"><strong>2</strong><span>งานที่ต้องเร่งก่อน SLA หลุดกำหนด</span></div>
+          <div class="mini-card"><strong>3</strong><span>Admin Studio จัดการทีมและผู้ใช้ในระบบ</span></div>
+        </div>
+        <div class="score-grid" style="margin-top:12px;">
+          <div class="score-card"><div class="score-head"><span class="score-label">Dashboard</span><span class="score-value">Fast</span></div><div class="bar-track"><div class="bar-fill good" style="width:92%"></div></div></div>
+          <div class="score-card"><div class="score-head"><span class="score-label">Risk Alert</span><span class="score-value">High</span></div><div class="bar-track"><div class="bar-fill warn" style="width:24%"></div></div></div>
+          <div class="score-card"><div class="score-head"><span class="score-label">Admin Ops</span><span class="score-value">Self-serve</span></div><div class="bar-track"><div class="bar-fill" style="width:86%"></div></div></div>
+          <div class="score-card"><div class="score-head"><span class="score-label">UAT Ready</span><span class="score-value">Next</span></div><div class="bar-track"><div class="bar-fill" style="width:68%"></div></div></div>
+        </div>
+        <div class="benefit-grid">
+          <div class="benefit-card">
+            <div class="benefit-icon">A</div>
+            <div>
+              <div class="benefit-title">ตัดสินใจเร็วขึ้น</div>
+              <div class="benefit-desc">Dashboard รวม SLA/KPI/งานเสี่ยงในมุมเดียว ช่วยลดเวลาในการตัดสินใจ</div>
+            </div>
+          </div>
+          <div class="benefit-card">
+            <div class="benefit-icon">R</div>
+            <div>
+              <div class="benefit-title">ลดความเสี่ยงในการหลุด SLA</div>
+              <div class="benefit-desc">ระบบแจ้งงานที่ใกล้หลุดและช่วยจัดลำดับความสำคัญโดยอัตโนมัติ</div>
+            </div>
+          </div>
+          <div class="benefit-card">
+            <div class="benefit-icon">S</div>
+            <div>
+              <div class="benefit-title">บริหารงานโดยไม่ต้องแก้ DB</div>
+              <div class="benefit-desc">Admin ทำงานตั้งค่า users/teams/KPI/holidays ผ่าน UI อย่างปลอดภัย</div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="section">
+      <article class="card">
+        <div class="eyebrow">Implementation path</div>
+        <h2>แผนการดำเนินงานสู่ go-live</h2>
+        <div class="timeline">
+          <div class="timeline-row"><div><span class="phase-chip">Phase 1</span></div><div>สรุป requirements, compatibility mapping, UAT scenario, UI concept direction</div></div>
+          <div class="timeline-row"><div><span class="phase-chip">Phase 2</span></div><div>สร้าง app shell, shared layout, role-aware navigation, design system</div></div>
+          <div class="timeline-row"><div><span class="phase-chip">Phase 3</span></div><div>Task engine, staff / lead experience, SLA logic, task operations</div></div>
+          <div class="timeline-row"><div><span class="phase-chip">Phase 4</span></div><div>Manager dashboards, reports, job tracker, side-by-side validation</div></div>
+          <div class="timeline-row"><div><span class="phase-chip">Phase 5</span></div><div>Admin Studio, production hardening, deployment checklist, rollout</div></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="section">
+      <div class="grid-2">
+        <article class="card">
+          <div class="eyebrow">Risk and mitigation</div>
+          <h2>ความเสี่ยงที่ควรระวัง</h2>
+          <div class="risk-grid">
+            <div class="risk"><h4>ข้อมูล legacy มีรูปแบบไม่สม่ำเสมอ</h4><p>ใช้ compatibility layer และ UAT เทียบ legacy scenario เพื่อป้องกันความผิดพลาด</p></div>
+            <div class="risk"><h4>Release 1 ยังผูกกับระบบเดิม</h4><p>วาง architecture ให้สามารถขยับไป phase 2 ได้โดยไม่กระทบ go-live</p></div>
+            <div class="risk"><h4>Admin action กระทบ deadline</h4><p>ใช้ audit log, recalculate ผ่าน UI, และ confirm workflow ป้องกันข้อผิดพลาด</p></div>
+            <div class="risk"><h4>Secrets และ runtime config ไม่ครบ</h4><p>ต้องมี deployment checklist และ validate API/public config ก่อน production</p></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="eyebrow">Executive takeaway</div>
+          <h2>ข้อความหลักสำหรับการนำเสนอ</h2>
+          <div class="bullet-list">
+            <div class="bullet-item"><span class="bullet-dot"></span><div>METRIX Verity ไม่เปลี่ยนฐานข้อมูลในวันแรก แต่ยกระดับประสบการณ์การตัดสินใจบนข้อมูลเดิม</div></div>
+            <div class="bullet-item"><span class="bullet-dot"></span><div>ระบบช่วยให้ผู้บริหารเห็น SLA risk, KPI health, workload และงานที่ต้องดำเนินการได้จากหน้าเดียว</div></div>
+            <div class="bullet-item"><span class="bullet-dot"></span><div>Admin สามารถควบคุมการทำงานของระบบได้ถึงระดับ users, teams, KPI, holidays และ audit log โดยไม่ต้องแก้ DB</div></div>
+            <div class="bullet-item"><span class="bullet-dot"></span><div>การเปิดใช้งานควรเริ่มจาก compatibility-first, Medium-lite infrastructure, และ UAT เทียบระบบเดิมก่อน rollout</div></div>
+          </div>
+          <div class="pill-row">
+            <span class="tag">Executive-ready</span>
+            <span class="tag">Business-focused</span>
+            <span class="tag">Risk-managed</span>
+            <span class="tag">Cloud-first</span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="eyebrow">Recommended next actions</div>
+      <h2>ข้อเสนอเชิงปฏิบัติ</h2>
+      <div class="grid-4">
+        <div class="mini-card"><strong>1</strong><span>Approve phase 2 delivery plan และ UAT scope</span></div>
+        <div class="mini-card"><strong>2</strong><span>กำหนด owner ของ KPI/teams/admin workflow จริง</span></div>
+        <div class="mini-card"><strong>3</strong><span>จัดเตรียม runtime secrets และ deployment checklist</span></div>
+        <div class="mini-card"><strong>4</strong><span>เริ่ม side-by-side validation กับระบบเดิมก่อน rollout</span></div>
+      </div>
+    </section>
+
+    <p class="footer-note">ไฟล์นี้สร้างขึ้นเป็น HTML แบบพร้อมเปิดดูทันทีในเบราว์เซอร์ เพื่อใช้เป็นสื่อเสนอผู้บริหาร</p>
+  </main>
+</body>
+</html>

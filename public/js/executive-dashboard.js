@@ -1,4 +1,4 @@
-﻿const { useEffect, useMemo, useState } = React;
+const { useEffect, useMemo, useState } = React;
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -933,7 +933,103 @@ function LineChart({ labels = [], months = [], series, mode = 'percent' }) {
   );
 }
 
-function TabBar({ activeTab, setActiveTab, month, setMonth, year, setYear, years, loading, onLoad }) {
+const MONTH_NAMES_TH = [
+  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+];
+
+function MonthPicker({ selectedMonths, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef(null);
+
+  useEffect(() => {
+    function handleOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    if (open) document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [open]);
+
+  function toggleMonth(m) {
+    const next = new Set(selectedMonths);
+    if (next.has(m)) next.delete(m);
+    else next.add(m);
+    onChange(Array.from(next).sort((a, b) => a - b));
+  }
+
+  function selectAll() { onChange([]); }
+  function clearAll() { onChange([]); }
+
+  const label = selectedMonths.length === 0
+    ? 'ทุกเดือน'
+    : selectedMonths.length === 1
+      ? MONTH_NAMES[selectedMonths[0] - 1]
+      : selectedMonths.map((m) => MONTH_NAMES_TH[m - 1]).join(', ');
+
+  const isAll = selectedMonths.length === 0;
+
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
+      <button
+        type="button"
+        className="mx-input month-picker-btn"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="เลือกเดือน"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden' }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
+          {selectedMonths.length > 1 && (
+            <span className="mx-badge status-info" style={{ fontSize: 10, padding: '2px 6px', marginRight: 5, borderRadius: 999, display: 'inline-flex', alignItems: 'center' }}>
+              {selectedMonths.length}
+            </span>
+          )}
+          {label}
+        </span>
+        <i className={`fa-solid fa-chevron-${open ? 'up' : 'down'}`} style={{ fontSize: 11, color: 'var(--mx-muted)', flex: '0 0 auto' }}></i>
+      </button>
+      {open && (
+        <div className="month-picker-dropdown mx-card" role="listbox" aria-multiselectable="true" aria-label="เลือกเดือน">
+          <div className="month-picker-header">
+            <button type="button" className={`month-picker-all-btn ${isAll ? 'active' : ''}`} onClick={selectAll} role="option" aria-selected={isAll}>
+              <i className="fa-solid fa-calendar-days" style={{ marginRight: 5, fontSize: 11 }}></i>ทุกเดือน
+            </button>
+          </div>
+          <div className="month-picker-grid">
+            {MONTH_NAMES.map((name, idx) => {
+              const m = idx + 1;
+              const selected = selectedMonths.includes(m);
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  className={`month-picker-cell ${selected ? 'active' : ''}`}
+                  onClick={() => toggleMonth(m)}
+                  role="option"
+                  aria-selected={selected}
+                  title={name}
+                >
+                  <span className="month-picker-abbr">{MONTH_NAMES_TH[idx]}</span>
+                  {selected && <i className="fa-solid fa-check month-picker-check"></i>}
+                </button>
+              );
+            })}
+          </div>
+          {selectedMonths.length > 0 && (
+            <div className="month-picker-footer">
+              <button type="button" className="month-picker-clear-btn" onClick={clearAll}>
+                <i className="fa-solid fa-xmark" style={{ marginRight: 4, fontSize: 10 }}></i>ล้างตัวเลือก
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TabBar({ activeTab, setActiveTab, selectedMonths, setSelectedMonths, year, setYear, years, loading, onLoad }) {
   return (
     <nav className="tab-strip no-print">
       <div className="tab-button-group">
@@ -945,10 +1041,7 @@ function TabBar({ activeTab, setActiveTab, month, setMonth, year, setYear, years
         ))}
       </div>
       <div className="tab-filter-controls">
-        <select className="mx-input" value={month} onChange={(e) => setMonth(Number(e.target.value))} aria-label="Filter month">
-          <option value={0}>ทุกเดือน</option>
-          {MONTH_NAMES.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
-        </select>
+        <MonthPicker selectedMonths={selectedMonths} onChange={setSelectedMonths} />
         <select className="mx-input" value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Filter year">
           {years.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
@@ -2258,7 +2351,17 @@ function App() {
   const initialEmpId = String(params.get('empId') || '').trim().toUpperCase();
   const initialSessionId = String(params.get('sessionId') || '').trim();
   const [empId, setEmpId] = useState(initialEmpId);
-  const [month, setMonth] = useState(params.has('month') ? Number(params.get('month')) : 0);
+  const [selectedMonths, setSelectedMonths] = useState(() => {
+    // Parse months from URL: "months=1,3,5" or legacy "month=N"
+    if (params.has('months')) {
+      const raw = params.get('months').split(',').map(Number).filter((n) => n >= 1 && n <= 12);
+      return raw;
+    }
+    if (params.has('month') && Number(params.get('month')) > 0) {
+      return [Number(params.get('month'))];
+    }
+    return [];
+  });
   const [year, setYear] = useState(Number(params.get('year') || new Date().getFullYear()));
   const [activeTab, setActiveTab] = useState('overview');
   const [personTeamFilter, setPersonTeamFilter] = useState('all');
@@ -2291,16 +2394,19 @@ function App() {
       if (activeSessionId && typeof window !== 'undefined') {
         window.MAXIWA_ACTIVE_SESSION = { empId: normalizedEmpId, sessionId: activeSessionId };
       }
-      const monthParam = month === 0 ? null : month;
+      // Determine API month param: single month, null (all), or null when multiple months
+      // selected (we then filter client-side to avoid multiple round-trips)
+      const singleMonth = selectedMonths.length === 1 ? selectedMonths[0] : null;
+      const fetchAllTime = selectedMonths.length !== 1;
       let tasks = [];
       let taskHolidays = [];
       if (isSelfScopedRole(user.role)) {
-        const res = await API.getEmployeeTasks(user, monthParam, year, month === 0, userEmpId(user));
+        const res = await API.getEmployeeTasks(user, singleMonth, year, fetchAllTime, userEmpId(user));
           tasks = filterPerformanceTasks(res.tasks || res || []);
         taskHolidays = res.holidays || [];
       } else {
         const team = isTeamScopedRole(user.role) ? user.team : 'all';
-        const res = await API.getAllTasks(monthParam, year, team, userEmpId(user));
+        const res = await API.getAllTasks(singleMonth, year, team, userEmpId(user));
           tasks = filterPerformanceTasks(filterByAllowedTeams(user, res.tasks || []));
         taskHolidays = res.holidays || [];
       }
@@ -2343,7 +2449,12 @@ function App() {
       setState({ loading: false, error: '', user, tasks, staff, holidays, kpis });
       const url = new URL(window.location.href);
       url.searchParams.set('empId', cleanEmpId);
-      url.searchParams.set('month', String(month));
+      if (selectedMonths.length > 0) {
+        url.searchParams.set('months', selectedMonths.join(','));
+      } else {
+        url.searchParams.delete('months');
+      }
+      url.searchParams.delete('month');
       url.searchParams.set('year', String(year));
       url.searchParams.delete('sessionId');
       window.history.replaceState(null, '', url);
@@ -2354,18 +2465,40 @@ function App() {
 
   useEffect(() => {
     if (initialEmpId) load(initialEmpId);
-  }, [month, year]);
+  }, [selectedMonths.join(','), year]);
 
   useEffect(() => {
     applyExecutiveTheme(theme);
   }, [theme]);
 
-  const tasks = filterPerformanceTasks(state.tasks || []);
+  const allTasks = filterPerformanceTasks(state.tasks || []);
+  // Client-side filter: when multiple months are selected, filter tasks by any of those months
+  const tasks = useMemo(() => {
+    if (selectedMonths.length <= 1) return allTasks;
+    const monthSet = new Set(selectedMonths);
+    return allTasks.filter((task) => {
+      const fields = ['startdate', 'created_at', 'timestamp', 'completiondate', 'deadline'];
+      return fields.some((field) => {
+        const d = task[field] ? new Date(task[field]) : null;
+        if (!d || Number.isNaN(d.getTime())) return false;
+        return d.getFullYear() === year && monthSet.has(d.getMonth() + 1);
+      });
+    });
+  }, [allTasks, selectedMonths, year]);
   const staffDirectory = state.staff || [];
   const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
-  const riskAsOfDate = useMemo(() => getPerformanceRiskAsOfDate(month, year), [month, year]);
+  // riskAsOfDate: for single-month use end-of-month; for multi-month or all: use end of latest selected month or today
+  const riskAsOfDate = useMemo(() => {
+    if (selectedMonths.length === 0) return normalizeDateOnly(new Date()) || new Date();
+    const maxMonth = Math.max(...selectedMonths);
+    return getPerformanceRiskAsOfDate(maxMonth, year);
+  }, [selectedMonths, year]);
   const portfolio = useMemo(() => buildPortfolio(tasks, holidaySet, riskAsOfDate), [tasks, holidaySet, riskAsOfDate]);
-  const periodLabel = `${month === 0 ? 'ทุกเดือน' : MONTH_NAMES[month - 1]} ${year}`;
+  const periodLabel = useMemo(() => {
+    if (selectedMonths.length === 0) return `ทุกเดือน ${year}`;
+    if (selectedMonths.length === 1) return `${MONTH_NAMES[selectedMonths[0] - 1]} ${year}`;
+    return `${selectedMonths.map((m) => MONTH_NAMES_TH[m - 1]).join(', ')} ${year}`;
+  }, [selectedMonths, year]);
   const staffByName = useMemo(() => {
     const map = {};
     staffDirectory.forEach((person) => {
@@ -2464,13 +2597,18 @@ function App() {
     const currentDay = today.getDate();
     const selectedYear = Number(year);
 
-    if (month === 0) {
+    // When no months are selected (all time) or multiple months → show monthly trend
+    // When exactly one month is selected → show daily trend for that month
+    if (selectedMonths.length !== 1) {
       const monthCount = selectedYear < currentYear ? 12 : selectedYear === currentYear ? currentMonthIndex + 1 : 0;
-      const months = Array.from({ length: monthCount }, (_, i) => i);
+      // If specific months selected, show only those; otherwise all months up to current
+      const months = selectedMonths.length > 0
+        ? selectedMonths.map((m) => m - 1).filter((idx) => idx <= (selectedYear === currentYear ? currentMonthIndex : 11))
+        : Array.from({ length: monthCount }, (_, i) => i);
       months.forEach((monthIndex) => {
-        const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, null, today));
-        const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, null, today));
-        const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, null, holidaySet, today));
+        const intakeTasks = allTasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, null, today));
+        const completedTasks = allTasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, null, today));
+        const riskTasks = allTasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, null, holidaySet, today));
         const monthPortfolio = buildPortfolio(completedTasks, holidaySet);
         sla.push(completedTasks.length ? monthPortfolio.scores.sla : null);
         trendCompletion.push(intakeTasks.length ? roundMetric((completedTasks.length / intakeTasks.length) * 100, 1) : null);
@@ -2486,6 +2624,7 @@ function App() {
       };
     }
 
+    const month = selectedMonths[0];
     const monthIndex = month - 1;
     const daysInMonth = new Date(year, month, 0).getDate();
     const dayCount = selectedYear < currentYear || (selectedYear === currentYear && monthIndex < currentMonthIndex)
@@ -2495,9 +2634,9 @@ function App() {
         : 0;
     const days = Array.from({ length: dayCount }, (_, i) => i + 1);
     days.forEach((day) => {
-      const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, day, today));
-      const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, day, today));
-      const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidaySet, today));
+      const intakeTasks = allTasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, day, today));
+      const completedTasks = allTasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, day, today));
+      const riskTasks = allTasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidaySet, today));
       const dayPortfolio = buildPortfolio(completedTasks, holidaySet);
       sla.push(completedTasks.length ? dayPortfolio.scores.sla : null);
       trendCompletion.push(intakeTasks.length ? roundMetric((completedTasks.length / intakeTasks.length) * 100, 1) : null);
@@ -2511,7 +2650,7 @@ function App() {
       labels: days.map((day) => (day === 1 || day === daysInMonth || day % 5 === 0 ? String(day) : '')),
       series: { sla, completion: trendCompletion, risk, total, completed },
     };
-  }, [tasks, year, month, holidaySet]);
+  }, [allTasks, tasks, year, selectedMonths, holidaySet]);
 
   const criticalQueue = useMemo(() => portfolio.active
     .map((task) => ({ task, days: daysUntil(task, holidaySet, riskAsOfDate), weight: taskWeight(task) }))
@@ -2576,8 +2715,8 @@ function App() {
       <TabBar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        month={month}
-        setMonth={setMonth}
+        selectedMonths={selectedMonths}
+        setSelectedMonths={setSelectedMonths}
         year={year}
         setYear={setYear}
         years={years}

@@ -401,7 +401,7 @@
     }
     .tab-filter-controls {
       display: grid;
-      grid-template-columns: 164px 112px 150px;
+      grid-template-columns: 180px 108px 150px;
       gap: 10px;
       align-items: stretch;
     }
@@ -1351,7 +1351,7 @@
         grid-template-columns: 1fr;
       }
       .tab-filter-controls {
-        grid-template-columns: minmax(150px, 180px) minmax(110px, 130px) minmax(132px, auto);
+        grid-template-columns: minmax(160px, 190px) minmax(108px, 128px) minmax(132px, auto);
         justify-content: start;
       }
     }
@@ -1478,6 +1478,127 @@
       body { background: #ffffff; }
       .no-print { display: none !important; }
       .mx-card { box-shadow: none; break-inside: avoid; }
+    }
+    /* ── Month Picker ── */
+    .month-picker-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      cursor: pointer;
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      user-select: none;
+    }
+    .month-picker-dropdown {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      z-index: 120;
+      min-width: 220px;
+      padding: 10px;
+      animation: lift-in 180ms cubic-bezier(.2,.8,.2,1) both;
+    }
+    .month-picker-header {
+      margin-bottom: 8px;
+    }
+    .month-picker-all-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border: 1px solid var(--mx-line-strong);
+      border-radius: 8px;
+      background: var(--mx-surface);
+      color: var(--mx-muted);
+      font-size: 12px;
+      font-weight: 900;
+      cursor: pointer;
+      transition: background .14s, color .14s, border-color .14s;
+    }
+    .month-picker-all-btn:hover {
+      background: color-mix(in srgb, var(--mx-info) 10%, var(--mx-surface));
+      color: var(--mx-text);
+    }
+    .month-picker-all-btn.active {
+      background: linear-gradient(135deg, var(--mx-info), var(--mx-indigo));
+      color: #ffffff;
+      border-color: color-mix(in srgb, var(--mx-info) 58%, var(--mx-line));
+    }
+    .month-picker-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .month-picker-cell {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      padding: 8px 4px;
+      border: 1px solid var(--mx-line);
+      border-radius: 8px;
+      background: var(--mx-surface);
+      color: var(--mx-text);
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+      transition: background .14s, border-color .14s, transform .1s, box-shadow .14s;
+      min-height: 44px;
+    }
+    .month-picker-cell:hover {
+      background: color-mix(in srgb, var(--mx-info) 12%, var(--mx-surface));
+      border-color: color-mix(in srgb, var(--mx-info) 38%, var(--mx-line));
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(3,105,161,.12);
+    }
+    .month-picker-cell.active {
+      background: linear-gradient(135deg, var(--mx-info), var(--mx-indigo));
+      color: #ffffff;
+      border-color: color-mix(in srgb, var(--mx-info) 60%, var(--mx-line));
+      box-shadow: 0 6px 16px rgba(3,105,161,.22);
+    }
+    .month-picker-abbr {
+      display: block;
+      font-size: 11px;
+      font-weight: 900;
+      line-height: 1.1;
+    }
+    .month-picker-check {
+      position: absolute;
+      top: 4px;
+      right: 5px;
+      font-size: 8px;
+      color: rgba(255,255,255,.9);
+    }
+    .month-picker-footer {
+      margin-top: 8px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .month-picker-clear-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 10px;
+      border: 1px solid var(--mx-line-strong);
+      border-radius: 999px;
+      background: var(--mx-panel-strong);
+      color: var(--mx-muted);
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+      transition: background .14s, color .14s;
+    }
+    .month-picker-clear-btn:hover {
+      background: color-mix(in srgb, var(--mx-danger) 10%, var(--mx-panel-strong));
+      color: var(--mx-danger);
+      border-color: color-mix(in srgb, var(--mx-danger) 32%, var(--mx-line));
     }
   </style>
 </head>

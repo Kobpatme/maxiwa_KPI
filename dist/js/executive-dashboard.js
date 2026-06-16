@@ -13400,8 +13400,78 @@ var MaxiwaExecutiveDashboard = (() => {
     const points = (values2) => values2.map((value, index) => `${x(index)},${value === null ? y(yMin) : y(value)}`).join(" ");
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "w-full overflow-x-auto" }, /* @__PURE__ */ import_react.default.createElement("svg", { viewBox: `0 0 ${width} ${height}`, className: "w-full min-w-[720px]" }, ticks.map((tick) => /* @__PURE__ */ import_react.default.createElement("g", { key: tick }, /* @__PURE__ */ import_react.default.createElement("line", { className: "chart-grid", x1: pad.left, x2: width - pad.right, y1: y(tick), y2: y(tick) }), /* @__PURE__ */ import_react.default.createElement("text", { className: "chart-label", x: "8", y: y(tick) + 4 }, mode === "volume" ? tick : `${tick}%`))), mode !== "volume" && yMin <= 95 && yMax >= 95 && /* @__PURE__ */ import_react.default.createElement("g", null, /* @__PURE__ */ import_react.default.createElement("line", { x1: pad.left, x2: width - pad.right, y1: y(95), y2: y(95), stroke: "var(--mx-success)", opacity: ".55", strokeDasharray: "7 7", strokeWidth: "1.5" }), /* @__PURE__ */ import_react.default.createElement("text", { className: "chart-label", x: width - pad.right - 70, y: y(95) - 7 }, "Target 95%")), mode !== "volume" && closeRange && /* @__PURE__ */ import_react.default.createElement("text", { className: "chart-label", x: width - pad.right - 126, y: "16" }, "Zoomed scale ", yMin, "-", yMax, "%"), axisLabels.map((label, index) => /* @__PURE__ */ import_react.default.createElement("text", { key: `${label}-${index}`, className: "chart-label", x: x(index), y: height - 14, textAnchor: "middle" }, label)), /* @__PURE__ */ import_react.default.createElement("polyline", { className: "chart-line", points: points(mode === "volume" ? series.total : series.sla), stroke: mode === "volume" ? "var(--mx-chart-total)" : "var(--mx-info)" }), /* @__PURE__ */ import_react.default.createElement("polyline", { className: "chart-line", points: points(mode === "volume" ? series.completed : series.completion), stroke: mode === "volume" ? "var(--mx-chart-completed)" : "var(--mx-success)" }), /* @__PURE__ */ import_react.default.createElement("polyline", { className: "chart-line", points: points(series.risk), stroke: "var(--mx-chart-risk)" }), (mode === "volume" ? series.total : series.sla).map((value, index) => value !== null && /* @__PURE__ */ import_react.default.createElement("circle", { key: `s-${index}`, cx: x(index), cy: y(value), r: "4", fill: mode === "volume" ? "var(--mx-chart-total)" : "var(--mx-info)" })), (mode === "volume" ? series.completed : series.completion).map((value, index) => value !== null && /* @__PURE__ */ import_react.default.createElement("circle", { key: `c-${index}`, cx: x(index), cy: y(value), r: "4", fill: mode === "volume" ? "var(--mx-chart-completed)" : "var(--mx-success)" })), series.risk.map((value, index) => value !== null && /* @__PURE__ */ import_react.default.createElement("circle", { key: `r-${index}`, cx: x(index), cy: y(value), r: "4", fill: "var(--mx-chart-risk)" }))));
   }
-  function TabBar({ activeTab, setActiveTab, month, setMonth, year, setYear, years, loading, onLoad }) {
-    return /* @__PURE__ */ import_react.default.createElement("nav", { className: "tab-strip no-print" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "tab-button-group" }, TAB_ITEMS.map((tab) => /* @__PURE__ */ import_react.default.createElement("button", { key: tab.id, className: `tab-button ${activeTab === tab.id ? "active" : ""}`, onClick: () => setActiveTab(tab.id) }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${tab.icon}` }), /* @__PURE__ */ import_react.default.createElement("span", null, tab.label)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "tab-filter-controls" }, /* @__PURE__ */ import_react.default.createElement("select", { className: "mx-input", value: month, onChange: (e) => setMonth(Number(e.target.value)), "aria-label": "Filter month" }, /* @__PURE__ */ import_react.default.createElement("option", { value: 0 }, "\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19"), MONTH_NAMES.map((name, index) => /* @__PURE__ */ import_react.default.createElement("option", { key: name, value: index + 1 }, name))), /* @__PURE__ */ import_react.default.createElement("select", { className: "mx-input", value: year, onChange: (e) => setYear(Number(e.target.value)), "aria-label": "Filter year" }, years.map((item) => /* @__PURE__ */ import_react.default.createElement("option", { key: item, value: item }, item))), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary", onClick: onLoad, disabled: loading }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${loading ? "fa-rotate-right fa-spin" : "fa-arrows-rotate"} mr-2` }), "\u0E42\u0E2B\u0E25\u0E14\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25")));
+  var MONTH_NAMES_TH = [
+    "\u0E21.\u0E04.",
+    "\u0E01.\u0E1E.",
+    "\u0E21\u0E35.\u0E04.",
+    "\u0E40\u0E21.\u0E22.",
+    "\u0E1E.\u0E04.",
+    "\u0E21\u0E34.\u0E22.",
+    "\u0E01.\u0E04.",
+    "\u0E2A.\u0E04.",
+    "\u0E01.\u0E22.",
+    "\u0E15.\u0E04.",
+    "\u0E1E.\u0E22.",
+    "\u0E18.\u0E04."
+  ];
+  function MonthPicker({ selectedMonths, onChange }) {
+    const [open, setOpen] = useState(false);
+    const ref = import_react.default.useRef(null);
+    useEffect(() => {
+      function handleOutside(e) {
+        if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      }
+      if (open) document.addEventListener("mousedown", handleOutside);
+      return () => document.removeEventListener("mousedown", handleOutside);
+    }, [open]);
+    function toggleMonth(m) {
+      const next = new Set(selectedMonths);
+      if (next.has(m)) next.delete(m);
+      else next.add(m);
+      onChange(Array.from(next).sort((a, b) => a - b));
+    }
+    function selectAll() {
+      onChange([]);
+    }
+    function clearAll() {
+      onChange([]);
+    }
+    const label = selectedMonths.length === 0 ? "\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19" : selectedMonths.length === 1 ? MONTH_NAMES[selectedMonths[0] - 1] : selectedMonths.map((m) => MONTH_NAMES_TH[m - 1]).join(", ");
+    const isAll = selectedMonths.length === 0;
+    return /* @__PURE__ */ import_react.default.createElement("div", { ref, style: { position: "relative", minWidth: 0 } }, /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        type: "button",
+        className: "mx-input month-picker-btn",
+        onClick: () => setOpen((v) => !v),
+        "aria-haspopup": "listbox",
+        "aria-expanded": open,
+        "aria-label": "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19",
+        style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, cursor: "pointer", textAlign: "left", whiteSpace: "nowrap", overflow: "hidden" }
+      },
+      /* @__PURE__ */ import_react.default.createElement("span", { style: { overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 } }, selectedMonths.length > 1 && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-info", style: { fontSize: 10, padding: "2px 6px", marginRight: 5, borderRadius: 999, display: "inline-flex", alignItems: "center" } }, selectedMonths.length), label),
+      /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid fa-chevron-${open ? "up" : "down"}`, style: { fontSize: 11, color: "var(--mx-muted)", flex: "0 0 auto" } })
+    ), open && /* @__PURE__ */ import_react.default.createElement("div", { className: "month-picker-dropdown mx-card", role: "listbox", "aria-multiselectable": "true", "aria-label": "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "month-picker-header" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: `month-picker-all-btn ${isAll ? "active" : ""}`, onClick: selectAll, role: "option", "aria-selected": isAll }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-calendar-days", style: { marginRight: 5, fontSize: 11 } }), "\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19")), /* @__PURE__ */ import_react.default.createElement("div", { className: "month-picker-grid" }, MONTH_NAMES.map((name, idx) => {
+      const m = idx + 1;
+      const selected = selectedMonths.includes(m);
+      return /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          key: m,
+          type: "button",
+          className: `month-picker-cell ${selected ? "active" : ""}`,
+          onClick: () => toggleMonth(m),
+          role: "option",
+          "aria-selected": selected,
+          title: name
+        },
+        /* @__PURE__ */ import_react.default.createElement("span", { className: "month-picker-abbr" }, MONTH_NAMES_TH[idx]),
+        selected && /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-check month-picker-check" })
+      );
+    })), selectedMonths.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "month-picker-footer" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "month-picker-clear-btn", onClick: clearAll }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark", style: { marginRight: 4, fontSize: 10 } }), "\u0E25\u0E49\u0E32\u0E07\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01"))));
+  }
+  function TabBar({ activeTab, setActiveTab, selectedMonths, setSelectedMonths, year, setYear, years, loading, onLoad }) {
+    return /* @__PURE__ */ import_react.default.createElement("nav", { className: "tab-strip no-print" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "tab-button-group" }, TAB_ITEMS.map((tab) => /* @__PURE__ */ import_react.default.createElement("button", { key: tab.id, className: `tab-button ${activeTab === tab.id ? "active" : ""}`, onClick: () => setActiveTab(tab.id) }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${tab.icon}` }), /* @__PURE__ */ import_react.default.createElement("span", null, tab.label)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "tab-filter-controls" }, /* @__PURE__ */ import_react.default.createElement(MonthPicker, { selectedMonths, onChange: setSelectedMonths }), /* @__PURE__ */ import_react.default.createElement("select", { className: "mx-input", value: year, onChange: (e) => setYear(Number(e.target.value)), "aria-label": "Filter year" }, years.map((item) => /* @__PURE__ */ import_react.default.createElement("option", { key: item, value: item }, item))), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary", onClick: onLoad, disabled: loading }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${loading ? "fa-rotate-right fa-spin" : "fa-arrows-rotate"} mr-2` }), "\u0E42\u0E2B\u0E25\u0E14\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25")));
   }
   function DataTable({ children, minWidth = 900 }) {
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "table-shell overflow-x-auto" }, /* @__PURE__ */ import_react.default.createElement("table", { className: "w-full text-sm", style: { minWidth } }, children));
@@ -13615,7 +13685,16 @@ var MaxiwaExecutiveDashboard = (() => {
     const initialEmpId = String(params.get("empId") || "").trim().toUpperCase();
     const initialSessionId = String(params.get("sessionId") || "").trim();
     const [empId, setEmpId] = useState(initialEmpId);
-    const [month, setMonth] = useState(params.has("month") ? Number(params.get("month")) : 0);
+    const [selectedMonths, setSelectedMonths] = useState(() => {
+      if (params.has("months")) {
+        const raw = params.get("months").split(",").map(Number).filter((n) => n >= 1 && n <= 12);
+        return raw;
+      }
+      if (params.has("month") && Number(params.get("month")) > 0) {
+        return [Number(params.get("month"))];
+      }
+      return [];
+    });
     const [year, setYear] = useState(Number(params.get("year") || (/* @__PURE__ */ new Date()).getFullYear()));
     const [activeTab, setActiveTab] = useState("overview");
     const [personTeamFilter, setPersonTeamFilter] = useState("all");
@@ -13647,16 +13726,17 @@ var MaxiwaExecutiveDashboard = (() => {
         if (activeSessionId && typeof window !== "undefined") {
           window.MAXIWA_ACTIVE_SESSION = { empId: normalizedEmpId, sessionId: activeSessionId };
         }
-        const monthParam = month === 0 ? null : month;
+        const singleMonth = selectedMonths.length === 1 ? selectedMonths[0] : null;
+        const fetchAllTime = selectedMonths.length !== 1;
         let tasks2 = [];
         let taskHolidays = [];
         if (isSelfScopedRole(user.role)) {
-          const res = await API.getEmployeeTasks(user, monthParam, year, month === 0, userEmpId(user));
+          const res = await API.getEmployeeTasks(user, singleMonth, year, fetchAllTime, userEmpId(user));
           tasks2 = filterPerformanceTasks(res.tasks || res || []);
           taskHolidays = res.holidays || [];
         } else {
           const team = isTeamScopedRole(user.role) ? user.team : "all";
-          const res = await API.getAllTasks(monthParam, year, team, userEmpId(user));
+          const res = await API.getAllTasks(singleMonth, year, team, userEmpId(user));
           tasks2 = filterPerformanceTasks(filterByAllowedTeams(user, res.tasks || []));
           taskHolidays = res.holidays || [];
         }
@@ -13697,7 +13777,12 @@ var MaxiwaExecutiveDashboard = (() => {
         setState({ loading: false, error: "", user, tasks: tasks2, staff, holidays, kpis });
         const url = new URL(window.location.href);
         url.searchParams.set("empId", cleanEmpId);
-        url.searchParams.set("month", String(month));
+        if (selectedMonths.length > 0) {
+          url.searchParams.set("months", selectedMonths.join(","));
+        } else {
+          url.searchParams.delete("months");
+        }
+        url.searchParams.delete("month");
         url.searchParams.set("year", String(year));
         url.searchParams.delete("sessionId");
         window.history.replaceState(null, "", url);
@@ -13707,16 +13792,36 @@ var MaxiwaExecutiveDashboard = (() => {
     };
     useEffect(() => {
       if (initialEmpId) load(initialEmpId);
-    }, [month, year]);
+    }, [selectedMonths.join(","), year]);
     useEffect(() => {
       applyExecutiveTheme(theme);
     }, [theme]);
-    const tasks = filterPerformanceTasks(state.tasks || []);
+    const allTasks = filterPerformanceTasks(state.tasks || []);
+    const tasks = useMemo(() => {
+      if (selectedMonths.length <= 1) return allTasks;
+      const monthSet = new Set(selectedMonths);
+      return allTasks.filter((task) => {
+        const fields = ["startdate", "created_at", "timestamp", "completiondate", "deadline"];
+        return fields.some((field) => {
+          const d = task[field] ? new Date(task[field]) : null;
+          if (!d || Number.isNaN(d.getTime())) return false;
+          return d.getFullYear() === year && monthSet.has(d.getMonth() + 1);
+        });
+      });
+    }, [allTasks, selectedMonths, year]);
     const staffDirectory = state.staff || [];
     const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
-    const riskAsOfDate = useMemo(() => getPerformanceRiskAsOfDate(month, year), [month, year]);
+    const riskAsOfDate = useMemo(() => {
+      if (selectedMonths.length === 0) return normalizeDateOnly(/* @__PURE__ */ new Date()) || /* @__PURE__ */ new Date();
+      const maxMonth = Math.max(...selectedMonths);
+      return getPerformanceRiskAsOfDate(maxMonth, year);
+    }, [selectedMonths, year]);
     const portfolio = useMemo(() => buildPortfolio(tasks, holidaySet, riskAsOfDate), [tasks, holidaySet, riskAsOfDate]);
-    const periodLabel = `${month === 0 ? "\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19" : MONTH_NAMES[month - 1]} ${year}`;
+    const periodLabel = useMemo(() => {
+      if (selectedMonths.length === 0) return `\u0E17\u0E38\u0E01\u0E40\u0E14\u0E37\u0E2D\u0E19 ${year}`;
+      if (selectedMonths.length === 1) return `${MONTH_NAMES[selectedMonths[0] - 1]} ${year}`;
+      return `${selectedMonths.map((m) => MONTH_NAMES_TH[m - 1]).join(", ")} ${year}`;
+    }, [selectedMonths, year]);
     const staffByName = useMemo(() => {
       const map = {};
       staffDirectory.forEach((person) => {
@@ -13801,13 +13906,13 @@ var MaxiwaExecutiveDashboard = (() => {
       const currentMonthIndex = today.getMonth();
       const currentDay = today.getDate();
       const selectedYear = Number(year);
-      if (month === 0) {
+      if (selectedMonths.length !== 1) {
         const monthCount = selectedYear < currentYear ? 12 : selectedYear === currentYear ? currentMonthIndex + 1 : 0;
-        const months = Array.from({ length: monthCount }, (_, i) => i);
+        const months = selectedMonths.length > 0 ? selectedMonths.map((m) => m - 1).filter((idx) => idx <= (selectedYear === currentYear ? currentMonthIndex : 11)) : Array.from({ length: monthCount }, (_, i) => i);
         months.forEach((monthIndex2) => {
-          const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex2, null, today));
-          const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex2, null, today));
-          const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex2, null, holidaySet, today));
+          const intakeTasks = allTasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex2, null, today));
+          const completedTasks = allTasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex2, null, today));
+          const riskTasks = allTasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex2, null, holidaySet, today));
           const monthPortfolio = buildPortfolio(completedTasks, holidaySet);
           sla.push(completedTasks.length ? monthPortfolio.scores.sla : null);
           trendCompletion.push(intakeTasks.length ? roundMetric(completedTasks.length / intakeTasks.length * 100, 1) : null);
@@ -13822,14 +13927,15 @@ var MaxiwaExecutiveDashboard = (() => {
           series: { sla, completion: trendCompletion, risk, total, completed }
         };
       }
+      const month = selectedMonths[0];
       const monthIndex = month - 1;
       const daysInMonth = new Date(year, month, 0).getDate();
       const dayCount = selectedYear < currentYear || selectedYear === currentYear && monthIndex < currentMonthIndex ? daysInMonth : selectedYear === currentYear && monthIndex === currentMonthIndex ? currentDay : 0;
       const days = Array.from({ length: dayCount }, (_, i) => i + 1);
       days.forEach((day) => {
-        const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, day, today));
-        const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, day, today));
-        const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidaySet, today));
+        const intakeTasks = allTasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, day, today));
+        const completedTasks = allTasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, day, today));
+        const riskTasks = allTasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidaySet, today));
         const dayPortfolio = buildPortfolio(completedTasks, holidaySet);
         sla.push(completedTasks.length ? dayPortfolio.scores.sla : null);
         trendCompletion.push(intakeTasks.length ? roundMetric(completedTasks.length / intakeTasks.length * 100, 1) : null);
@@ -13843,7 +13949,7 @@ var MaxiwaExecutiveDashboard = (() => {
         labels: days.map((day) => day === 1 || day === daysInMonth || day % 5 === 0 ? String(day) : ""),
         series: { sla, completion: trendCompletion, risk, total, completed }
       };
-    }, [tasks, year, month, holidaySet]);
+    }, [allTasks, tasks, year, selectedMonths, holidaySet]);
     const criticalQueue = useMemo(() => portfolio.active.map((task) => ({ task, days: daysUntil(task, holidaySet, riskAsOfDate), weight: taskWeight(task) })).filter((item) => item.days !== null).sort((a, b) => {
       const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;
       const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
@@ -13865,8 +13971,8 @@ var MaxiwaExecutiveDashboard = (() => {
       {
         activeTab,
         setActiveTab,
-        month,
-        setMonth,
+        selectedMonths,
+        setSelectedMonths,
         year,
         setYear,
         years,
