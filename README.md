@@ -9,20 +9,20 @@ Core goals:
 - Improve performance, clarity, and maintainability from the frontend and application architecture
 - Keep all operations inside the system so no role needs direct database access
 
-This folder contains the planning artifacts for the rebuild:
-- [`docs/legacy-system-audit.md`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/docs/legacy-system-audit.md)
-- [`docs/product-blueprint.md`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/docs/product-blueprint.md)
-- [`docs/ux-ui-direction.md`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/docs/ux-ui-direction.md)
-- [`docs/feature-parity-checklist.md`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/docs/feature-parity-checklist.md)
-- [`DEPLOY.md`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/DEPLOY.md)
+This folder contains the planning and deployment documentation:
+- [`docs/legacy-system-audit.md`](docs/legacy-system-audit.md)
+- [`docs/product-blueprint.md`](docs/product-blueprint.md)
+- [`docs/ux-ui-direction.md`](docs/ux-ui-direction.md)
+- [`docs/feature-parity-checklist.md`](docs/feature-parity-checklist.md)
+- [`DEPLOY.md`](DEPLOY.md)
 
 Deploy-ready project structure:
-- [`public/maxiwa.html`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/public/maxiwa.html)
-- [`public/js/maxiwa.js`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/public/js/maxiwa.js)
-- [`public/js/api.js`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/public/js/api.js)
-- [`public/config.js`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/public/config.js)
-- [`wrangler.toml`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/wrangler.toml)
-- [`package.json`](/D:/WebApp/SLA_Preformance/spds-cloudflare/MAXIWA%20KPI/package.json)
+- [`public/maxiwa.html`](public/maxiwa.html)
+- [`public/js/maxiwa.js`](public/js/maxiwa.js)
+- [`public/js/api.js`](public/js/api.js)
+- [`public/config.js`](public/config.js)
+- [`wrangler.toml`](wrangler.toml)
+- [`package.json`](package.json)
 
 Non-negotiable release rule:
 - Release 1 of MAXIWA KPI must work against the existing routes, existing tables, and existing business logic contracts.

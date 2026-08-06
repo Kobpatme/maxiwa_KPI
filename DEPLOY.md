@@ -34,7 +34,7 @@ npm run dev
 npm run deploy
 ```
 
-This deploys the generated `dist/` folder using the Cloudflare Pages project name `maxiwa-kpi`.
+This deploys the generated `dist/` folder using the Cloudflare Pages project name `metrixverity`.
 
 ## Required runtime secrets for Cloudflare Pages
 
