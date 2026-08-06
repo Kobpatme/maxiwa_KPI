@@ -1489,6 +1489,18 @@ export function taskInPeriod(task, month, year, allTime) {
   return startedAt <= periodEnd;
 }
 
+async function readRecentAuditLogs(env, limit = 200) {
+  const safeLimit = Math.min(500, Math.max(1, Number(limit) || 200));
+  for (const orderColumn of ["created_at", "timestamp"]) {
+    try {
+      return await supabaseFetch(env, "audit_log", `select=*&order=${orderColumn}.desc&limit=${safeLimit}`);
+    } catch (error) {
+      if (error?.status !== 400 && error?.status !== 404) throw error;
+    }
+  }
+  return supabaseFetch(env, "audit_log", `select=*&limit=${safeLimit}`).catch(() => []);
+}
+
 function performanceMonths(params = {}) {
   const raw = String(params.months || params.month || "").trim().toLowerCase();
   if (!raw || raw === "all") return [];
@@ -2323,7 +2335,13 @@ async function handleApi(request, env, apiPath) {
 
   if (apiPath === "admin/getTeams") return jsonResponse(request, { teams: await readAll(env, "teams") }, 200, { "X-Maxiwa-Backend": "supabase" });
   if (apiPath === "admin/getHolidays") return jsonResponse(request, { holidays: await readAll(env, "holidays") }, 200, { "X-Maxiwa-Backend": "supabase" });
-  if (apiPath === "admin/getAuditLogs") return jsonResponse(request, { logs: await readAll(env, "audit_log").catch(() => []) }, 200, { "X-Maxiwa-Backend": "supabase" });
+  if (apiPath === "admin/getAuditLogs") {
+    const limit = Number(url.searchParams.get("limit") || 200);
+    return jsonResponse(request, { logs: await readRecentAuditLogs(env, limit) }, 200, {
+      "Cache-Control": "private, max-age=15",
+      "X-Maxiwa-Backend": "supabase",
+    });
+  }
   if (apiPath === "admin/getTasksByKpiRule") {
     const rule = {
       team: url.searchParams.get("team") || "",

@@ -20,3 +20,18 @@ create index if not exists tasks_name_status_startdate_idx
   on public.tasks (name, status, startdate);
 
 analyze public.tasks;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'audit_log'
+      and column_name = 'created_at'
+  ) then
+    execute 'create index if not exists audit_log_created_at_idx on public.audit_log (created_at desc)';
+  end if;
+end $$;
+
+analyze public.audit_log;

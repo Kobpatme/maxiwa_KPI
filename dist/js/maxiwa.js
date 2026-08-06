@@ -14432,6 +14432,9 @@ var MaxiwaKpiApp = (() => {
     const [realtimeActive, setRealtimeActive] = useState(false);
     const [filterYear, setFilterYear] = useState((/* @__PURE__ */ new Date()).getFullYear());
     const dashboardRequestRef = import_react.default.useRef(0);
+    const taskRequestRef = import_react.default.useRef(0);
+    const peopleRequestRef = import_react.default.useRef(0);
+    const adminRequestRef = import_react.default.useRef(0);
     const safeSet = (patch) => setState((prev) => ({ ...prev, ...patch }));
     const loadHolidays = useCallback(async () => {
       if (!user) return;
@@ -14449,18 +14452,16 @@ var MaxiwaKpiApp = (() => {
         if (requestId === dashboardRequestRef.current) safeSet(patch);
       };
       if (!options.silent) safeSet({ loading: true, error: "" });
-      const monthParam = filterMonth === 0 ? null : filterMonth;
       const performanceMonths = filterMonth === 0 ? [] : [filterMonth];
-      const usePerformanceQuery = view === "executive";
       try {
         if (shouldUsePersonalWork(user, view)) {
-          const res = usePerformanceQuery ? await API.getPerformanceEmployeeTasks(user, performanceMonths, filterYear, user.empId) : await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
-          commitDashboard({ dashboard: { tasks: res.tasks || res || [], holidays: res.holidays || [] }, loading: false });
+          const res = await API.getPerformanceEmployeeTasks(user, performanceMonths, filterYear, user.empId);
+          commitDashboard({ dashboard: { tasks: res.tasks || res || [], holidays: res.holidays || [] }, holidays: res.holidays || [], loading: false });
           return;
         }
         if (isTeamManagerRole(user.role)) {
           const [tasksRes2, staffRes2, kpisRes2] = await Promise.all([
-            usePerformanceQuery ? API.getPerformanceTasks(performanceMonths, filterYear, user.team, user.empId) : API.getAllTasks(monthParam, filterYear, user.team, user.empId),
+            API.getPerformanceTasks(performanceMonths, filterYear, user.team, user.empId),
             API.getAllStaffInTeam(user.team, user.empId).catch(() => ({ staff: [] })),
             API.getKPIsByTeam(user.team).catch(() => ({ kpis: [] }))
           ]);
@@ -14475,13 +14476,14 @@ var MaxiwaKpiApp = (() => {
               period: tasksRes2.period,
               holidays: tasksRes2.holidays || []
             },
+            holidays: tasksRes2.holidays || [],
             loading: false
           });
           return;
         }
         if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
           const [tasksRes2, staffRes2, kpisRes2] = await Promise.all([
-            usePerformanceQuery ? API.getPerformanceTasks(performanceMonths, filterYear, "all", user.empId) : API.getAllTasks(monthParam, filterYear, "all", user.empId),
+            API.getPerformanceTasks(performanceMonths, filterYear, "all", user.empId),
             API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
             API.getKPIsByTeam("").catch(() => ({ kpis: [] }))
           ]);
@@ -14495,12 +14497,13 @@ var MaxiwaKpiApp = (() => {
               kpis: kpisRes2.kpis || [],
               holidays: tasksRes2.holidays || []
             },
+            holidays: tasksRes2.holidays || [],
             loading: false
           });
           return;
         }
         const [tasksRes, staffRes, kpisRes] = await Promise.all([
-          usePerformanceQuery ? API.getPerformanceTasks(performanceMonths, filterYear, "all", user.empId) : API.getAllTasks(monthParam, filterYear, "all", user.empId),
+          API.getPerformanceTasks(performanceMonths, filterYear, "all", user.empId),
           API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
           API.getKPIsByTeam("").catch(() => ({ kpis: [] }))
         ]);
@@ -14514,6 +14517,7 @@ var MaxiwaKpiApp = (() => {
             kpis: kpisRes.kpis || [],
             holidays: tasksRes.holidays || []
           },
+          holidays: tasksRes.holidays || [],
           loading: false
         });
       } catch (e) {
@@ -14522,19 +14526,23 @@ var MaxiwaKpiApp = (() => {
     }, [user, view, filterMonth, filterYear]);
     const loadTasks = useCallback(async (options = {}) => {
       if (!user) return;
+      const requestId = ++taskRequestRef.current;
+      const commitTasks = (patch) => {
+        if (requestId === taskRequestRef.current) safeSet(patch);
+      };
       if (!options.silent) safeSet({ loading: true, error: "" });
-      const monthParam = filterMonth === 0 ? null : filterMonth;
+      const performanceMonths = filterMonth === 0 ? [] : [filterMonth];
       try {
         if (shouldUsePersonalWork(user, view)) {
-          const res2 = await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
-          safeSet({ tasks: res2.tasks || res2 || [], loading: false });
+          const res2 = await API.getPerformanceEmployeeTasks(user, performanceMonths, filterYear, user.empId);
+          commitTasks({ tasks: res2.tasks || res2 || [], holidays: res2.holidays || [], loading: false });
           return;
         }
         const team = taskScopeForUser(user);
-        const res = await API.getAllTasks(monthParam, filterYear, team, user.empId);
-        safeSet({ tasks: filterByAllowedTeams(user, res.tasks || []), loading: false });
+        const res = await API.getPerformanceTasks(performanceMonths, filterYear, team, user.empId);
+        commitTasks({ tasks: filterByAllowedTeams(user, res.tasks || []), holidays: res.holidays || [], loading: false });
       } catch (e) {
-        safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14 tasks \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
+        commitTasks({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14 tasks \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
       }
     }, [user, view, filterMonth, filterYear]);
     const applySavedTasks = useCallback((savedTasks = []) => {
@@ -14562,28 +14570,33 @@ var MaxiwaKpiApp = (() => {
     }, [user, view, filterMonth, filterYear]);
     const loadPeople = useCallback(async () => {
       if (!user) return;
+      const requestId = ++peopleRequestRef.current;
       safeSet({ loading: true, error: "" });
       try {
         let res;
         if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
         else if (user.role === "Staff") res = { staff: [user] };
         else res = await API.getAllStaff(user.empId);
-        safeSet({ people: filterByAllowedTeams(user, (res.staff || []).map((person) => normalizeAppUser(person))).filter(Boolean), loading: false });
+        if (requestId === peopleRequestRef.current) {
+          safeSet({ people: filterByAllowedTeams(user, (res.staff || []).map((person) => normalizeAppUser(person))).filter(Boolean), loading: false });
+        }
       } catch (e) {
-        safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
+        if (requestId === peopleRequestRef.current) safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14\u0E23\u0E32\u0E22\u0E0A\u0E37\u0E48\u0E2D\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
       }
     }, [user]);
     const loadAdmin = useCallback(async () => {
       if (!user) return;
+      const requestId = ++adminRequestRef.current;
       safeSet({ loading: true, error: "" });
       try {
         const [logs, teams, holidays, staff, kpisRes] = await Promise.all([
-          adminGet("admin/getAuditLogs", userEmpId(user)),
+          adminGet("admin/getAuditLogs?limit=200", userEmpId(user)),
           adminGet("admin/getTeams", userEmpId(user)),
           adminGet("admin/getHolidays", userEmpId(user)),
           API.getAllStaff(userEmpId(user)),
           API.getKPIsByTeam("")
         ]);
+        if (requestId !== adminRequestRef.current) return;
         safeSet({
           admin: {
             logs: logs.logs || [],
@@ -14596,19 +14609,18 @@ var MaxiwaKpiApp = (() => {
           loading: false
         });
       } catch (e) {
-        safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14 admin data \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
+        if (requestId === adminRequestRef.current) safeSet({ loading: false, error: e.message || "\u0E42\u0E2B\u0E25\u0E14 admin data \u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08" });
       }
     }, [user]);
     useEffect(() => {
       if (!user) return;
-      loadHolidays();
       if (view === "executive") loadDashboard();
       if (["dashboard", "my-dashboard"].includes(view)) loadDashboard();
       if (["tasks", "my-tasks"].includes(view)) loadTasks();
       if (view === "people") loadPeople();
       if (view === "assign") loadPeople();
       if (view === "admin") loadAdmin();
-    }, [user, view, loadDashboard, loadTasks, loadPeople, loadAdmin, loadHolidays]);
+    }, [user, view, loadDashboard, loadTasks, loadPeople, loadAdmin]);
     useEffect(() => {
       if (!user || !window.subscribeToRealtime) {
         setRealtimeActive(false);

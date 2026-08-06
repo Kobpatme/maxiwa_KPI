@@ -2499,6 +2499,9 @@ function useAppData(user, view) {
   const [realtimeActive, setRealtimeActive] = useState(false);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
   const dashboardRequestRef = React.useRef(0);
+  const taskRequestRef = React.useRef(0);
+  const peopleRequestRef = React.useRef(0);
+  const adminRequestRef = React.useRef(0);
 
   const safeSet = (patch) => setState((prev) => ({ ...prev, ...patch }));
 
@@ -2520,22 +2523,16 @@ function useAppData(user, view) {
       if (requestId === dashboardRequestRef.current) safeSet(patch);
     };
     if (!options.silent) safeSet({ loading: true, error: '' });
-    const monthParam = filterMonth === 0 ? null : filterMonth;
     const performanceMonths = filterMonth === 0 ? [] : [filterMonth];
-    const usePerformanceQuery = view === 'executive';
     try {
       if (shouldUsePersonalWork(user, view)) {
-        const res = usePerformanceQuery
-          ? await API.getPerformanceEmployeeTasks(user, performanceMonths, filterYear, user.empId)
-          : await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
-        commitDashboard({ dashboard: { tasks: res.tasks || res || [], holidays: res.holidays || [] }, loading: false });
+        const res = await API.getPerformanceEmployeeTasks(user, performanceMonths, filterYear, user.empId);
+        commitDashboard({ dashboard: { tasks: res.tasks || res || [], holidays: res.holidays || [] }, holidays: res.holidays || [], loading: false });
         return;
       }
       if (isTeamManagerRole(user.role)) {
         const [tasksRes, staffRes, kpisRes] = await Promise.all([
-          usePerformanceQuery
-            ? API.getPerformanceTasks(performanceMonths, filterYear, user.team, user.empId)
-            : API.getAllTasks(monthParam, filterYear, user.team, user.empId),
+          API.getPerformanceTasks(performanceMonths, filterYear, user.team, user.empId),
           API.getAllStaffInTeam(user.team, user.empId).catch(() => ({ staff: [] })),
           API.getKPIsByTeam(user.team).catch(() => ({ kpis: [] })),
         ]);
@@ -2550,15 +2547,14 @@ function useAppData(user, view) {
             period: tasksRes.period,
             holidays: tasksRes.holidays || [],
           },
+          holidays: tasksRes.holidays || [],
           loading: false,
         });
         return;
       }
       if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
         const [tasksRes, staffRes, kpisRes] = await Promise.all([
-          usePerformanceQuery
-            ? API.getPerformanceTasks(performanceMonths, filterYear, 'all', user.empId)
-            : API.getAllTasks(monthParam, filterYear, 'all', user.empId),
+          API.getPerformanceTasks(performanceMonths, filterYear, 'all', user.empId),
           API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
           API.getKPIsByTeam('').catch(() => ({ kpis: [] })),
         ]);
@@ -2572,14 +2568,13 @@ function useAppData(user, view) {
             kpis: kpisRes.kpis || [],
             holidays: tasksRes.holidays || [],
           },
+          holidays: tasksRes.holidays || [],
           loading: false,
         });
         return;
       }
       const [tasksRes, staffRes, kpisRes] = await Promise.all([
-        usePerformanceQuery
-          ? API.getPerformanceTasks(performanceMonths, filterYear, 'all', user.empId)
-          : API.getAllTasks(monthParam, filterYear, 'all', user.empId),
+        API.getPerformanceTasks(performanceMonths, filterYear, 'all', user.empId),
         API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
         API.getKPIsByTeam('').catch(() => ({ kpis: [] })),
       ]);
@@ -2593,6 +2588,7 @@ function useAppData(user, view) {
           kpis: kpisRes.kpis || [],
           holidays: tasksRes.holidays || [],
         },
+        holidays: tasksRes.holidays || [],
         loading: false,
       });
     } catch (e) {
@@ -2602,19 +2598,23 @@ function useAppData(user, view) {
 
   const loadTasks = useCallback(async (options = {}) => {
     if (!user) return;
+    const requestId = ++taskRequestRef.current;
+    const commitTasks = (patch) => {
+      if (requestId === taskRequestRef.current) safeSet(patch);
+    };
     if (!options.silent) safeSet({ loading: true, error: '' });
-    const monthParam = filterMonth === 0 ? null : filterMonth;
+    const performanceMonths = filterMonth === 0 ? [] : [filterMonth];
     try {
       if (shouldUsePersonalWork(user, view)) {
-        const res = await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
-        safeSet({ tasks: res.tasks || res || [], loading: false });
+        const res = await API.getPerformanceEmployeeTasks(user, performanceMonths, filterYear, user.empId);
+        commitTasks({ tasks: res.tasks || res || [], holidays: res.holidays || [], loading: false });
         return;
       }
       const team = taskScopeForUser(user);
-      const res = await API.getAllTasks(monthParam, filterYear, team, user.empId);
-      safeSet({ tasks: filterByAllowedTeams(user, res.tasks || []), loading: false });
+      const res = await API.getPerformanceTasks(performanceMonths, filterYear, team, user.empId);
+      commitTasks({ tasks: filterByAllowedTeams(user, res.tasks || []), holidays: res.holidays || [], loading: false });
     } catch (e) {
-      safeSet({ loading: false, error: e.message || 'โหลด tasks ไม่สำเร็จ' });
+      commitTasks({ loading: false, error: e.message || 'โหลด tasks ไม่สำเร็จ' });
     }
   }, [user, view, filterMonth, filterYear]);
 
@@ -2648,29 +2648,34 @@ function useAppData(user, view) {
 
   const loadPeople = useCallback(async () => {
     if (!user) return;
+    const requestId = ++peopleRequestRef.current;
     safeSet({ loading: true, error: '' });
     try {
       let res;
       if (isTeamManagerRole(user.role)) res = await API.getAllStaffInTeam(user.team, user.empId);
       else if (user.role === 'Staff') res = { staff: [user] };
       else res = await API.getAllStaff(user.empId);
-      safeSet({ people: filterByAllowedTeams(user, (res.staff || []).map((person) => normalizeAppUser(person))).filter(Boolean), loading: false });
+      if (requestId === peopleRequestRef.current) {
+        safeSet({ people: filterByAllowedTeams(user, (res.staff || []).map((person) => normalizeAppUser(person))).filter(Boolean), loading: false });
+      }
     } catch (e) {
-      safeSet({ loading: false, error: e.message || 'โหลดรายชื่อไม่สำเร็จ' });
+      if (requestId === peopleRequestRef.current) safeSet({ loading: false, error: e.message || 'โหลดรายชื่อไม่สำเร็จ' });
     }
   }, [user]);
 
   const loadAdmin = useCallback(async () => {
     if (!user) return;
+    const requestId = ++adminRequestRef.current;
     safeSet({ loading: true, error: '' });
     try {
       const [logs, teams, holidays, staff, kpisRes] = await Promise.all([
-        adminGet('admin/getAuditLogs', userEmpId(user)),
+        adminGet('admin/getAuditLogs?limit=200', userEmpId(user)),
         adminGet('admin/getTeams', userEmpId(user)),
         adminGet('admin/getHolidays', userEmpId(user)),
         API.getAllStaff(userEmpId(user)),
         API.getKPIsByTeam(''),
       ]);
+      if (requestId !== adminRequestRef.current) return;
       safeSet({
         admin: {
           logs: logs.logs || [],
@@ -2683,20 +2688,19 @@ function useAppData(user, view) {
         loading: false,
       });
     } catch (e) {
-      safeSet({ loading: false, error: e.message || 'โหลด admin data ไม่สำเร็จ' });
+      if (requestId === adminRequestRef.current) safeSet({ loading: false, error: e.message || 'โหลด admin data ไม่สำเร็จ' });
     }
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
-    loadHolidays();
     if (view === 'executive') loadDashboard();
     if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard();
     if (['tasks', 'my-tasks'].includes(view)) loadTasks();
     if (view === 'people') loadPeople();
     if (view === 'assign') loadPeople();
     if (view === 'admin') loadAdmin();
-  }, [user, view, loadDashboard, loadTasks, loadPeople, loadAdmin, loadHolidays]);
+  }, [user, view, loadDashboard, loadTasks, loadPeople, loadAdmin]);
 
   // Realtime subscription
   useEffect(() => {
