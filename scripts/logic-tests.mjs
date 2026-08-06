@@ -9,6 +9,7 @@ import {
   normalizeCompletionDate,
   normalizeThaiHolidayDate,
   normalizeThaiHolidayResponse,
+  performanceTaskInPeriod,
   taskInPeriod,
 } from "../public/_worker.js";
 
@@ -103,6 +104,15 @@ test("Monthly task filter excludes undated completed work", () => {
   assert.equal(taskInPeriod({ status: "Completed", completiondate: "2026-06-01" }, 6, 2026, false), true);
   assert.equal(taskInPeriod({ status: "On Process", startdate: "2026-05-10" }, 6, 2026, false), true);
   assert.equal(taskInPeriod({ status: "On Process" }, 6, 2026, false), false);
+});
+
+test("Performance period keeps active backlog but bounds completed history", () => {
+  assert.equal(performanceTaskInPeriod({ status: "Completed", completiondate: "2025-12-31" }, [], 2026), false);
+  assert.equal(performanceTaskInPeriod({ status: "Completed", completiondate: "2026-06-15" }, [], 2026), true);
+  assert.equal(performanceTaskInPeriod({ status: "Completed", completiondate: "2026-06-15" }, [5, 7], 2026), false);
+  assert.equal(performanceTaskInPeriod({ status: "Completed", completiondate: "2026-07-15" }, [5, 7], 2026), true);
+  assert.equal(performanceTaskInPeriod({ status: "On Process", startdate: "2024-01-01" }, [5], 2026), true);
+  assert.equal(performanceTaskInPeriod({ status: "Pending", startdate: "2026-08-01" }, [5], 2026), false);
 });
 
 test("Weighted score uses task-level effective weights", () => {

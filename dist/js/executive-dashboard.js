@@ -13361,7 +13361,7 @@ var MaxiwaExecutiveDashboard = (() => {
     }).sort((a, b) => a.team.localeCompare(b.team) || b.total - a.total);
   }
   function Shell({ children }) {
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: "max-w-[1760px] mx-auto p-4 md:p-7 grid gap-6" }, children);
+    return /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("a", { className: "skip-link", href: "#performance-content" }, "\u0E02\u0E49\u0E32\u0E21\u0E44\u0E1B\u0E22\u0E31\u0E07\u0E40\u0E19\u0E37\u0E49\u0E2D\u0E2B\u0E32\u0E2B\u0E25\u0E31\u0E01"), /* @__PURE__ */ import_react.default.createElement("main", { id: "performance-content", className: "max-w-[1760px] mx-auto p-4 md:p-7 grid gap-5" }, children));
   }
   function Metric({ label, value, sub, icon, tone = "status-info" }) {
     return /* @__PURE__ */ import_react.default.createElement("div", { className: `mx-card metric-card p-5 ${tone}` }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex items-center justify-between gap-3" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black" }, label), /* @__PURE__ */ import_react.default.createElement("span", { className: `mx-badge ${tone}` }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${icon}` }))), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-5 metric-number" }, value), /* @__PURE__ */ import_react.default.createElement("div", { className: "mt-2 text-sm text-[var(--mx-muted)]" }, sub));
@@ -13470,8 +13470,8 @@ var MaxiwaExecutiveDashboard = (() => {
       );
     })), selectedMonths.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { className: "month-picker-footer" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "month-picker-clear-btn", onClick: clearAll }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-xmark", style: { marginRight: 4, fontSize: 10 } }), "\u0E25\u0E49\u0E32\u0E07\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01"))));
   }
-  function TabBar({ activeTab, setActiveTab, selectedMonths, setSelectedMonths, year, setYear, years, loading, onLoad }) {
-    return /* @__PURE__ */ import_react.default.createElement("nav", { className: "tab-strip no-print" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "tab-button-group" }, TAB_ITEMS.map((tab) => /* @__PURE__ */ import_react.default.createElement("button", { key: tab.id, className: `tab-button ${activeTab === tab.id ? "active" : ""}`, onClick: () => setActiveTab(tab.id) }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${tab.icon}` }), /* @__PURE__ */ import_react.default.createElement("span", null, tab.label)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "tab-filter-controls" }, /* @__PURE__ */ import_react.default.createElement(MonthPicker, { selectedMonths, onChange: setSelectedMonths }), /* @__PURE__ */ import_react.default.createElement("select", { className: "mx-input", value: year, onChange: (e) => setYear(Number(e.target.value)), "aria-label": "Filter year" }, years.map((item) => /* @__PURE__ */ import_react.default.createElement("option", { key: item, value: item }, item))), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary", onClick: onLoad, disabled: loading }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${loading ? "fa-rotate-right fa-spin" : "fa-arrows-rotate"} mr-2` }), "\u0E42\u0E2B\u0E25\u0E14\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25")));
+  function TabBar({ activeTab, setActiveTab, selectedMonths, setSelectedMonths, year, setYear, years, loading, lastUpdated, onLoad }) {
+    return /* @__PURE__ */ import_react.default.createElement("nav", { className: "tab-strip no-print" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "tab-button-group" }, TAB_ITEMS.map((tab) => /* @__PURE__ */ import_react.default.createElement("button", { key: tab.id, className: `tab-button ${activeTab === tab.id ? "active" : ""}`, onClick: () => setActiveTab(tab.id) }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${tab.icon}` }), /* @__PURE__ */ import_react.default.createElement("span", null, tab.label)))), /* @__PURE__ */ import_react.default.createElement("div", { className: "tab-filter-controls" }, /* @__PURE__ */ import_react.default.createElement(MonthPicker, { selectedMonths, onChange: setSelectedMonths }), /* @__PURE__ */ import_react.default.createElement("select", { className: "mx-input", value: year, onChange: (e) => setYear(Number(e.target.value)), "aria-label": "Filter year" }, years.map((item) => /* @__PURE__ */ import_react.default.createElement("option", { key: item, value: item }, item))), /* @__PURE__ */ import_react.default.createElement("button", { className: "mx-btn mx-btn-primary", onClick: onLoad, disabled: loading, "aria-live": "polite" }, /* @__PURE__ */ import_react.default.createElement("i", { className: `fa-solid ${loading ? "fa-rotate-right fa-spin" : "fa-arrows-rotate"} mr-2` }), loading ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E42\u0E2B\u0E25\u0E14" : "\u0E23\u0E35\u0E40\u0E1F\u0E23\u0E0A")), /* @__PURE__ */ import_react.default.createElement("div", { className: "load-status", role: "status" }, /* @__PURE__ */ import_react.default.createElement("span", { className: `load-status-dot ${loading ? "is-loading" : ""}` }), loading ? "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25 \u0E42\u0E14\u0E22\u0E22\u0E31\u0E07\u0E41\u0E2A\u0E14\u0E07\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E40\u0E14\u0E34\u0E21\u0E43\u0E2B\u0E49\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E44\u0E14\u0E49" : lastUpdated ? `\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E25\u0E48\u0E32\u0E2A\u0E38\u0E14 ${new Date(lastUpdated).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} \u0E19.` : "\u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E42\u0E2B\u0E25\u0E14\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25"));
   }
   function DataTable({ children, minWidth = 900 }) {
     return /* @__PURE__ */ import_react.default.createElement("div", { className: "table-shell overflow-x-auto" }, /* @__PURE__ */ import_react.default.createElement("table", { className: "w-full text-sm", style: { minWidth } }, children));
@@ -13480,7 +13480,7 @@ var MaxiwaExecutiveDashboard = (() => {
     const [failed, setFailed] = useState(false);
     const photo = getPhotoUrl(item);
     const initials = initialsFrom(name || (item == null ? void 0 : item.name) || (item == null ? void 0 : item.empId) || (item == null ? void 0 : item.empid));
-    return /* @__PURE__ */ import_react.default.createElement("div", { className: `avatar-ring ${className}` }, photo && !failed ? /* @__PURE__ */ import_react.default.createElement("img", { src: photo, alt: name || "Profile", referrerPolicy: "no-referrer", onError: () => setFailed(true) }) : /* @__PURE__ */ import_react.default.createElement("span", null, initials));
+    return /* @__PURE__ */ import_react.default.createElement("div", { className: `avatar-ring ${className}` }, photo && !failed ? /* @__PURE__ */ import_react.default.createElement("img", { src: photo, alt: name || "Profile", loading: "lazy", decoding: "async", referrerPolicy: "no-referrer", onError: () => setFailed(true) }) : /* @__PURE__ */ import_react.default.createElement("span", null, initials));
   }
   function DonutChart({ rows, total }) {
     const size = 190;
@@ -13696,18 +13696,20 @@ var MaxiwaExecutiveDashboard = (() => {
       return [];
     });
     const [year, setYear] = useState(Number(params.get("year") || (/* @__PURE__ */ new Date()).getFullYear()));
-    const [activeTab, setActiveTab] = useState("overview");
+    const [activeTab, setActiveTab] = useState(() => TAB_ITEMS.some((item) => item.id === params.get("tab")) ? params.get("tab") : "overview");
     const [personTeamFilter, setPersonTeamFilter] = useState("all");
     const [kpiSearch, setKpiSearch] = useState("");
     const [selectedPerson, setSelectedPerson] = useState(null);
     const [theme, setTheme] = useState(getInitialExecutiveTheme);
-    const [state, setState] = useState({ loading: false, error: "", user: null, tasks: [], staff: [], holidays: [], kpis: [] });
+    const [state, setState] = useState({ loading: false, error: "", user: null, tasks: [], staff: [], holidays: [], kpis: [], lastUpdated: null });
+    const loadRequestRef = import_react.default.useRef(0);
     const years = useMemo(() => {
       const now = (/* @__PURE__ */ new Date()).getFullYear();
       return Array.from({ length: 6 }, (_, i) => now - 3 + i);
     }, []);
     const load = async (nextEmpId = empId) => {
       var _a;
+      const requestId = ++loadRequestRef.current;
       const cleanEmpId = String(nextEmpId || "").trim().toUpperCase();
       if (!cleanEmpId) {
         setState((prev) => ({ ...prev, error: "Please provide empId in the URL or the input field." }));
@@ -13718,6 +13720,7 @@ var MaxiwaExecutiveDashboard = (() => {
         const session = readExecutiveSession(cleanEmpId, initialSessionId);
         if (session && typeof window !== "undefined") window.MAXIWA_ACTIVE_SESSION = session;
         const initial = await API.getInitialData(cleanEmpId, (session == null ? void 0 : session.sessionId) || initialSessionId);
+        if (requestId !== loadRequestRef.current) return;
         if (initial == null ? void 0 : initial.error) throw new Error(initial.error);
         if (!(initial == null ? void 0 : initial.user)) throw new Error("User profile was not found.");
         const normalizedEmpId = String(initial.user.empId || initial.user.empid || cleanEmpId).trim();
@@ -13726,55 +13729,49 @@ var MaxiwaExecutiveDashboard = (() => {
         if (activeSessionId && typeof window !== "undefined") {
           window.MAXIWA_ACTIVE_SESSION = { empId: normalizedEmpId, sessionId: activeSessionId };
         }
-        const singleMonth = selectedMonths.length === 1 ? selectedMonths[0] : null;
-        const fetchAllTime = selectedMonths.length !== 1;
-        let tasks2 = [];
-        let taskHolidays = [];
-        if (isSelfScopedRole(user.role)) {
-          const res = await API.getEmployeeTasks(user, singleMonth, year, fetchAllTime, userEmpId(user));
-          tasks2 = filterPerformanceTasks(res.tasks || res || []);
-          taskHolidays = res.holidays || [];
-        } else {
-          const team = isTeamScopedRole(user.role) ? user.team : "all";
-          const res = await API.getAllTasks(singleMonth, year, team, userEmpId(user));
-          tasks2 = filterPerformanceTasks(filterByAllowedTeams(user, res.tasks || []));
-          taskHolidays = res.holidays || [];
-        }
-        let staff = [];
-        try {
-          if (isSelfScopedRole(user.role)) {
-            staff = [user];
-          } else if (isTeamScopedRole(user.role)) {
-            const staffRes = await API.getAllStaffInTeam(user.team, userEmpId(user));
-            staff = staffRes.staff || [];
-          } else if (isStrategicViewRole(user.role) || user.role === "Manager" || user.role === "Admin") {
-            const staffRes = await API.getAllStaff(userEmpId(user));
-            staff = filterByAllowedTeams(user, staffRes.staff || []);
-          } else {
-            staff = [];
+        const taskPromise = isSelfScopedRole(user.role) ? API.getPerformanceEmployeeTasks(user, selectedMonths, year, userEmpId(user)) : API.getPerformanceTasks(selectedMonths, year, isTeamScopedRole(user.role) ? user.team : "all", userEmpId(user));
+        const staffPromise = (async () => {
+          try {
+            if (isSelfScopedRole(user.role)) {
+              return [user];
+            } else if (isTeamScopedRole(user.role)) {
+              const staffRes = await API.getAllStaffInTeam(user.team, userEmpId(user));
+              return staffRes.staff || [];
+            } else if (isStrategicViewRole(user.role) || user.role === "Manager" || user.role === "Admin") {
+              const staffRes = await API.getAllStaff(userEmpId(user));
+              return filterByAllowedTeams(user, staffRes.staff || []);
+            }
+          } catch (staffError) {
+            console.warn("Performance View staff image load failed:", staffError);
+            return [];
           }
-        } catch (staffError) {
-          console.warn("Performance View staff image load failed:", staffError);
-          staff = [];
-        }
-        let kpis = user.kpis || [];
-        try {
-          if (!isSelfScopedRole(user.role)) {
-            const kpiTeam = isTeamScopedRole(user.role) ? user.team : "";
-            const kpisRes = await API.getKPIsByTeam(kpiTeam);
-            kpis = kpisRes.kpis || kpis;
+          return [];
+        })();
+        const kpiPromise = (async () => {
+          try {
+            if (!isSelfScopedRole(user.role)) {
+              const kpiTeam = isTeamScopedRole(user.role) ? user.team : "";
+              const kpisRes = await API.getKPIsByTeam(kpiTeam);
+              return kpisRes.kpis || user.kpis || [];
+            }
+          } catch {
           }
-        } catch {
+          return user.kpis || [];
+        })();
+        const adminHolidayPromise = user.role === "Admin" ? API.getHolidays({ "x-admin-empid": userEmpId(user) }).catch(() => null) : Promise.resolve(null);
+        const [taskResult, staff, kpis, holidayResult] = await Promise.all([
+          taskPromise,
+          staffPromise,
+          kpiPromise,
+          adminHolidayPromise
+        ]);
+        if (requestId !== loadRequestRef.current) return;
+        const tasks2 = filterPerformanceTasks(filterByAllowedTeams(user, taskResult.tasks || taskResult || []));
+        let holidays = taskResult.holidays || [];
+        if (holidayResult) {
+          holidays = holidayResult.holidays || holidays;
         }
-        let holidays = taskHolidays;
-        try {
-          if (user.role === "Admin") {
-            const holidayRes = await API.getHolidays({ "x-admin-empid": userEmpId(user) });
-            holidays = holidayRes.holidays || holidays;
-          }
-        } catch {
-        }
-        setState({ loading: false, error: "", user, tasks: tasks2, staff, holidays, kpis });
+        setState({ loading: false, error: "", user, tasks: tasks2, staff, holidays, kpis, lastUpdated: Date.now() });
         const url = new URL(window.location.href);
         url.searchParams.set("empId", cleanEmpId);
         if (selectedMonths.length > 0) {
@@ -13787,28 +13784,25 @@ var MaxiwaExecutiveDashboard = (() => {
         url.searchParams.delete("sessionId");
         window.history.replaceState(null, "", url);
       } catch (error) {
+        if (requestId !== loadRequestRef.current) return;
         setState((prev) => ({ ...prev, loading: false, error: error.message || "Unable to load dashboard data." }));
       }
     };
     useEffect(() => {
-      if (initialEmpId) load(initialEmpId);
+      if (!initialEmpId) return void 0;
+      const timer = window.setTimeout(() => load(initialEmpId), 240);
+      return () => window.clearTimeout(timer);
     }, [selectedMonths.join(","), year]);
     useEffect(() => {
       applyExecutiveTheme(theme);
     }, [theme]);
+    useEffect(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", activeTab);
+      window.history.replaceState(null, "", url);
+    }, [activeTab]);
     const allTasks = filterPerformanceTasks(state.tasks || []);
-    const tasks = useMemo(() => {
-      if (selectedMonths.length <= 1) return allTasks;
-      const monthSet = new Set(selectedMonths);
-      return allTasks.filter((task) => {
-        const fields = ["startdate", "created_at", "timestamp", "completiondate", "deadline"];
-        return fields.some((field) => {
-          const d = task[field] ? new Date(task[field]) : null;
-          if (!d || Number.isNaN(d.getTime())) return false;
-          return d.getFullYear() === year && monthSet.has(d.getMonth() + 1);
-        });
-      });
-    }, [allTasks, selectedMonths, year]);
+    const tasks = allTasks;
     const staffDirectory = state.staff || [];
     const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
     const riskAsOfDate = useMemo(() => {
@@ -13955,7 +13949,7 @@ var MaxiwaExecutiveDashboard = (() => {
       const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
       return riskA - riskB || a.days - b.days || b.weight - a.weight;
     }).slice(0, 12), [portfolio.active, holidaySet, riskAsOfDate]);
-    return /* @__PURE__ */ import_react.default.createElement(Shell, null, /* @__PURE__ */ import_react.default.createElement("header", { className: "mx-card stage-header p-5 md:p-8" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "executive-header-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-3" }, state.user && /* @__PURE__ */ import_react.default.createElement(Avatar, { item: state.user, name: state.user.name || state.user.empId, className: "header-avatar" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-info" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-display" }), " Performance View"), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-neutral" }, "METRIX Verity"), state.user && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-good" }, state.user.team)), /* @__PURE__ */ import_react.default.createElement("h1", { className: "display-title mt-6 mb-0 break-words" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "block" }, "Performance Overview"), /* @__PURE__ */ import_react.default.createElement("span", { className: "block" }, "SLA & KPI Command Center")), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-4 mb-0 max-w-[84ch] text-base md:text-[18px] leading-8 text-[var(--mx-muted)]" }, "\u0E2A\u0E23\u0E38\u0E1B SLA, \u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01 KPI, \u0E20\u0E32\u0E23\u0E30\u0E07\u0E32\u0E19\u0E23\u0E32\u0E22\u0E17\u0E35\u0E21, \u0E1C\u0E25\u0E07\u0E32\u0E19\u0E23\u0E32\u0E22\u0E1A\u0E38\u0E04\u0E04\u0E25 \u0E41\u0E25\u0E30\u0E04\u0E27\u0E32\u0E21\u0E40\u0E2A\u0E35\u0E48\u0E22\u0E07\u0E2A\u0E33\u0E04\u0E31\u0E0D\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E40\u0E1B\u0E34\u0E14\u0E19\u0E33\u0E40\u0E2A\u0E19\u0E2D\u0E1C\u0E39\u0E49\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E44\u0E14\u0E49\u0E17\u0E31\u0E19\u0E17\u0E35")), /* @__PURE__ */ import_react.default.createElement("div", { className: "no-print control-panel executive-controls" }, /* @__PURE__ */ import_react.default.createElement(
+    return /* @__PURE__ */ import_react.default.createElement(Shell, null, /* @__PURE__ */ import_react.default.createElement("header", { className: "mx-card stage-header p-5 md:p-8" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "executive-header-grid" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flex flex-wrap items-center gap-3" }, state.user && /* @__PURE__ */ import_react.default.createElement(Avatar, { item: state.user, name: state.user.name || state.user.empId, className: "header-avatar" }), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-info" }, /* @__PURE__ */ import_react.default.createElement("i", { className: "fa-solid fa-display" }), " Performance View"), /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-neutral" }, "METRIX Verity"), state.user && /* @__PURE__ */ import_react.default.createElement("span", { className: "mx-badge status-good" }, state.user.team)), /* @__PURE__ */ import_react.default.createElement("h1", { className: "display-title mt-5 mb-0 break-words" }, /* @__PURE__ */ import_react.default.createElement("span", { className: "block" }, "\u0E20\u0E32\u0E1E\u0E23\u0E27\u0E21\u0E1C\u0E25\u0E01\u0E32\u0E23\u0E14\u0E33\u0E40\u0E19\u0E34\u0E19\u0E07\u0E32\u0E19"), /* @__PURE__ */ import_react.default.createElement("span", { className: "display-title-sub block" }, "SLA & KPI Command Center")), /* @__PURE__ */ import_react.default.createElement("p", { className: "mt-4 mb-0 max-w-[84ch] text-base md:text-[18px] leading-8 text-[var(--mx-muted)]" }, "\u0E2A\u0E23\u0E38\u0E1B SLA, \u0E19\u0E49\u0E33\u0E2B\u0E19\u0E31\u0E01 KPI, \u0E20\u0E32\u0E23\u0E30\u0E07\u0E32\u0E19\u0E23\u0E32\u0E22\u0E17\u0E35\u0E21, \u0E1C\u0E25\u0E07\u0E32\u0E19\u0E23\u0E32\u0E22\u0E1A\u0E38\u0E04\u0E04\u0E25 \u0E41\u0E25\u0E30\u0E04\u0E27\u0E32\u0E21\u0E40\u0E2A\u0E35\u0E48\u0E22\u0E07\u0E2A\u0E33\u0E04\u0E31\u0E0D\u0E2A\u0E33\u0E2B\u0E23\u0E31\u0E1A\u0E40\u0E1B\u0E34\u0E14\u0E19\u0E33\u0E40\u0E2A\u0E19\u0E2D\u0E1C\u0E39\u0E49\u0E1A\u0E23\u0E34\u0E2B\u0E32\u0E23\u0E44\u0E14\u0E49\u0E17\u0E31\u0E19\u0E17\u0E35")), /* @__PURE__ */ import_react.default.createElement("div", { className: "no-print control-panel executive-controls" }, /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         className: "mx-btn theme-toggle",
@@ -13977,6 +13971,7 @@ var MaxiwaExecutiveDashboard = (() => {
         setYear,
         years,
         loading: state.loading,
+        lastUpdated: state.lastUpdated,
         onLoad: () => load(empId)
       }
     ), activeTab === "overview" && /* @__PURE__ */ import_react.default.createElement(OverviewPanel, { portfolio, teamRows, kpiRows, statusRows, criticalQueue, monthlyTrend, periodLabel, riskAsOfDate, user: state.user, empId, tasks }), activeTab === "teams" && /* @__PURE__ */ import_react.default.createElement(TeamsPanel, { teamRows, holidays: holidaySet }), activeTab === "employees" && /* @__PURE__ */ import_react.default.createElement(EmployeesPanel, { personRows, teams, personTeamFilter, setPersonTeamFilter, tasks, selectedPerson, setSelectedPerson, holidays: holidaySet, kpis: state.kpis }), activeTab === "kpi" && /* @__PURE__ */ import_react.default.createElement(KpiAnalysisPanel, { kpiRows, personRows, teamRows }), activeTab === "weights" && /* @__PURE__ */ import_react.default.createElement(KpiWeightsPanel, { kpiWeightRows, kpiSearch, setKpiSearch }));

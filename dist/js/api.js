@@ -168,6 +168,8 @@ const API = (() => {
     validateSession: () => post("session/heartbeat", {}),
     getEmployeeTasks: (userData, month, year, allTime, requesterEmpId) =>
       get("getEmployeeTasks", { name: userData.name, month, year, allTime, requesterEmpId }),
+    getPerformanceEmployeeTasks: (userData, months, year, requesterEmpId) =>
+      get("getEmployeeTasks", { name: userData.name, months: months?.length ? months.join(",") : "all", year, requesterEmpId, performance: true }),
     calculateDeadlinePreview: (payload) => post("calculateDeadlinePreview", payload),
     saveNewTask: (payload) => post("saveNewTask", payload),
     acceptTask: (id, team) => post("acceptTask", { id, team }),
@@ -178,6 +180,8 @@ const API = (() => {
     updateTaskStatusWithLog: (id, team, newStatus, reason, changedBy) =>
       post("updateTaskStatusWithLog", { id, team, newStatus, reason, changedBy }),
     getAllTasks: (month, year, team, requesterEmpId) => get("getAllTasks", { month, year, team, requesterEmpId }),
+    getPerformanceTasks: (months, year, team, requesterEmpId) =>
+      get("getAllTasks", { months: months?.length ? months.join(",") : "all", year, team, requesterEmpId, performance: true }),
     getSummaryReport: (month, year, requesterEmpId) => get("getSummaryReport", { month, year, requesterEmpId }),
     getTeamSummaryReport: (team, month, year, requesterEmpId) =>
       get("getTeamSummaryReport", { team, month, year, requesterEmpId }),

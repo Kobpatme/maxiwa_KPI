@@ -827,7 +827,12 @@ function buildKpiWeightRows(tasks, holidays = [], asOfDate = new Date()) {
 }
 
 function Shell({ children }) {
-  return <div className="max-w-[1760px] mx-auto p-4 md:p-7 grid gap-6">{children}</div>;
+  return (
+    <>
+      <a className="skip-link" href="#performance-content">ข้ามไปยังเนื้อหาหลัก</a>
+      <main id="performance-content" className="max-w-[1760px] mx-auto p-4 md:p-7 grid gap-5">{children}</main>
+    </>
+  );
 }
 
 function Metric({ label, value, sub, icon, tone = 'status-info' }) {
@@ -1029,7 +1034,7 @@ function MonthPicker({ selectedMonths, onChange }) {
   );
 }
 
-function TabBar({ activeTab, setActiveTab, selectedMonths, setSelectedMonths, year, setYear, years, loading, onLoad }) {
+function TabBar({ activeTab, setActiveTab, selectedMonths, setSelectedMonths, year, setYear, years, loading, lastUpdated, onLoad }) {
   return (
     <nav className="tab-strip no-print">
       <div className="tab-button-group">
@@ -1045,9 +1050,13 @@ function TabBar({ activeTab, setActiveTab, selectedMonths, setSelectedMonths, ye
         <select className="mx-input" value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Filter year">
           {years.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
-        <button className="mx-btn mx-btn-primary" onClick={onLoad} disabled={loading}>
-          <i className={`fa-solid ${loading ? 'fa-rotate-right fa-spin' : 'fa-arrows-rotate'} mr-2`}></i>โหลดข้อมูล
+        <button className="mx-btn mx-btn-primary" onClick={onLoad} disabled={loading} aria-live="polite">
+          <i className={`fa-solid ${loading ? 'fa-rotate-right fa-spin' : 'fa-arrows-rotate'} mr-2`}></i>{loading ? 'กำลังโหลด' : 'รีเฟรช'}
         </button>
+      </div>
+      <div className="load-status" role="status">
+        <span className={`load-status-dot ${loading ? 'is-loading' : ''}`}></span>
+        {loading ? 'กำลังอัปเดตข้อมูล โดยยังแสดงข้อมูลเดิมให้ใช้งานได้' : lastUpdated ? `อัปเดตล่าสุด ${new Date(lastUpdated).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.` : 'พร้อมโหลดข้อมูล'}
       </div>
     </nav>
   );
@@ -1068,7 +1077,7 @@ function Avatar({ item, name, className = '' }) {
   return (
     <div className={`avatar-ring ${className}`}>
       {photo && !failed ? (
-        <img src={photo} alt={name || 'Profile'} referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+        <img src={photo} alt={name || 'Profile'} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
       ) : (
         <span>{initials}</span>
       )}
@@ -2363,12 +2372,13 @@ function App() {
     return [];
   });
   const [year, setYear] = useState(Number(params.get('year') || new Date().getFullYear()));
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(() => TAB_ITEMS.some((item) => item.id === params.get('tab')) ? params.get('tab') : 'overview');
   const [personTeamFilter, setPersonTeamFilter] = useState('all');
   const [kpiSearch, setKpiSearch] = useState('');
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [theme, setTheme] = useState(getInitialExecutiveTheme);
-  const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [], holidays: [], kpis: [] });
+  const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [], holidays: [], kpis: [], lastUpdated: null });
+  const loadRequestRef = React.useRef(0);
 
   const years = useMemo(() => {
     const now = new Date().getFullYear();
@@ -2376,6 +2386,7 @@ function App() {
   }, []);
 
   const load = async (nextEmpId = empId) => {
+    const requestId = ++loadRequestRef.current;
     const cleanEmpId = String(nextEmpId || '').trim().toUpperCase();
     if (!cleanEmpId) {
       setState((prev) => ({ ...prev, error: 'Please provide empId in the URL or the input field.' }));
@@ -2386,6 +2397,7 @@ function App() {
       const session = readExecutiveSession(cleanEmpId, initialSessionId);
       if (session && typeof window !== 'undefined') window.MAXIWA_ACTIVE_SESSION = session;
       const initial = await API.getInitialData(cleanEmpId, session?.sessionId || initialSessionId);
+      if (requestId !== loadRequestRef.current) return;
       if (initial?.error) throw new Error(initial.error);
       if (!initial?.user) throw new Error('User profile was not found.');
       const normalizedEmpId = String(initial.user.empId || initial.user.empid || cleanEmpId).trim();
@@ -2394,59 +2406,59 @@ function App() {
       if (activeSessionId && typeof window !== 'undefined') {
         window.MAXIWA_ACTIVE_SESSION = { empId: normalizedEmpId, sessionId: activeSessionId };
       }
-      // Determine API month param: single month, null (all), or null when multiple months
-      // selected (we then filter client-side to avoid multiple round-trips)
-      const singleMonth = selectedMonths.length === 1 ? selectedMonths[0] : null;
-      const fetchAllTime = selectedMonths.length !== 1;
-      let tasks = [];
-      let taskHolidays = [];
-      if (isSelfScopedRole(user.role)) {
-        const res = await API.getEmployeeTasks(user, singleMonth, year, fetchAllTime, userEmpId(user));
-          tasks = filterPerformanceTasks(res.tasks || res || []);
-        taskHolidays = res.holidays || [];
-      } else {
-        const team = isTeamScopedRole(user.role) ? user.team : 'all';
-        const res = await API.getAllTasks(singleMonth, year, team, userEmpId(user));
-          tasks = filterPerformanceTasks(filterByAllowedTeams(user, res.tasks || []));
-        taskHolidays = res.holidays || [];
-      }
-      let staff = [];
-      try {
-        if (isSelfScopedRole(user.role)) {
-          staff = [user];
-        } else if (isTeamScopedRole(user.role)) {
-          const staffRes = await API.getAllStaffInTeam(user.team, userEmpId(user));
-          staff = staffRes.staff || [];
-        } else if (isStrategicViewRole(user.role) || user.role === 'Manager' || user.role === 'Admin') {
-          const staffRes = await API.getAllStaff(userEmpId(user));
-          staff = filterByAllowedTeams(user, staffRes.staff || []);
-        } else {
-          staff = [];
+      const taskPromise = isSelfScopedRole(user.role)
+        ? API.getPerformanceEmployeeTasks(user, selectedMonths, year, userEmpId(user))
+        : API.getPerformanceTasks(selectedMonths, year, isTeamScopedRole(user.role) ? user.team : 'all', userEmpId(user));
+
+      const staffPromise = (async () => {
+        try {
+          if (isSelfScopedRole(user.role)) {
+            return [user];
+          } else if (isTeamScopedRole(user.role)) {
+            const staffRes = await API.getAllStaffInTeam(user.team, userEmpId(user));
+            return staffRes.staff || [];
+          } else if (isStrategicViewRole(user.role) || user.role === 'Manager' || user.role === 'Admin') {
+            const staffRes = await API.getAllStaff(userEmpId(user));
+            return filterByAllowedTeams(user, staffRes.staff || []);
+          }
+        } catch (staffError) {
+          console.warn('Performance View staff image load failed:', staffError);
+          return [];
         }
-      } catch (staffError) {
-        console.warn('Performance View staff image load failed:', staffError);
-        staff = [];
-      }
-      let kpis = user.kpis || [];
-      try {
-        if (!isSelfScopedRole(user.role)) {
-          const kpiTeam = isTeamScopedRole(user.role) ? user.team : '';
-          const kpisRes = await API.getKPIsByTeam(kpiTeam);
-          kpis = kpisRes.kpis || kpis;
+        return [];
+      })();
+
+      const kpiPromise = (async () => {
+        try {
+          if (!isSelfScopedRole(user.role)) {
+            const kpiTeam = isTeamScopedRole(user.role) ? user.team : '';
+            const kpisRes = await API.getKPIsByTeam(kpiTeam);
+            return kpisRes.kpis || user.kpis || [];
+          }
+        } catch {
+          // Fall back to KPI data returned during login and task-derived KPI rows.
         }
-      } catch {
-        // Fall back to KPI data returned during login and task-derived KPI rows.
+        return user.kpis || [];
+      })();
+
+      const adminHolidayPromise = user.role === 'Admin'
+        ? API.getHolidays({ 'x-admin-empid': userEmpId(user) }).catch(() => null)
+        : Promise.resolve(null);
+
+      const [taskResult, staff, kpis, holidayResult] = await Promise.all([
+        taskPromise,
+        staffPromise,
+        kpiPromise,
+        adminHolidayPromise,
+      ]);
+      if (requestId !== loadRequestRef.current) return;
+
+      const tasks = filterPerformanceTasks(filterByAllowedTeams(user, taskResult.tasks || taskResult || []));
+      let holidays = taskResult.holidays || [];
+      if (holidayResult) {
+        holidays = holidayResult.holidays || holidays;
       }
-      let holidays = taskHolidays;
-      try {
-        if (user.role === 'Admin') {
-          const holidayRes = await API.getHolidays({ 'x-admin-empid': userEmpId(user) });
-          holidays = holidayRes.holidays || holidays;
-        }
-      } catch {
-        // If holiday access is restricted, risk displays still use weekend-aware business days.
-      }
-      setState({ loading: false, error: '', user, tasks, staff, holidays, kpis });
+      setState({ loading: false, error: '', user, tasks, staff, holidays, kpis, lastUpdated: Date.now() });
       const url = new URL(window.location.href);
       url.searchParams.set('empId', cleanEmpId);
       if (selectedMonths.length > 0) {
@@ -2459,32 +2471,29 @@ function App() {
       url.searchParams.delete('sessionId');
       window.history.replaceState(null, '', url);
     } catch (error) {
+      if (requestId !== loadRequestRef.current) return;
       setState((prev) => ({ ...prev, loading: false, error: error.message || 'Unable to load dashboard data.' }));
     }
   };
 
   useEffect(() => {
-    if (initialEmpId) load(initialEmpId);
+    if (!initialEmpId) return undefined;
+    const timer = window.setTimeout(() => load(initialEmpId), 240);
+    return () => window.clearTimeout(timer);
   }, [selectedMonths.join(','), year]);
 
   useEffect(() => {
     applyExecutiveTheme(theme);
   }, [theme]);
 
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', activeTab);
+    window.history.replaceState(null, '', url);
+  }, [activeTab]);
+
   const allTasks = filterPerformanceTasks(state.tasks || []);
-  // Client-side filter: when multiple months are selected, filter tasks by any of those months
-  const tasks = useMemo(() => {
-    if (selectedMonths.length <= 1) return allTasks;
-    const monthSet = new Set(selectedMonths);
-    return allTasks.filter((task) => {
-      const fields = ['startdate', 'created_at', 'timestamp', 'completiondate', 'deadline'];
-      return fields.some((field) => {
-        const d = task[field] ? new Date(task[field]) : null;
-        if (!d || Number.isNaN(d.getTime())) return false;
-        return d.getFullYear() === year && monthSet.has(d.getMonth() + 1);
-      });
-    });
-  }, [allTasks, selectedMonths, year]);
+  const tasks = allTasks;
   const staffDirectory = state.staff || [];
   const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
   // riskAsOfDate: for single-month use end-of-month; for multi-month or all: use end of latest selected month or today
@@ -2673,9 +2682,9 @@ function App() {
               <span className="mx-badge status-neutral">METRIX Verity</span>
               {state.user && <span className="mx-badge status-good">{state.user.team}</span>}
             </div>
-            <h1 className="display-title mt-6 mb-0 break-words">
-              <span className="block">Performance Overview</span>
-              <span className="block">SLA & KPI Command Center</span>
+            <h1 className="display-title mt-5 mb-0 break-words">
+              <span className="block">ภาพรวมผลการดำเนินงาน</span>
+              <span className="display-title-sub block">SLA & KPI Command Center</span>
             </h1>
             <p className="mt-4 mb-0 max-w-[84ch] text-base md:text-[18px] leading-8 text-[var(--mx-muted)]">
               สรุป SLA, น้ำหนัก KPI, ภาระงานรายทีม, ผลงานรายบุคคล และความเสี่ยงสำคัญสำหรับเปิดนำเสนอผู้บริหารได้ทันที
@@ -2721,6 +2730,7 @@ function App() {
         setYear={setYear}
         years={years}
         loading={state.loading}
+        lastUpdated={state.lastUpdated}
         onLoad={() => load(empId)}
       />
 

@@ -2498,6 +2498,7 @@ function useAppData(user, view) {
   const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1); // 0 = ทุกเดือน
   const [realtimeActive, setRealtimeActive] = useState(false);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  const dashboardRequestRef = React.useRef(0);
 
   const safeSet = (patch) => setState((prev) => ({ ...prev, ...patch }));
 
@@ -2514,23 +2515,33 @@ function useAppData(user, view) {
 
   const loadDashboard = useCallback(async (options = {}) => {
     if (!user) return;
+    const requestId = ++dashboardRequestRef.current;
+    const commitDashboard = (patch) => {
+      if (requestId === dashboardRequestRef.current) safeSet(patch);
+    };
     if (!options.silent) safeSet({ loading: true, error: '' });
     const monthParam = filterMonth === 0 ? null : filterMonth;
+    const performanceMonths = filterMonth === 0 ? [] : [filterMonth];
+    const usePerformanceQuery = view === 'executive';
     try {
       if (shouldUsePersonalWork(user, view)) {
-        const res = await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
-        safeSet({ dashboard: { tasks: res.tasks || res || [], holidays: res.holidays || [] }, loading: false });
+        const res = usePerformanceQuery
+          ? await API.getPerformanceEmployeeTasks(user, performanceMonths, filterYear, user.empId)
+          : await API.getEmployeeTasks(user, monthParam, filterYear, filterMonth === 0, user.empId);
+        commitDashboard({ dashboard: { tasks: res.tasks || res || [], holidays: res.holidays || [] }, loading: false });
         return;
       }
       if (isTeamManagerRole(user.role)) {
         const [tasksRes, staffRes, kpisRes] = await Promise.all([
-          API.getAllTasks(monthParam, filterYear, user.team, user.empId),
+          usePerformanceQuery
+            ? API.getPerformanceTasks(performanceMonths, filterYear, user.team, user.empId)
+            : API.getAllTasks(monthParam, filterYear, user.team, user.empId),
           API.getAllStaffInTeam(user.team, user.empId).catch(() => ({ staff: [] })),
           API.getKPIsByTeam(user.team).catch(() => ({ kpis: [] })),
         ]);
         const tasks = tasksRes.tasks || [];
         const staff = staffRes.staff || [];
-        safeSet({
+        commitDashboard({
           dashboard: {
             summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(tasks), staff),
             tasks,
@@ -2545,13 +2556,15 @@ function useAppData(user, view) {
       }
       if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
         const [tasksRes, staffRes, kpisRes] = await Promise.all([
-          API.getAllTasks(monthParam, filterYear, 'all', user.empId),
+          usePerformanceQuery
+            ? API.getPerformanceTasks(performanceMonths, filterYear, 'all', user.empId)
+            : API.getAllTasks(monthParam, filterYear, 'all', user.empId),
           API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
           API.getKPIsByTeam('').catch(() => ({ kpis: [] })),
         ]);
         const visibleTasks = filterByAllowedTeams(user, tasksRes.tasks || []);
         const staff = filterByAllowedTeams(user, staffRes.staff || []);
-        safeSet({
+        commitDashboard({
           dashboard: {
             summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(visibleTasks), staff),
             tasks: visibleTasks,
@@ -2564,13 +2577,15 @@ function useAppData(user, view) {
         return;
       }
       const [tasksRes, staffRes, kpisRes] = await Promise.all([
-        API.getAllTasks(monthParam, filterYear, 'all', user.empId),
+        usePerformanceQuery
+          ? API.getPerformanceTasks(performanceMonths, filterYear, 'all', user.empId)
+          : API.getAllTasks(monthParam, filterYear, 'all', user.empId),
         API.getAllStaff(user.empId).catch(() => ({ staff: [] })),
         API.getKPIsByTeam('').catch(() => ({ kpis: [] })),
       ]);
       const tasks = tasksRes.tasks || [];
       const staff = staffRes.staff || [];
-      safeSet({
+      commitDashboard({
         dashboard: {
           summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(tasks), staff),
           tasks,
@@ -2581,7 +2596,7 @@ function useAppData(user, view) {
         loading: false,
       });
     } catch (e) {
-      safeSet({ loading: false, error: e.message || 'โหลด dashboard ไม่สำเร็จ' });
+      commitDashboard({ loading: false, error: e.message || 'โหลด dashboard ไม่สำเร็จ' });
     }
   }, [user, view, filterMonth, filterYear]);
 
@@ -2915,7 +2930,7 @@ function getExecutiveHealthClass(value) {
   return 'mx-status-hold';
 }
 
-function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigate }) {
+function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigate, onOpenPresentation }) {
   if (!data) {
     return (
       <Panel title="Performance View" subtitle="Preparing performance summary...">
@@ -2998,7 +3013,12 @@ function ExecutiveView({ data, filterMonth, filterYear, holidays = [], onNavigat
       <Panel
         title="Management Summary"
         subtitle={`Performance readout for ${periodLabel}`}
-        actions={<button className="mx-btn mx-btn-soft !py-2" onClick={() => window.print()}><i className="fa-solid fa-print mr-2"></i>Presentation</button>}
+        actions={(
+          <div className="flex flex-wrap gap-2">
+            <button className="mx-btn mx-btn-soft !py-2" onClick={() => window.print()}><i className="fa-solid fa-print mr-2"></i>พิมพ์</button>
+            <button className="mx-btn mx-btn-primary !py-2" onClick={onOpenPresentation}><i className="fa-solid fa-up-right-from-square mr-2"></i>โหมดนำเสนอ</button>
+          </div>
+        )}
       >
         <div className="grid lg:grid-cols-[1.15fr_0.85fr] gap-4">
           <div className="grid gap-3">
@@ -6816,6 +6836,12 @@ function App() {
   };
 
   const openExecutiveView = () => {
+    setView('executive');
+    setShowNotif(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const openExecutivePresentation = () => {
     const executiveUrl = new URL('/dashboard', window.location.origin);
     executiveUrl.searchParams.set('empId', user.empId || user.empid || '');
     executiveUrl.searchParams.set('month', String(filterMonth));
@@ -6824,6 +6850,13 @@ function App() {
     if (activeSessionId) executiveUrl.searchParams.set('sessionId', activeSessionId);
     window.open(executiveUrl.toString(), '_blank', 'noopener,noreferrer');
   };
+
+  useEffect(() => {
+    if (!user) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', view);
+    window.history.replaceState(null, '', url);
+  }, [user, view]);
 
   const handleTasksSaved = (savedTasks = [], options = {}) => {
     applySavedTasks(savedTasks);
@@ -6923,9 +6956,14 @@ function App() {
 
                 <div className="flex flex-wrap items-center justify-end gap-2 2xl:justify-end">
                   {canOpenExecutiveView(user.role) && (
-                    <button className="mx-btn mx-btn-primary !py-2 inline-flex items-center gap-2" onClick={openExecutiveView} title="Open Performance View">
+                    <button
+                      className={cn('mx-btn !py-2 inline-flex items-center gap-2', view === 'executive' ? 'mx-btn-soft' : 'mx-btn-primary')}
+                      onClick={openExecutiveView}
+                      title="เปิด Performance View ภายในระบบ"
+                      aria-current={view === 'executive' ? 'page' : undefined}
+                    >
                       <i className="fa-solid fa-display"></i>
-                      <span>Performance View</span>
+                      <span>{view === 'executive' ? 'กำลังดู Performance' : 'Performance View'}</span>
                     </button>
                   )}
                   <ThemeToggle theme={theme} onToggle={toggleTheme} />
@@ -7071,6 +7109,7 @@ function App() {
               filterYear={filterYear}
               holidays={state.holidays}
               onNavigate={handleNavigate}
+              onOpenPresentation={openExecutivePresentation}
             />
           )}
           {view === 'dashboard' && (

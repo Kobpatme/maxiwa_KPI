@@ -1489,6 +1489,31 @@ export function taskInPeriod(task, month, year, allTime) {
   return startedAt <= periodEnd;
 }
 
+function performanceMonths(params = {}) {
+  const raw = String(params.months || params.month || "").trim().toLowerCase();
+  if (!raw || raw === "all") return [];
+  return [...new Set(raw.split(",").map(Number).filter((value) => value >= 1 && value <= 12))]
+    .sort((a, b) => a - b);
+}
+
+export function performanceTaskInPeriod(task, months = [], year = new Date().getFullYear()) {
+  const selectedYear = Number(year);
+  if (!Number.isFinite(selectedYear)) return true;
+  const selectedMonths = Array.isArray(months) ? months : [];
+  const latestMonth = selectedMonths.length ? Math.max(...selectedMonths) : 12;
+
+  if (isTerminalStatus(task.status)) {
+    const completedAt = new Date(task.completiondate || "");
+    if (Number.isNaN(completedAt.getTime()) || completedAt.getFullYear() !== selectedYear) return false;
+    return !selectedMonths.length || selectedMonths.includes(completedAt.getMonth() + 1);
+  }
+
+  const startedAt = new Date(task.startdate || task.created_at || task.deadline || "");
+  if (Number.isNaN(startedAt.getTime())) return false;
+  const periodEnd = new Date(selectedYear, latestMonth, 0, 23, 59, 59, 999);
+  return startedAt <= periodEnd;
+}
+
 function taskPersonId(task) {
   return String(task.empId || task.empid || task.assignedToEmpId || "").trim();
 }
@@ -1562,6 +1587,57 @@ async function readTasksForParams(env, params = {}) {
     }
     throw error;
   }
+}
+
+function performanceTaskQueryPrefix(params = {}, mode = "active") {
+  const year = Number(params.year || new Date().getFullYear());
+  const months = performanceMonths(params);
+  const firstMonth = months.length ? Math.min(...months) : 1;
+  const lastMonth = months.length ? Math.max(...months) : 12;
+  const periodStart = new Date(year, firstMonth - 1, 1, 0, 0, 0, 0).toISOString();
+  const periodEnd = new Date(year, lastMonth, 0, 23, 59, 59, 999).toISOString();
+  const filters = ["select=*"];
+  const team = String(params.team || "").trim();
+  const name = String(params.name || "").trim();
+
+  if (team && team !== "all") filters.push(`team=eq.${encodeEq(team)}`);
+  if (name) filters.push(`name=eq.${encodeEq(name)}`);
+
+  if (mode === "completed") {
+    filters.push("status=in.(Completed,Cancelled)");
+    filters.push(`completiondate=gte.${encodeEq(periodStart)}`);
+    filters.push(`completiondate=lte.${encodeEq(periodEnd)}`);
+  } else {
+    filters.push("status=not.in.(Completed,Cancelled)");
+    const encodedEnd = encodeEq(periodEnd);
+    filters.push(`or=(startdate.lte.${encodedEnd},created_at.lte.${encodedEnd},deadline.lte.${encodedEnd},startdate.is.null)`);
+  }
+  return filters.join("&");
+}
+
+async function readPerformanceTasks(env, params = {}) {
+  try {
+    const [active, completed] = await Promise.all([
+      readAll(env, "tasks", performanceTaskQueryPrefix(params, "active")),
+      readAll(env, "tasks", performanceTaskQueryPrefix(params, "completed")),
+    ]);
+    const unique = new Map();
+    [...active, ...completed].forEach((task, index) => {
+      const key = String(task.id || `${task.job || "task"}|${task.name || ""}|${task.startdate || ""}|${index}`);
+      unique.set(key, task);
+    });
+    return Array.from(unique.values());
+  } catch (error) {
+    console.warn("Performance task query failed, falling back to compatible filtered scan:", error?.message || error);
+    return readTasksForParams(env, params);
+  }
+}
+
+function filterPerformanceTasks(tasks, params = {}) {
+  const scoped = filterTasks(tasks, { ...params, month: 0, allTime: true });
+  const months = performanceMonths(params);
+  const year = Number(params.year || new Date().getFullYear());
+  return scoped.filter((task) => performanceTaskInPeriod(task, months, year));
 }
 
 async function readTargetUser(env, targetEmpId) {
@@ -2086,10 +2162,17 @@ async function handleApi(request, env, apiPath) {
   if (apiPath === "getEmployeeTasks" || apiPath === "getAllTasks") {
     const params = Object.fromEntries(url.searchParams.entries());
     const [allTasks, holidays] = await Promise.all([
-      readTasksForParams(env, params),
+      params.performance === "true" ? readPerformanceTasks(env, params) : readTasksForParams(env, params),
       readAll(env, "holidays").catch(() => []),
     ]);
-    return jsonResponse(request, { tasks: filterTasks(allTasks, params), holidays }, 200, { "X-Maxiwa-Backend": "supabase" });
+    const tasks = params.performance === "true"
+      ? filterPerformanceTasks(allTasks, params)
+      : filterTasks(allTasks, params);
+    return jsonResponse(request, { tasks, holidays }, 200, {
+      "Cache-Control": "private, max-age=15",
+      "X-Maxiwa-Backend": "supabase",
+      "X-Maxiwa-Query": params.performance === "true" ? "performance-bounded" : "standard",
+    });
   }
 
   if (apiPath === "getSummaryReport" || apiPath === "getTeamSummaryReport") {
