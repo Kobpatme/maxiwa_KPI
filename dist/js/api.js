@@ -163,13 +163,51 @@ const API = (() => {
     return res.json().catch(() => ({}));
   }
 
+  async function getPerformanceTaskPages(endpoint, params = {}) {
+    const pageSize = 500;
+    const maxPagesPerKind = 200;
+    const loadKind = async (kind, includeHolidays = false) => {
+      const tasks = [];
+      let holidays = [];
+      let offset = 0;
+      for (let page = 0; page < maxPagesPerKind; page += 1) {
+        const result = await get(endpoint, {
+          ...params,
+          performance: true,
+          paged: true,
+          kind,
+          limit: pageSize,
+          offset,
+          includeHolidays: includeHolidays && page === 0,
+        });
+        tasks.push(...(result.tasks || []));
+        if (result.holidays?.length) holidays = result.holidays;
+        if (!result.hasMore || result.nextOffset === null || result.nextOffset === undefined) break;
+        offset = Number(result.nextOffset);
+        if (!Number.isFinite(offset)) break;
+      }
+      return { tasks, holidays };
+    };
+
+    const [active, completed] = await Promise.all([
+      loadKind("active", true),
+      loadKind("completed", false),
+    ]);
+    const unique = new Map();
+    [...active.tasks, ...completed.tasks].forEach((task, index) => {
+      const key = String(task.id || `${task.job || "task"}|${task.name || ""}|${task.startdate || task.completiondate || ""}|${index}`);
+      unique.set(key, task);
+    });
+    return { tasks: Array.from(unique.values()), holidays: active.holidays, paged: true };
+  }
+
   return {
     getInitialData: (empId, sessionId = "") => post("getInitialData", { empId, sessionId }),
     validateSession: () => post("session/heartbeat", {}),
     getEmployeeTasks: (userData, month, year, allTime, requesterEmpId) =>
       get("getEmployeeTasks", { name: userData.name, month, year, allTime, requesterEmpId }),
     getPerformanceEmployeeTasks: (userData, months, year, requesterEmpId) =>
-      get("getEmployeeTasks", { name: userData.name, months: months?.length ? months.join(",") : "all", year, requesterEmpId, performance: true }),
+      getPerformanceTaskPages("getEmployeeTasks", { name: userData.name, months: months?.length ? months.join(",") : "all", year, requesterEmpId }),
     calculateDeadlinePreview: (payload) => post("calculateDeadlinePreview", payload),
     saveNewTask: (payload) => post("saveNewTask", payload),
     acceptTask: (id, team) => post("acceptTask", { id, team }),
@@ -181,7 +219,7 @@ const API = (() => {
       post("updateTaskStatusWithLog", { id, team, newStatus, reason, changedBy }),
     getAllTasks: (month, year, team, requesterEmpId) => get("getAllTasks", { month, year, team, requesterEmpId }),
     getPerformanceTasks: (months, year, team, requesterEmpId) =>
-      get("getAllTasks", { months: months?.length ? months.join(",") : "all", year, team, requesterEmpId, performance: true }),
+      getPerformanceTaskPages("getAllTasks", { months: months?.length ? months.join(",") : "all", year, team, requesterEmpId }),
     getSummaryReport: (month, year, requesterEmpId) => get("getSummaryReport", { month, year, requesterEmpId }),
     getTeamSummaryReport: (team, month, year, requesterEmpId) =>
       get("getTeamSummaryReport", { team, month, year, requesterEmpId }),

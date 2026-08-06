@@ -3562,6 +3562,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [expandedTaskId, setExpandedTaskId] = useState(null);
+  const [visibleLimit, setVisibleLimit] = useState(100);
 
   // ActionModal for Staff quick actions
   const [modal, setModal] = useState({ show: false });
@@ -3623,6 +3624,11 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
     });
     return myTasksSort ? [...items].sort(compareMyTasks) : items;
   }, [tasks, statusFilter, search, myTasksSort]);
+  const visibleTasks = useMemo(() => filtered.slice(0, visibleLimit), [filtered, visibleLimit]);
+
+  useEffect(() => {
+    setVisibleLimit(100);
+  }, [statusFilter, search, tasks]);
 
   const taskSummary = useMemo(() => ({
     total: (tasks || []).length,
@@ -3967,7 +3973,7 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
 
         <div className="grid gap-3">
           {filtered.length === 0 && <div className="text-sm text-[var(--mx-muted)]">ไม่พบรายการงาน</div>}
-          {filtered.map((task) => {
+          {visibleTasks.map((task) => {
             const holdSummary = getHoldSummary(task, holidaySet);
             const taskBusy = actionState?.busy && String(actionState.taskId || '') === String(task.id || '');
             const actionsDisabled = actionState?.busy;
@@ -4075,6 +4081,13 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
             </div>
             );
           })}
+          {visibleTasks.length < filtered.length && (
+            <button className="mx-btn mx-btn-soft w-full" onClick={() => setVisibleLimit((current) => current + 100)}>
+              <i className="fa-solid fa-chevron-down mr-2"></i>
+              แสดงเพิ่มอีก {Math.min(100, filtered.length - visibleTasks.length).toLocaleString()} รายการ
+              <span className="ml-2 text-[var(--mx-muted)]">({visibleTasks.length.toLocaleString()} / {filtered.length.toLocaleString()})</span>
+            </button>
+          )}
         </div>
       </Panel>
     </div>

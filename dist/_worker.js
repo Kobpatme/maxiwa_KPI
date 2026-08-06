@@ -1645,6 +1645,20 @@ async function readPerformanceTasks(env, params = {}) {
   }
 }
 
+async function readPerformanceTaskPage(env, params = {}) {
+  const kind = params.kind === "completed" ? "completed" : "active";
+  const limit = Math.min(500, Math.max(50, Number(params.limit) || 500));
+  const offset = Math.max(0, Number(params.offset) || 0);
+  const query = `${performanceTaskQueryPrefix(params, kind)}&order=id.asc&limit=${limit}&offset=${offset}`;
+  const page = await supabaseFetch(env, "tasks", query);
+  return {
+    tasks: filterPerformanceTasks(page, params),
+    hasMore: page.length === limit,
+    nextOffset: page.length === limit ? offset + page.length : null,
+    scanned: page.length,
+  };
+}
+
 function filterPerformanceTasks(tasks, params = {}) {
   const scoped = filterTasks(tasks, { ...params, month: 0, allTime: true });
   const months = performanceMonths(params);
@@ -2173,6 +2187,17 @@ async function handleApi(request, env, apiPath) {
 
   if (apiPath === "getEmployeeTasks" || apiPath === "getAllTasks") {
     const params = Object.fromEntries(url.searchParams.entries());
+    if (params.performance === "true" && params.paged === "true") {
+      const [page, holidays] = await Promise.all([
+        readPerformanceTaskPage(env, params),
+        params.includeHolidays === "true" ? readAll(env, "holidays").catch(() => []) : Promise.resolve([]),
+      ]);
+      return jsonResponse(request, { ...page, holidays }, 200, {
+        "Cache-Control": "private, max-age=15",
+        "X-Maxiwa-Backend": "supabase",
+        "X-Maxiwa-Query": "performance-paged",
+      });
+    }
     const [allTasks, holidays] = await Promise.all([
       params.performance === "true" ? readPerformanceTasks(env, params) : readTasksForParams(env, params),
       readAll(env, "holidays").catch(() => []),

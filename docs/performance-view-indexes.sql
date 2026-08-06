@@ -7,6 +7,12 @@ create index if not exists tasks_status_completiondate_idx
 create index if not exists tasks_status_startdate_idx
   on public.tasks (status, startdate);
 
+create index if not exists tasks_status_created_at_idx
+  on public.tasks (status, created_at);
+
+create index if not exists tasks_status_deadline_idx
+  on public.tasks (status, deadline);
+
 create index if not exists tasks_team_status_completiondate_idx
   on public.tasks (team, status, completiondate);
 
