@@ -2713,6 +2713,8 @@ function useAppData(user, view) {
       if (view === 'executive') loadDashboard();
       if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard();
       if (['tasks', 'my-tasks'].includes(view)) loadTasks();
+    }, (active) => {
+      if (!cancelled) setRealtimeActive(active);
     }).then((channel) => {
       if (!cancelled) setRealtimeActive(Boolean(channel));
     }).catch(() => {
@@ -2727,13 +2729,21 @@ function useAppData(user, view) {
 
   useEffect(() => {
     if (!user) return undefined;
-    const intervalMs = realtimeActive ? 300000 : 30000;
-    const timer = setInterval(() => {
+    const refreshVisibleView = () => {
       if (view === 'executive') loadDashboard({ silent: true });
       if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard({ silent: true });
       if (['tasks', 'my-tasks'].includes(view)) loadTasks({ silent: true });
-    }, intervalMs);
-    return () => clearInterval(timer);
+    };
+    const intervalMs = realtimeActive ? 60000 : 15000;
+    const timer = setInterval(refreshVisibleView, intervalMs);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshVisibleView();
+    };
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [user, view, loadDashboard, loadTasks, realtimeActive]);
 
   return {

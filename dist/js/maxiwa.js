@@ -14631,6 +14631,8 @@ var MaxiwaKpiApp = (() => {
         if (view === "executive") loadDashboard();
         if (["dashboard", "my-dashboard"].includes(view)) loadDashboard();
         if (["tasks", "my-tasks"].includes(view)) loadTasks();
+      }, (active) => {
+        if (!cancelled) setRealtimeActive(active);
       }).then((channel) => {
         if (!cancelled) setRealtimeActive(Boolean(channel));
       }).catch(() => {
@@ -14644,13 +14646,21 @@ var MaxiwaKpiApp = (() => {
     }, [user, view, loadDashboard, loadTasks]);
     useEffect(() => {
       if (!user) return void 0;
-      const intervalMs = realtimeActive ? 3e5 : 3e4;
-      const timer = setInterval(() => {
+      const refreshVisibleView = () => {
         if (view === "executive") loadDashboard({ silent: true });
         if (["dashboard", "my-dashboard"].includes(view)) loadDashboard({ silent: true });
         if (["tasks", "my-tasks"].includes(view)) loadTasks({ silent: true });
-      }, intervalMs);
-      return () => clearInterval(timer);
+      };
+      const intervalMs = realtimeActive ? 6e4 : 15e3;
+      const timer = setInterval(refreshVisibleView, intervalMs);
+      const refreshWhenVisible = () => {
+        if (document.visibilityState === "visible") refreshVisibleView();
+      };
+      document.addEventListener("visibilitychange", refreshWhenVisible);
+      return () => {
+        clearInterval(timer);
+        document.removeEventListener("visibilitychange", refreshWhenVisible);
+      };
     }, [user, view, loadDashboard, loadTasks, realtimeActive]);
     return {
       state,

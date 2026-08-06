@@ -27,6 +27,7 @@ const API = (() => {
   const RETRY_DELAYS_MS = [700, 1600];
   const getCache = new Map();
   const inflightGets = new Map();
+  let cacheGeneration = 0;
 
   function sessionHeaders() {
     const session = (typeof window !== "undefined" && window.MAXIWA_ACTIVE_SESSION) ? window.MAXIWA_ACTIVE_SESSION : null;
@@ -56,6 +57,7 @@ const API = (() => {
   }
 
   function clearGetCache() {
+    cacheGeneration += 1;
     getCache.clear();
     inflightGets.clear();
   }
@@ -130,6 +132,7 @@ const API = (() => {
     const cached = getCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
     if (inflightGets.has(key)) return inflightGets.get(key);
+    const requestGeneration = cacheGeneration;
     const qs = new URLSearchParams(cleanParams).toString();
     const request = (async () => {
       const data = await retryRead(async () => {
@@ -139,14 +142,16 @@ const API = (() => {
         }
         return res.json();
       });
-      getCache.set(key, { data, expiresAt: Date.now() + GET_CACHE_TTL });
+      if (requestGeneration === cacheGeneration) {
+        getCache.set(key, { data, expiresAt: Date.now() + GET_CACHE_TTL });
+      }
       return data;
     })();
     inflightGets.set(key, request);
     try {
       return await request;
     } finally {
-      inflightGets.delete(key);
+      if (inflightGets.get(key) === request) inflightGets.delete(key);
     }
   }
 
@@ -246,6 +251,7 @@ const API = (() => {
     saveSystemLinks: (systemLinks, headers = {}) => post("admin/saveSystemLinks", { systemLinks }, headers),
     getAdminAnnouncement: () => get("adminAnnouncement"),
     saveAdminAnnouncement: (announcement, headers = {}) => post("admin/saveAnnouncement", { announcement }, headers),
+    invalidateGetCache: clearGetCache,
   };
 })();
 
@@ -253,6 +259,17 @@ let supabaseClient = null;
 let supabaseInitPromise = null;
 const realtimeSubscriptions = {};
 const realtimeDebounceTimers = {};
+const realtimeStates = {};
+
+function updateRealtimeState(tableName, active, statusCallback, status, error) {
+  realtimeStates[tableName] = Boolean(active);
+  if (typeof window !== "undefined") {
+    window.MAXIWA_REALTIME_ACTIVE = Object.values(realtimeStates).some(Boolean);
+  }
+  if (typeof statusCallback === "function") {
+    statusCallback(Boolean(active), status || "UNKNOWN", error || null);
+  }
+}
 
 async function initSupabaseClient() {
   if (supabaseClient) return supabaseClient;
@@ -286,10 +303,12 @@ async function initSupabaseClient() {
   return supabaseInitPromise;
 }
 
-async function subscribeToRealtime(tableName, callback) {
+async function subscribeToRealtime(tableName, callback, statusCallback) {
   const client = await initSupabaseClient();
-  if (typeof window !== "undefined") window.MAXIWA_REALTIME_ACTIVE = Boolean(client);
-  if (!client) return null;
+  if (!client) {
+    updateRealtimeState(tableName, false, statusCallback, "UNAVAILABLE");
+    return null;
+  }
 
   if (realtimeSubscriptions[tableName]) {
     try {
@@ -299,33 +318,68 @@ async function subscribeToRealtime(tableName, callback) {
   }
 
   const channel = client.channel(`public:${tableName}`);
+  realtimeSubscriptions[tableName] = channel;
+  updateRealtimeState(tableName, false, statusCallback, "CONNECTING");
   channel.on(
     "postgres_changes",
     { event: "*", schema: "public", table: tableName },
     (payload) => {
+      API.invalidateGetCache();
       if (realtimeDebounceTimers[tableName]) clearTimeout(realtimeDebounceTimers[tableName]);
       realtimeDebounceTimers[tableName] = setTimeout(() => {
         if (typeof callback === "function") callback(payload);
-      }, 1200);
+      }, 250);
     }
-  ).subscribe();
+  );
 
-  realtimeSubscriptions[tableName] = channel;
-  return channel;
+  return new Promise((resolve) => {
+    let settled = false;
+    let connectTimer;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(connectTimer);
+      resolve(value);
+    };
+
+    connectTimer = setTimeout(() => {
+      if (realtimeSubscriptions[tableName] !== channel) return finish(null);
+      updateRealtimeState(tableName, false, statusCallback, "TIMED_OUT");
+      finish(null);
+    }, 15000);
+
+    channel.subscribe((status, error) => {
+      if (realtimeSubscriptions[tableName] !== channel) return;
+      if (status === "SUBSCRIBED") {
+        updateRealtimeState(tableName, true, statusCallback, status);
+        finish(channel);
+        return;
+      }
+      if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
+        updateRealtimeState(tableName, false, statusCallback, status, error);
+        finish(null);
+      }
+    });
+  });
 }
 
 async function unsubscribeFromRealtime(tableName) {
   const client = supabaseClient;
-  if (!client || !realtimeSubscriptions[tableName]) return;
-  try {
-    await client.removeChannel(realtimeSubscriptions[tableName]);
-  } catch {}
+  const channel = realtimeSubscriptions[tableName];
+  if (!channel) return;
+  delete realtimeSubscriptions[tableName];
+  delete realtimeStates[tableName];
+  if (typeof window !== "undefined") {
+    window.MAXIWA_REALTIME_ACTIVE = Object.values(realtimeStates).some(Boolean);
+  }
   if (realtimeDebounceTimers[tableName]) {
     clearTimeout(realtimeDebounceTimers[tableName]);
     delete realtimeDebounceTimers[tableName];
   }
-  delete realtimeSubscriptions[tableName];
-  if (typeof window !== "undefined" && Object.keys(realtimeSubscriptions).length === 0) window.MAXIWA_REALTIME_ACTIVE = false;
+  if (!client) return;
+  try {
+    await client.removeChannel(channel);
+  } catch {}
 }
 
 function systemLinkFromRow(row) {
