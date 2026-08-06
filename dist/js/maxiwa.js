@@ -14568,6 +14568,16 @@ var MaxiwaKpiApp = (() => {
         return { ...prev, tasks: nextTasks, dashboard: nextDashboard, loading: false, error: "" };
       });
     }, [user, view, filterMonth, filterYear]);
+    const removeSavedTask = useCallback((taskId) => {
+      const id = String(taskId || "").trim();
+      if (!id) return;
+      setState((prev) => {
+        const tasks = (prev.tasks || []).filter((task) => String(task.id) !== id);
+        const dashboard = prev.dashboard && Array.isArray(prev.dashboard.tasks) ? { ...prev.dashboard, tasks: prev.dashboard.tasks.filter((task) => String(task.id) !== id) } : prev.dashboard;
+        const nextDashboard = dashboard && Array.isArray(dashboard.tasks) && (isTeamManagerRole(user == null ? void 0 : user.role) || isDepartmentManagerRole(user == null ? void 0 : user.role) || isStrategicViewRole(user == null ? void 0 : user.role)) ? { ...dashboard, summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(dashboard.tasks), dashboard.staff || []) } : dashboard;
+        return { ...prev, tasks, dashboard: nextDashboard };
+      });
+    }, [user]);
     const loadPeople = useCallback(async () => {
       if (!user) return;
       const requestId = ++peopleRequestRef.current;
@@ -14662,6 +14672,41 @@ var MaxiwaKpiApp = (() => {
         document.removeEventListener("visibilitychange", refreshWhenVisible);
       };
     }, [user, view, loadDashboard, loadTasks, realtimeActive]);
+    useEffect(() => {
+      if (!user) return void 0;
+      let refreshTimer;
+      let broadcastChannel;
+      const handleMutation = (message) => {
+        var _a, _b, _c;
+        const detail = (message == null ? void 0 : message.detail) || (message == null ? void 0 : message.data);
+        if (!(detail == null ? void 0 : detail.endpoint)) return;
+        API.invalidateGetCache();
+        if (detail.endpoint === "deleteTask") {
+          removeSavedTask((_a = detail.body) == null ? void 0 : _a.id);
+        } else {
+          const savedTasks = ((_b = detail.data) == null ? void 0 : _b.tasks) || (((_c = detail.data) == null ? void 0 : _c.task) ? [detail.data.task] : []);
+          applySavedTasks(savedTasks);
+        }
+        clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => {
+          if (view === "executive" || ["dashboard", "my-dashboard"].includes(view)) loadDashboard({ silent: true });
+          if (["tasks", "my-tasks"].includes(view)) loadTasks({ silent: true });
+        }, 300);
+      };
+      window.addEventListener("maxiwa:task-mutation", handleMutation);
+      if (typeof BroadcastChannel === "function") {
+        try {
+          broadcastChannel = new BroadcastChannel("maxiwa-task-mutations");
+          broadcastChannel.addEventListener("message", handleMutation);
+        } catch {
+        }
+      }
+      return () => {
+        clearTimeout(refreshTimer);
+        window.removeEventListener("maxiwa:task-mutation", handleMutation);
+        if (broadcastChannel) broadcastChannel.close();
+      };
+    }, [user, view, applySavedTasks, removeSavedTask, loadDashboard, loadTasks]);
     return {
       state,
       filterMonth,
@@ -16933,8 +16978,6 @@ var MaxiwaKpiApp = (() => {
       beginTaskAction(task, "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E40\u0E23\u0E34\u0E48\u0E21\u0E07\u0E32\u0E19...");
       try {
         await API.acceptTask(task.id, task.team);
-        await reloadTasks();
-        await reloadDashboard();
       } catch (e) {
         alert(e.message || "\u0E23\u0E31\u0E1A\u0E07\u0E32\u0E19\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
       } finally {
@@ -16967,8 +17010,6 @@ var MaxiwaKpiApp = (() => {
             extra_data: holdUpdate.extraData
           });
         }
-        await reloadTasks();
-        await reloadDashboard();
       } catch (e) {
         alert(e.message || "\u0E2D\u0E31\u0E1B\u0E40\u0E14\u0E15\u0E2A\u0E16\u0E32\u0E19\u0E30\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
       } finally {
@@ -16980,8 +17021,6 @@ var MaxiwaKpiApp = (() => {
       beginTaskAction(task, "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E25\u0E1A\u0E07\u0E32\u0E19...");
       try {
         await API.deleteTask(task.id, task.team, user.name);
-        await reloadTasks();
-        await reloadDashboard();
       } catch (e) {
         alert(e.message || "\u0E25\u0E1A\u0E07\u0E32\u0E19\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08");
       } finally {

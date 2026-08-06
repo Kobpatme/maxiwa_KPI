@@ -2646,6 +2646,21 @@ function useAppData(user, view) {
     });
   }, [user, view, filterMonth, filterYear]);
 
+  const removeSavedTask = useCallback((taskId) => {
+    const id = String(taskId || '').trim();
+    if (!id) return;
+    setState((prev) => {
+      const tasks = (prev.tasks || []).filter((task) => String(task.id) !== id);
+      const dashboard = prev.dashboard && Array.isArray(prev.dashboard.tasks)
+        ? { ...prev.dashboard, tasks: prev.dashboard.tasks.filter((task) => String(task.id) !== id) }
+        : prev.dashboard;
+      const nextDashboard = dashboard && Array.isArray(dashboard.tasks) && (isTeamManagerRole(user?.role) || isDepartmentManagerRole(user?.role) || isStrategicViewRole(user?.role))
+        ? { ...dashboard, summary: enrichPeopleWithProfiles(buildPeopleSummaryFromTasks(dashboard.tasks), dashboard.staff || []) }
+        : dashboard;
+      return { ...prev, tasks, dashboard: nextDashboard };
+    });
+  }, [user]);
+
   const loadPeople = useCallback(async () => {
     if (!user) return;
     const requestId = ++peopleRequestRef.current;
@@ -2745,6 +2760,41 @@ function useAppData(user, view) {
       document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, [user, view, loadDashboard, loadTasks, realtimeActive]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    let refreshTimer;
+    let broadcastChannel;
+    const handleMutation = (message) => {
+      const detail = message?.detail || message?.data;
+      if (!detail?.endpoint) return;
+      API.invalidateGetCache();
+      if (detail.endpoint === 'deleteTask') {
+        removeSavedTask(detail.body?.id);
+      } else {
+        const savedTasks = detail.data?.tasks || (detail.data?.task ? [detail.data.task] : []);
+        applySavedTasks(savedTasks);
+      }
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        if (view === 'executive' || ['dashboard', 'my-dashboard'].includes(view)) loadDashboard({ silent: true });
+        if (['tasks', 'my-tasks'].includes(view)) loadTasks({ silent: true });
+      }, 300);
+    };
+
+    window.addEventListener('maxiwa:task-mutation', handleMutation);
+    if (typeof BroadcastChannel === 'function') {
+      try {
+        broadcastChannel = new BroadcastChannel('maxiwa-task-mutations');
+        broadcastChannel.addEventListener('message', handleMutation);
+      } catch {}
+    }
+    return () => {
+      clearTimeout(refreshTimer);
+      window.removeEventListener('maxiwa:task-mutation', handleMutation);
+      if (broadcastChannel) broadcastChannel.close();
+    };
+  }, [user, view, applySavedTasks, removeSavedTask, loadDashboard, loadTasks]);
 
   return {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,
@@ -6753,8 +6803,6 @@ function App() {
     beginTaskAction(task, 'กำลังเริ่มงาน...');
     try {
       await API.acceptTask(task.id, task.team);
-      await reloadTasks();
-      await reloadDashboard();
     } catch (e) {
       alert(e.message || 'รับงานไม่สำเร็จ');
     } finally {
@@ -6798,8 +6846,6 @@ function App() {
           extra_data: holdUpdate.extraData,
         });
       }
-      await reloadTasks();
-      await reloadDashboard();
     } catch (e) {
       alert(e.message || 'อัปเดตสถานะไม่สำเร็จ');
     } finally {
@@ -6812,8 +6858,6 @@ function App() {
     beginTaskAction(task, 'กำลังลบงาน...');
     try {
       await API.deleteTask(task.id, task.team, user.name);
-      await reloadTasks();
-      await reloadDashboard();
     } catch (e) {
       alert(e.message || 'ลบงานไม่สำเร็จ');
     } finally {

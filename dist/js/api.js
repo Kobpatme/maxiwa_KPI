@@ -25,6 +25,10 @@ const API = (() => {
   const GET_TIMEOUT_MS = 25000;
   const POST_TIMEOUT_MS = 30000;
   const RETRY_DELAYS_MS = [700, 1600];
+  const TASK_MUTATION_ENDPOINTS = new Set([
+    "saveNewTask", "assignNewTask", "acceptTask", "updateTaskStatus",
+    "updateTaskStatusWithLog", "updateTaskDetails", "deleteTask",
+  ]);
   const getCache = new Map();
   const inflightGets = new Map();
   let cacheGeneration = 0;
@@ -60,6 +64,19 @@ const API = (() => {
     cacheGeneration += 1;
     getCache.clear();
     inflightGets.clear();
+  }
+
+  function announceTaskMutation(endpoint, body, data) {
+    if (typeof window === "undefined" || !TASK_MUTATION_ENDPOINTS.has(endpoint)) return;
+    const detail = { endpoint, body, data, changedAt: Date.now() };
+    window.dispatchEvent(new CustomEvent("maxiwa:task-mutation", { detail }));
+    if (typeof BroadcastChannel === "function") {
+      try {
+        const channel = new BroadcastChannel("maxiwa-task-mutations");
+        channel.postMessage(detail);
+        channel.close();
+      } catch {}
+    }
   }
 
   function sleep(ms) {
@@ -119,7 +136,9 @@ const API = (() => {
       throw await readError(res);
     }
     clearGetCache();
-    return res.json();
+    const data = await res.json();
+    announceTaskMutation(endpoint, body, data);
+    return data;
   }
 
   async function get(endpoint, params = {}, headers = {}) {
