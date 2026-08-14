@@ -39,9 +39,63 @@ function loadApiWeightedScores() {
   return sandbox.window.calcWeightedScores;
 }
 
+function loadApiRuntime(fetchImpl, eventSink = [], broadcastSink = []) {
+  class TestCustomEvent {
+    constructor(type, options = {}) {
+      this.type = type;
+      this.detail = options.detail;
+    }
+  }
+  class TestBroadcastChannel {
+    constructor(name) { this.name = name; }
+    postMessage(detail) { broadcastSink.push({ name: this.name, detail }); }
+    close() {}
+  }
+  const window = {
+    dispatchEvent(event) { eventSink.push(event); },
+  };
+  const sandbox = {
+    window,
+    console,
+    fetch: fetchImpl,
+    URLSearchParams,
+    setTimeout,
+    clearTimeout,
+    AbortController,
+    CustomEvent: TestCustomEvent,
+    BroadcastChannel: TestBroadcastChannel,
+    crypto: { randomUUID: () => "test-source" },
+    Error,
+    Map,
+    Set,
+    Promise,
+    Date,
+    Math,
+    Number,
+    String,
+    JSON,
+    Array,
+    Object,
+    Boolean,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(new URL("../public/js/api.js", import.meta.url), "utf8"), sandbox);
+  return sandbox.window.API;
+}
+
 function test(name, fn) {
   try {
     fn();
+    console.log(`ok - ${name}`);
+  } catch (error) {
+    console.error(`not ok - ${name}`);
+    throw error;
+  }
+}
+
+async function testAsync(name, fn) {
+  try {
+    await fn();
     console.log(`ok - ${name}`);
   } catch (error) {
     console.error(`not ok - ${name}`);
@@ -129,6 +183,32 @@ test("Weighted score uses task-level effective weights", () => {
   assert.equal(result.completedWeight, 100);
   assert.equal(result.onTimeWeight, 80);
   assert.equal(result.cancelledWeight, 30);
+});
+
+await testAsync("Task mutations carry one dedupe id across local and broadcast events", async () => {
+  const events = [];
+  const broadcasts = [];
+  const api = loadApiRuntime(async () => ({
+    ok: true,
+    json: async () => ({ tasks: [{ id: "task-1", status: "On Process" }] }),
+  }), events, broadcasts);
+  await api.saveNewTask({ jobs: ["test"] });
+  assert.equal(events.length, 1);
+  assert.equal(broadcasts.length, 1);
+  assert.equal(events[0].type, "maxiwa:task-mutation");
+  assert.ok(events[0].detail.mutationId);
+  assert.equal(events[0].detail.mutationId, broadcasts[0].detail.mutationId);
+});
+
+await testAsync("Performance task reads request 1000 rows per page", async () => {
+  const urls = [];
+  const api = loadApiRuntime(async (url) => {
+    urls.push(String(url));
+    return { ok: true, json: async () => ({ tasks: [], holidays: [], hasMore: false, nextOffset: null }) };
+  });
+  await api.getPerformanceTasks([8], 2026, "all", "EMP001");
+  assert.equal(urls.length, 2);
+  assert.ok(urls.every((url) => url.includes("limit=1000")));
 });
 
 console.log("All logic tests passed.");

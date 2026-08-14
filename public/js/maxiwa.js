@@ -2109,9 +2109,54 @@ function UserAvatar({ user, size = 'lg' }) {
   );
 }
 
+function useDialogA11y(onClose, active = true) {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(onClose);
+  useEffect(() => { closeRef.current = onClose; }, [onClose]);
+  useEffect(() => {
+    if (!active) return undefined;
+    const previousFocus = document.activeElement;
+    const dialog = dialogRef.current;
+    const frame = requestAnimationFrame(() => dialog?.focus());
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeRef.current?.();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+      )).filter((element) => !element.hasAttribute('hidden'));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', handleKeyDown);
+      if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
+    };
+  }, [active]);
+  return dialogRef;
+}
+
 // ─── Action Modal (confirm / prompt) ──────────────────────────────────────────
 function ActionModal({ config, onClose }) {
   const [inputVal, setInputVal] = useState('');
+  const dialogRef = useDialogA11y(onClose, config.show);
 
   useEffect(() => {
     if (config.show) setInputVal(config.inputValue || '');
@@ -2139,13 +2184,14 @@ function ActionModal({ config, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
-      <div className="mx-shell-card rounded-[24px] p-7 w-full max-w-md shadow-2xl">
-        <h3 className="text-xl font-extrabold mb-2">{config.title}</h3>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="action-dialog-title" tabIndex="-1" className="mx-shell-card rounded-[24px] p-7 w-full max-w-md shadow-2xl outline-none">
+        <h3 id="action-dialog-title" className="text-xl font-extrabold mb-2">{config.title}</h3>
         <p className="text-sm text-[var(--mx-muted)] mb-4">{config.message}</p>
         {config.type === 'prompt' && (
           <textarea
             className="mx-textarea min-h-[80px] mb-4"
             placeholder="ระบุรายละเอียด..."
+            aria-label="รายละเอียด"
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             autoFocus
@@ -2169,16 +2215,17 @@ function StatusChangeModal({ task, onSave, onClose }) {
   const [newStatus, setNewStatus] = useState(task.status || 'On Process');
   const [reason, setReason] = useState('');
   const needsReason = newStatus !== 'Completed';
+  const dialogRef = useDialogA11y(onClose);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
-      <div className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl">
-        <h3 className="text-xl font-extrabold mb-1">เปลี่ยนสถานะงาน</h3>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="status-dialog-title" tabIndex="-1" className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl outline-none">
+        <h3 id="status-dialog-title" className="text-xl font-extrabold mb-1">เปลี่ยนสถานะงาน</h3>
         <p className="text-sm text-[var(--mx-muted)] mb-5 break-all">{(task.job || '').substring(0, 60)}{task.job?.length > 60 ? '...' : ''}</p>
         <div className="grid gap-4">
           <div>
-            <label className="block mb-2 text-sm font-bold">สถานะใหม่</label>
-            <select className="mx-select" value={newStatus} onChange={(e) => setNewStatus(e.target.value)}>
+            <label htmlFor="status-dialog-select" className="block mb-2 text-sm font-bold">สถานะใหม่</label>
+            <select id="status-dialog-select" className="mx-select" value={newStatus} onChange={(e) => setNewStatus(e.target.value)}>
               <option value="Pending">Pending</option>
               <option value="On Process">On Process</option>
               <option value="On Hold">On Hold</option>
@@ -2188,8 +2235,9 @@ function StatusChangeModal({ task, onSave, onClose }) {
           </div>
           {needsReason && (
             <div>
-              <label className="block mb-2 text-sm font-bold">เหตุผล / บันทึก</label>
+              <label htmlFor="status-dialog-reason" className="block mb-2 text-sm font-bold">เหตุผล / บันทึก</label>
               <textarea
+                id="status-dialog-reason"
                 className="mx-textarea min-h-[80px]"
                 placeholder="ระบุเหตุผลหรือบันทึกเพิ่มเติม..."
                 value={reason}
@@ -2497,13 +2545,26 @@ function useAppData(user, view) {
   });
   const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1); // 0 = ทุกเดือน
   const [realtimeActive, setRealtimeActive] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
   const dashboardRequestRef = React.useRef(0);
   const taskRequestRef = React.useRef(0);
   const peopleRequestRef = React.useRef(0);
   const adminRequestRef = React.useRef(0);
+  const syncRequestCountRef = React.useRef(0);
+  const seenMutationIdsRef = React.useRef(new Set());
 
   const safeSet = (patch) => setState((prev) => ({ ...prev, ...patch }));
+  const beginSync = useCallback(() => {
+    syncRequestCountRef.current += 1;
+    setSyncing(true);
+  }, []);
+  const endSync = useCallback((succeeded = false) => {
+    syncRequestCountRef.current = Math.max(0, syncRequestCountRef.current - 1);
+    if (succeeded) setLastSyncedAt(Date.now());
+    if (syncRequestCountRef.current === 0) setSyncing(false);
+  }, []);
 
   const loadHolidays = useCallback(async () => {
     if (!user) return;
@@ -2518,6 +2579,8 @@ function useAppData(user, view) {
 
   const loadDashboard = useCallback(async (options = {}) => {
     if (!user) return;
+    beginSync();
+    let succeeded = false;
     const requestId = ++dashboardRequestRef.current;
     const commitDashboard = (patch) => {
       if (requestId === dashboardRequestRef.current) safeSet(patch);
@@ -2528,6 +2591,7 @@ function useAppData(user, view) {
       if (shouldUsePersonalWork(user, view)) {
         const res = await API.getPerformanceEmployeeTasks(user, performanceMonths, filterYear, user.empId);
         commitDashboard({ dashboard: { tasks: res.tasks || res || [], holidays: res.holidays || [] }, holidays: res.holidays || [], loading: false });
+        succeeded = true;
         return;
       }
       if (isTeamManagerRole(user.role)) {
@@ -2550,6 +2614,7 @@ function useAppData(user, view) {
           holidays: tasksRes.holidays || [],
           loading: false,
         });
+        succeeded = true;
         return;
       }
       if (isDepartmentManagerRole(user.role) || isStrategicViewRole(user.role)) {
@@ -2571,6 +2636,7 @@ function useAppData(user, view) {
           holidays: tasksRes.holidays || [],
           loading: false,
         });
+        succeeded = true;
         return;
       }
       const [tasksRes, staffRes, kpisRes] = await Promise.all([
@@ -2591,13 +2657,18 @@ function useAppData(user, view) {
         holidays: tasksRes.holidays || [],
         loading: false,
       });
+      succeeded = true;
     } catch (e) {
       commitDashboard({ loading: false, error: e.message || 'โหลด dashboard ไม่สำเร็จ' });
+    } finally {
+      endSync(succeeded);
     }
-  }, [user, view, filterMonth, filterYear]);
+  }, [user, view, filterMonth, filterYear, beginSync, endSync]);
 
   const loadTasks = useCallback(async (options = {}) => {
     if (!user) return;
+    beginSync();
+    let succeeded = false;
     const requestId = ++taskRequestRef.current;
     const commitTasks = (patch) => {
       if (requestId === taskRequestRef.current) safeSet(patch);
@@ -2608,31 +2679,41 @@ function useAppData(user, view) {
       if (shouldUsePersonalWork(user, view)) {
         const res = await API.getPerformanceEmployeeTasks(user, performanceMonths, filterYear, user.empId);
         commitTasks({ tasks: res.tasks || res || [], holidays: res.holidays || [], loading: false });
+        succeeded = true;
         return;
       }
       const team = taskScopeForUser(user);
       const res = await API.getPerformanceTasks(performanceMonths, filterYear, team, user.empId);
       commitTasks({ tasks: filterByAllowedTeams(user, res.tasks || []), holidays: res.holidays || [], loading: false });
+      succeeded = true;
     } catch (e) {
       commitTasks({ loading: false, error: e.message || 'โหลด tasks ไม่สำเร็จ' });
+    } finally {
+      endSync(succeeded);
     }
-  }, [user, view, filterMonth, filterYear]);
+  }, [user, view, filterMonth, filterYear, beginSync, endSync]);
 
-  const applySavedTasks = useCallback((savedTasks = []) => {
+  const taskIsInScope = useCallback((task) => {
+    if (!user) return false;
+    const teamScope = taskScopeForUser(user);
+    if (shouldUsePersonalWork(user, view)) {
+      const taskEmp = taskPersonId(task).toUpperCase();
+      const empId = userEmpId(user).toUpperCase();
+      return !taskEmp || !empId || taskEmp === empId || String(task.name || '').trim() === String(user.name || '').trim();
+    }
+    if (teamScope && teamScope !== 'all' && task.team !== teamScope) return false;
+    return filterByAllowedTeams(user, [task]).length > 0;
+  }, [user, view]);
+
+  const taskIsVisible = useCallback((task) => (
+    taskMatchesCurrentPeriod(task, filterMonth, filterYear) && taskIsInScope(task)
+  ), [taskIsInScope, filterMonth, filterYear]);
+
+  const applySavedTasks = useCallback((savedTasks = [], options = {}) => {
     if (!user) return;
     const incoming = (Array.isArray(savedTasks) ? savedTasks : [savedTasks]).filter(Boolean);
     if (incoming.length === 0) return;
-    const teamScope = taskScopeForUser(user);
-    const visibleIncoming = incoming.filter((task) => {
-      if (!taskMatchesCurrentPeriod(task, filterMonth, filterYear)) return false;
-      if (shouldUsePersonalWork(user, view)) {
-        const taskEmp = taskPersonId(task).toUpperCase();
-        const empId = userEmpId(user).toUpperCase();
-        return !taskEmp || !empId || taskEmp === empId || String(task.name || '').trim() === String(user.name || '').trim();
-      }
-      if (teamScope && teamScope !== 'all' && task.team !== teamScope) return false;
-      return filterByAllowedTeams(user, [task]).length > 0;
-    });
+    const visibleIncoming = options.forceVisible ? incoming.filter(taskIsInScope) : incoming.filter(taskIsVisible);
     if (visibleIncoming.length === 0) return;
     setState((prev) => {
       const nextTasks = mergeTasksById(prev.tasks || [], visibleIncoming);
@@ -2644,7 +2725,8 @@ function useAppData(user, view) {
         : dashboard;
       return { ...prev, tasks: nextTasks, dashboard: nextDashboard, loading: false, error: '' };
     });
-  }, [user, view, filterMonth, filterYear]);
+    setLastSyncedAt(Date.now());
+  }, [user, taskIsInScope, taskIsVisible]);
 
   const removeSavedTask = useCallback((taskId) => {
     const id = String(taskId || '').trim();
@@ -2707,6 +2789,18 @@ function useAppData(user, view) {
     }
   }, [user]);
 
+  const refreshVisibleView = useCallback((options = { silent: true }) => {
+    if (view === 'executive' || ['dashboard', 'my-dashboard'].includes(view)) loadDashboard(options);
+    if (['tasks', 'my-tasks'].includes(view)) loadTasks(options);
+  }, [view, loadDashboard, loadTasks]);
+
+  const refreshVisibleViewRef = React.useRef(refreshVisibleView);
+  const mutationHandlersRef = React.useRef({ applySavedTasks, removeSavedTask, taskIsVisible });
+  useEffect(() => {
+    refreshVisibleViewRef.current = refreshVisibleView;
+    mutationHandlersRef.current = { applySavedTasks, removeSavedTask, taskIsVisible };
+  }, [refreshVisibleView, applySavedTasks, removeSavedTask, taskIsVisible]);
+
   useEffect(() => {
     if (!user) return;
     if (view === 'executive') loadDashboard();
@@ -2717,17 +2811,27 @@ function useAppData(user, view) {
     if (view === 'admin') loadAdmin();
   }, [user, view, loadDashboard, loadTasks, loadPeople, loadAdmin]);
 
-  // Realtime subscription
+  // Keep one realtime channel per signed-in user. View/filter changes update refs
+  // instead of tearing down the channel and creating an event-delivery gap.
   useEffect(() => {
     if (!user || !window.subscribeToRealtime) {
       setRealtimeActive(false);
       return undefined;
     }
     let cancelled = false;
-    window.subscribeToRealtime('tasks', () => {
-      if (view === 'executive') loadDashboard();
-      if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard();
-      if (['tasks', 'my-tasks'].includes(view)) loadTasks();
+    window.subscribeToRealtime('tasks', (payload) => {
+      const handlers = mutationHandlersRef.current;
+      const eventType = String(payload?.eventType || payload?.event || '').toUpperCase();
+      const task = payload?.new && Object.keys(payload.new).length ? payload.new : null;
+      const previousTask = payload?.old && Object.keys(payload.old).length ? payload.old : null;
+      if (eventType === 'DELETE') {
+        handlers.removeSavedTask(previousTask?.id);
+      } else if (task?.id) {
+        if (handlers.taskIsVisible(task)) handlers.applySavedTasks([task]);
+        else handlers.removeSavedTask(task.id);
+      } else {
+        refreshVisibleViewRef.current({ silent: true });
+      }
     }, (active) => {
       if (!cancelled) setRealtimeActive(active);
     }).then((channel) => {
@@ -2740,26 +2844,22 @@ function useAppData(user, view) {
       setRealtimeActive(false);
       if (window.unsubscribeFromRealtime) window.unsubscribeFromRealtime('tasks');
     };
-  }, [user, view, loadDashboard, loadTasks]);
+  }, [userEmpId(user)]);
 
   useEffect(() => {
     if (!user) return undefined;
-    const refreshVisibleView = () => {
-      if (view === 'executive') loadDashboard({ silent: true });
-      if (['dashboard', 'my-dashboard'].includes(view)) loadDashboard({ silent: true });
-      if (['tasks', 'my-tasks'].includes(view)) loadTasks({ silent: true });
-    };
-    const intervalMs = realtimeActive ? 60000 : 15000;
-    const timer = setInterval(refreshVisibleView, intervalMs);
+    const refresh = () => refreshVisibleView({ silent: true });
+    const intervalMs = realtimeActive ? 60000 : 10000;
+    const timer = setInterval(refresh, intervalMs);
     const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') refreshVisibleView();
+      if (document.visibilityState === 'visible') refresh();
     };
     document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
-  }, [user, view, loadDashboard, loadTasks, realtimeActive]);
+  }, [user, refreshVisibleView, realtimeActive]);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -2768,18 +2868,27 @@ function useAppData(user, view) {
     const handleMutation = (message) => {
       const detail = message?.detail || message?.data;
       if (!detail?.endpoint) return;
+      if (detail.mutationId) {
+        if (seenMutationIdsRef.current.has(detail.mutationId)) return;
+        seenMutationIdsRef.current.add(detail.mutationId);
+        if (seenMutationIdsRef.current.size > 200) {
+          seenMutationIdsRef.current = new Set(Array.from(seenMutationIdsRef.current).slice(-100));
+        }
+      }
       API.invalidateGetCache();
       if (detail.endpoint === 'deleteTask') {
         removeSavedTask(detail.body?.id);
       } else {
         const savedTasks = detail.data?.tasks || (detail.data?.task ? [detail.data.task] : []);
-        applySavedTasks(savedTasks);
+        savedTasks.forEach((task) => {
+          if (taskIsVisible(task)) applySavedTasks([task]);
+          else if (task?.id) removeSavedTask(task.id);
+        });
+        if (savedTasks.length === 0) {
+          clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(() => refreshVisibleView({ silent: true }), 300);
+        }
       }
-      clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
-        if (view === 'executive' || ['dashboard', 'my-dashboard'].includes(view)) loadDashboard({ silent: true });
-        if (['tasks', 'my-tasks'].includes(view)) loadTasks({ silent: true });
-      }, 300);
     };
 
     window.addEventListener('maxiwa:task-mutation', handleMutation);
@@ -2794,12 +2903,13 @@ function useAppData(user, view) {
       window.removeEventListener('maxiwa:task-mutation', handleMutation);
       if (broadcastChannel) broadcastChannel.close();
     };
-  }, [user, view, applySavedTasks, removeSavedTask, loadDashboard, loadTasks]);
+  }, [user, applySavedTasks, removeSavedTask, taskIsVisible, refreshVisibleView]);
 
   return {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,
     reloadDashboard: loadDashboard, reloadTasks: loadTasks,
     reloadPeople: loadPeople, reloadAdmin: loadAdmin, applySavedTasks,
+    realtimeActive, syncing, lastSyncedAt,
   };
 }
 
@@ -3270,6 +3380,8 @@ function DashboardView({ user, data, filterMonth, filterYear, holidays = [], onA
             disabled={disabled || loading}
             className={`w-10 h-10 flex items-center justify-center rounded-lg border transition-colors duration-200 disabled:opacity-70 disabled:cursor-wait ${variants[color] || ''}`}
             aria-busy={loading ? 'true' : 'false'}
+            aria-label={label}
+            title={label}
           >
             <i className={`fas ${loading ? 'fa-rotate-right fa-spin' : icon} text-sm`}></i>
           </button>
@@ -3645,6 +3757,9 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
   // PR completion modal
   const [prModal, setPrModal] = useState({ show: false, task: null, fundNumber: '', amount: '' });
   const [savingPr, setSavingPr] = useState(false);
+  const editDialogRef = useDialogA11y(() => setEditingTask(null), Boolean(editingTask));
+  const noteDialogRef = useDialogA11y(() => setNotePopup({ show: false, note: '' }), notePopup.show);
+  const prDialogRef = useDialogA11y(() => setPrModal({ show: false, task: null, fundNumber: '', amount: '' }), prModal.show);
 
   // Icon action button with tooltip (matches original ActionButton)
   const ActionButton = ({ icon, color, onClick, label, loading = false, disabled = false }) => {
@@ -3663,6 +3778,8 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
           disabled={disabled || loading}
           className={`w-10 h-10 flex items-center justify-center rounded-lg border transition-colors duration-200 disabled:opacity-70 disabled:cursor-wait ${variants[color] || variants.slate}`}
           aria-busy={loading ? 'true' : 'false'}
+          aria-label={label}
+          title={label}
         >
           <i className={`fas ${loading ? 'fa-rotate-right fa-spin' : icon} text-sm`}></i>
         </button>
@@ -3821,7 +3938,6 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
         extra_data: editForm.extra_data || {},
       });
       setEditingTask(null);
-      onRefresh();
     } catch (e) {
       alert(e.message || 'แก้ไขไม่สำเร็จ');
     } finally {
@@ -3832,19 +3948,15 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
   const handlePrComplete = async () => {
     if (!prModal.task) return;
     setSavingPr(true);
-    const ts = getTimestamp();
     try {
       const newExtra = { ...(prModal.task.extra_data || {}), fundNumber: prModal.fundNumber, amount: prModal.amount };
-      await Promise.all([
-        API.updateTaskStatus(prModal.task.id, prModal.task.team, 'Completed'),
-        API.updateTaskDetails({
-          id: prModal.task.id, team: prModal.task.team, job: prModal.task.job,
-          subkpi: prModal.task.subkpi, mainkpi: prModal.task.mainkpi,
-          deadline: prModal.task.deadline, extra_data: newExtra,
-        }),
-      ]);
+      await API.updateTaskStatus(prModal.task.id, prModal.task.team, 'Completed');
+      await API.updateTaskDetails({
+        id: prModal.task.id, team: prModal.task.team, job: prModal.task.job,
+        subkpi: prModal.task.subkpi, mainkpi: prModal.task.mainkpi,
+        deadline: prModal.task.deadline, extra_data: newExtra,
+      });
       setPrModal({ show: false, task: null, fundNumber: '', amount: '' });
-      onRefresh();
     } catch (e) {
       alert(e.message || 'บันทึกไม่สำเร็จ');
     } finally {
@@ -3863,8 +3975,8 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
       {/* Note Viewer Popup */}
       {notePopup.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
-          <div className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl">
-            <h3 className="text-xl font-extrabold mb-4">
+          <div ref={noteDialogRef} role="dialog" aria-modal="true" aria-labelledby="note-dialog-title" tabIndex="-1" className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl outline-none">
+            <h3 id="note-dialog-title" className="text-xl font-extrabold mb-4">
               <i className="fas fa-sticky-note mr-2 text-[var(--mx-info)]"></i>บันทึกงาน
             </h3>
             <div className="max-h-80 overflow-y-auto rounded-[16px] p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
@@ -3887,20 +3999,22 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
 
       {editingTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
-          <div className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl">
-            <h3 className="text-xl font-extrabold mb-5">แก้ไขงาน</h3>
+          <div ref={editDialogRef} role="dialog" aria-modal="true" aria-labelledby="edit-task-dialog-title" tabIndex="-1" className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl outline-none">
+            <h3 id="edit-task-dialog-title" className="text-xl font-extrabold mb-5">แก้ไขงาน</h3>
             <div className="grid gap-4">
               <div>
-                <label className="block mb-2 text-sm font-bold">Job / รายละเอียดงาน</label>
+                <label htmlFor="edit-task-job" className="block mb-2 text-sm font-bold">Job / รายละเอียดงาน</label>
                 <textarea
+                  id="edit-task-job"
                   className="mx-textarea min-h-[100px]"
                   value={editForm.job}
                   onChange={(e) => setEditForm((p) => ({ ...p, job: e.target.value }))}
                 />
               </div>
               <div>
-                <label className="block mb-2 text-sm font-bold">Main KPI</label>
+                <label htmlFor="edit-task-main-kpi" className="block mb-2 text-sm font-bold">Main KPI</label>
                 <input
+                  id="edit-task-main-kpi"
                   className="mx-input"
                   value={editForm.mainkpi}
                   readOnly
@@ -3908,8 +4022,9 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                 />
               </div>
               <div>
-                <label className="block mb-2 text-sm font-bold">Sub KPI</label>
+                <label htmlFor="edit-task-sub-kpi" className="block mb-2 text-sm font-bold">Sub KPI</label>
                 <select
+                  id="edit-task-sub-kpi"
                   className="mx-select"
                   value={editForm.subkpi}
                   onChange={(e) => handleEditSubKpiChange(e.target.value)}
@@ -3922,8 +4037,9 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                 </select>
               </div>
               <div>
-                <label className="block mb-2 text-sm font-bold">Deadline</label>
+                <label htmlFor="edit-task-deadline" className="block mb-2 text-sm font-bold">Deadline</label>
                 <input
+                  id="edit-task-deadline"
                   className="mx-input"
                   type="date"
                   value={editForm.deadline}
@@ -3937,8 +4053,9 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                 hideSsr={true}
               />
               <div>
-                <label className="block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]">SSR Number</label>
+                <label htmlFor="edit-task-ssr" className="block mb-2 text-sm font-bold uppercase tracking-[0.08em] text-[var(--mx-muted)]">SSR Number</label>
                 <input
+                  id="edit-task-ssr"
                   className="mx-input"
                   placeholder="เช่น DS01_0123"
                   value={getSsrNumber(editForm.extra_data)}
@@ -3958,13 +4075,14 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
 
       {prModal.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}>
-          <div className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl">
-            <h3 className="text-xl font-extrabold mb-2">Complete Open PR</h3>
+          <div ref={prDialogRef} role="dialog" aria-modal="true" aria-labelledby="pr-dialog-title" tabIndex="-1" className="mx-shell-card rounded-[24px] p-7 w-full max-w-lg shadow-2xl outline-none">
+            <h3 id="pr-dialog-title" className="text-xl font-extrabold mb-2">Complete Open PR</h3>
             <p className="text-sm text-[var(--mx-muted)] mb-5">กรอกข้อมูลก่อนปิดงาน PR</p>
             <div className="grid gap-4">
               <div>
-                <label className="block mb-2 text-sm font-bold">Fund Number</label>
+                <label htmlFor="pr-fund-number" className="block mb-2 text-sm font-bold">Fund Number</label>
                 <input
+                  id="pr-fund-number"
                   className="mx-input"
                   placeholder="เลขกองทุน"
                   value={prModal.fundNumber}
@@ -3972,8 +4090,9 @@ function TaskCenterView({ user, tasks, holidays = [], onAccept, onStatusChange, 
                 />
               </div>
               <div>
-                <label className="block mb-2 text-sm font-bold">Amount (บาท)</label>
+                <label htmlFor="pr-amount" className="block mb-2 text-sm font-bold">Amount (บาท)</label>
                 <input
+                  id="pr-amount"
                   className="mx-input"
                   type="number"
                   placeholder="จำนวนเงิน"
@@ -6574,10 +6693,12 @@ function App() {
   const [actionState, setActionState] = useState({ busy: false, taskId: null, label: '' });
   const [showNotif, setShowNotif] = useState(false);
   const [showDashboardCreate, setShowDashboardCreate] = useState(false);
+  const [taskNotice, setTaskNotice] = useState('');
   const [adminSection, setAdminSection] = useState('overview');
   const [systemLinks, setSystemLinks] = useState(loadSystemLinks);
   const [adminAnnouncement, setAdminAnnouncement] = useState(loadAdminAnnouncement);
   const [headerWeather, setHeaderWeather] = useState({ loading: true, location: WEATHER_FALLBACK_LOCATION.label });
+  const createDialogRef = useDialogA11y(() => setShowDashboardCreate(false), showDashboardCreate);
 
   const forceLogoutForSupersededSession = useCallback(() => {
     safeSessionRemove(SESSION_KEY);
@@ -6590,6 +6711,7 @@ function App() {
   const {
     state, filterMonth, setFilterMonth, filterYear, setFilterYear,
     reloadDashboard, reloadTasks, reloadPeople, reloadAdmin, applySavedTasks,
+    realtimeActive, syncing, lastSyncedAt,
   } = useAppData(user, view);
   const [scopeDateValue, setScopeDateValue] = useState('');
   const scopedState = useMemo(() => ({
@@ -6606,6 +6728,12 @@ function App() {
       return scopeDateInputValue(filterMonth, filterYear);
     });
   }, [filterMonth, filterYear]);
+
+  useEffect(() => {
+    if (!taskNotice) return undefined;
+    const timer = setTimeout(() => setTaskNotice(''), 6000);
+    return () => clearTimeout(timer);
+  }, [taskNotice]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -6930,9 +7058,20 @@ function App() {
   }, [user, view]);
 
   const handleTasksSaved = (savedTasks = [], options = {}) => {
-    applySavedTasks(savedTasks);
-    reloadTasks({ silent: true });
-    reloadDashboard({ silent: true });
+    const incoming = (Array.isArray(savedTasks) ? savedTasks : [savedTasks]).filter(Boolean);
+    if (incoming.length === 0) return;
+    const firstDate = new Date(incoming[0].startdate || incoming[0].created_at || incoming[0].deadline || '');
+    const hasDate = !Number.isNaN(firstDate.getTime());
+    const nextMonth = hasDate ? firstDate.getMonth() + 1 : filterMonth;
+    const nextYear = hasDate ? firstDate.getFullYear() : filterYear;
+    const periodChanged = filterMonth !== 0 && hasDate && (filterMonth !== nextMonth || filterYear !== nextYear);
+    if (periodChanged) {
+      setFilterMonth(nextMonth);
+      setFilterYear(nextYear);
+    }
+    if (scopeDateValue) setScopeDateValue('');
+    applySavedTasks(incoming, { forceVisible: true });
+    setTaskNotice(`บันทึก ${incoming.length.toLocaleString()} งานแล้ว${periodChanged ? ' และเปลี่ยนช่วงเวลาไปยังเดือนของงานใหม่' : ''}${scopeDateValue ? ' พร้อมล้างตัวกรองรายวัน' : ''}`);
     if (options.reloadPeople) reloadPeople();
   };
 
@@ -7019,6 +7158,17 @@ function App() {
                   <p className="mt-2 mb-0 max-w-[64ch] text-sm md:text-[15px] leading-6 text-[var(--mx-muted)]">
                     {pageSubtitle}
                   </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs" role="status" aria-live="polite">
+                    <span className={cn('mx-badge !py-1.5', syncing ? 'mx-status-pending' : realtimeActive ? 'mx-status-completed' : 'mx-status-hold')}>
+                      <i className={cn('fa-solid', syncing ? 'fa-rotate fa-spin' : realtimeActive ? 'fa-bolt' : 'fa-clock')}></i>
+                      {syncing ? 'กำลังซิงก์ข้อมูล' : realtimeActive ? 'Realtime เชื่อมต่อแล้ว' : 'โหมดสำรอง: ตรวจทุก 10 วินาที'}
+                    </span>
+                    {lastSyncedAt && (
+                      <span className="text-[var(--mx-muted)]">
+                        อัปเดตล่าสุด {new Date(lastSyncedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="min-w-0 2xl:justify-self-end">
@@ -7126,6 +7276,7 @@ function App() {
                         className="mx-select !w-[160px] !py-2 !text-sm"
                         value={filterMonth}
                         onChange={(e) => setFilterMonth(Number(e.target.value))}
+                        aria-label="เลือกเดือน"
                       >
                         <option value={0}>ทุกเดือน</option>
                         {MONTH_NAMES.map((name, i) => (
@@ -7136,6 +7287,7 @@ function App() {
                         className="mx-select !w-[116px] !py-2 !text-sm"
                         value={filterYear}
                         onChange={(e) => setFilterYear(Number(e.target.value))}
+                        aria-label="เลือกปี"
                       >
                         {availableYears.map((y) => (
                           <option key={y} value={y}>{y}</option>
@@ -7146,12 +7298,17 @@ function App() {
                 </div>
               </div>
             </div>
-            {state.error && <div className="px-5 pb-4 md:px-6 text-sm text-[#ffb7b7] font-bold">{state.error}</div>}
+            {taskNotice && (
+              <div className="mx-5 mb-4 rounded-lg border border-[var(--mx-line-strong)] bg-[var(--mx-success-bg)] px-4 py-3 text-sm font-bold text-[var(--mx-success)] md:mx-6" role="status" aria-live="polite">
+                <i className="fa-solid fa-circle-check mr-2"></i>{taskNotice}
+              </div>
+            )}
+            {state.error && <div className="px-5 pb-4 md:px-6 text-sm text-[var(--mx-danger)] font-bold" role="alert">{state.error}</div>}
           </header>
 
           {showDashboardCreate && (
             <div className="fixed inset-0 z-[140] flex items-center justify-center p-4" style={{ background: 'rgba(15, 23, 42, 0.56)' }}>
-              <div className="relative w-full max-w-3xl max-h-[92vh] overflow-y-auto">
+              <div ref={createDialogRef} role="dialog" aria-modal="true" aria-label="สร้างงานใหม่" tabIndex="-1" className="relative w-full max-w-3xl max-h-[92vh] overflow-y-auto outline-none">
                 <button
                   className="mx-btn mx-btn-soft !p-0 absolute right-4 top-4 z-10 w-10 h-10 grid place-items-center"
                   onClick={() => setShowDashboardCreate(false)}

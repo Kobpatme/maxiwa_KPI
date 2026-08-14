@@ -32,6 +32,9 @@ const API = (() => {
   const getCache = new Map();
   const inflightGets = new Map();
   let cacheGeneration = 0;
+  const mutationSourceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   function sessionHeaders() {
     const session = (typeof window !== "undefined" && window.MAXIWA_ACTIVE_SESSION) ? window.MAXIWA_ACTIVE_SESSION : null;
@@ -68,7 +71,15 @@ const API = (() => {
 
   function announceTaskMutation(endpoint, body, data) {
     if (typeof window === "undefined" || !TASK_MUTATION_ENDPOINTS.has(endpoint)) return;
-    const detail = { endpoint, body, data, changedAt: Date.now() };
+    const changedAt = Date.now();
+    const detail = {
+      endpoint,
+      body,
+      data,
+      changedAt,
+      sourceId: mutationSourceId,
+      mutationId: `${mutationSourceId}:${changedAt}:${Math.random().toString(36).slice(2)}`,
+    };
     window.dispatchEvent(new CustomEvent("maxiwa:task-mutation", { detail }));
     if (typeof BroadcastChannel === "function") {
       try {
@@ -188,7 +199,7 @@ const API = (() => {
   }
 
   async function getPerformanceTaskPages(endpoint, params = {}) {
-    const pageSize = 500;
+    const pageSize = 1000;
     const maxPagesPerKind = 200;
     const loadKind = async (kind, includeHolidays = false) => {
       const tasks = [];

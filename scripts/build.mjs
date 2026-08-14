@@ -55,6 +55,7 @@ for (const [fileName, globalName] of jsxBuilds) {
     define: {
       "process.env.NODE_ENV": JSON.stringify("production"),
     },
+    minify: true,
     target: ["es2019"],
     logLevel: "silent",
   });

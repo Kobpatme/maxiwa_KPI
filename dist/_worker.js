@@ -1647,7 +1647,7 @@ async function readPerformanceTasks(env, params = {}) {
 
 async function readPerformanceTaskPage(env, params = {}) {
   const kind = params.kind === "completed" ? "completed" : "active";
-  const limit = Math.min(500, Math.max(50, Number(params.limit) || 500));
+  const limit = Math.min(PAGE_SIZE, Math.max(50, Number(params.limit) || PAGE_SIZE));
   const offset = Math.max(0, Number(params.offset) || 0);
   const query = `${performanceTaskQueryPrefix(params, kind)}&order=id.asc&limit=${limit}&offset=${offset}`;
   const page = await supabaseFetch(env, "tasks", query);
