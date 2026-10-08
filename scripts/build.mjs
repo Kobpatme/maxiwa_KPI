@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -11,9 +11,25 @@ const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
 const distDir = path.join(root, "dist");
 
+async function gitValue(args, fallback) {
+  try {
+    const { stdout } = await execFileAsync("git", ["-c", `safe.directory=${root.replaceAll("\\", "/")}`, ...args], { cwd: root });
+    return stdout.trim() || fallback;
+  } catch { return fallback; }
+}
+const commit = process.env.CF_PAGES_COMMIT_SHA || await gitValue(["rev-parse", "HEAD"], "local");
+const version = {
+  app: "metrixverity",
+  commit,
+  shortCommit: commit.slice(0, 7),
+  branch: process.env.CF_PAGES_BRANCH || await gitValue(["branch", "--show-current"], "local"),
+  builtAt: new Date().toISOString(),
+};
+
 await rm(distDir, { recursive: true, force: true });
 await mkdir(distDir, { recursive: true });
 await cp(publicDir, distDir, { recursive: true });
+await writeFile(path.join(distDir, "version.json"), JSON.stringify(version, null, 2) + "\n", "utf8");
 await mkdir(path.join(distDir, "css"), { recursive: true });
 
 await execFileAsync(process.execPath, [
@@ -34,7 +50,7 @@ const nextConfig = configTemplate.replace(
   /window\.API_BASE\s*=\s*window\.API_BASE\s*\|\|\s*["'][^"']+["'];/,
   `window.API_BASE = window.API_BASE || ${JSON.stringify(apiBase)};`
 );
-await writeFile(configPath, nextConfig, "utf8");
+await writeFile(configPath, `${nextConfig}\nwindow.MAXIWA_BUILD_VERSION = ${JSON.stringify(version)};\n`, "utf8");
 
 const jsxBuilds = [
   ["maxiwa.js", "MaxiwaKpiApp"],
@@ -61,7 +77,7 @@ for (const [fileName, globalName] of jsxBuilds) {
   });
 }
 
-for (const htmlFile of ["index.html", "maxiwa.html", "dashboard.html"]) {
+for (const htmlFile of (await readdir(distDir)).filter((name) => name.endsWith(".html"))) {
   const htmlPath = path.join(distDir, htmlFile);
   const html = await readFile(htmlPath, "utf8");
   await writeFile(
@@ -83,7 +99,9 @@ for (const htmlFile of ["index.html", "maxiwa.html", "dashboard.html"]) {
       .replace(
         '<script type="text/babel" src="/js/executive-dashboard.js"></script>',
         '<script src="/js/executive-dashboard.js"></script>'
-      ),
+      )
+      .replace(/\b(src|href)=(['"])((?:\.\/|\/)?(?:css\/[^'"?]+\.css|js\/[^'"?]+\.js|config\.js))(?:\?[^'"]*)?\2/g,
+        (_, attr, quote, asset) => `${attr}=${quote}${asset}?v=${encodeURIComponent(version.shortCommit)}${quote}`),
     "utf8"
   );
 }

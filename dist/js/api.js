@@ -1,4 +1,25 @@
 const MAXIWA_REALTIME_CONFIG_TIMEOUT_MS = 25000;
+const MAXIWA_ACTIVE_POLL_MS = 60000;
+const MAXIWA_FALLBACK_POLL_MS = 30000;
+
+function startMaxiwaRefreshLoop(refresh, realtimeActive, page = document, timers = window) {
+  let stopped = false;
+  let running = false;
+  const run = async () => {
+    if (stopped || running || page.visibilityState !== "visible") return;
+    running = true;
+    try { await refresh(); }
+    catch (error) { console.warn("Reconciliation failed", error?.code || "REFRESH_FAILED"); }
+    finally { running = false; }
+  };
+  const timer = timers.setInterval(run, realtimeActive ? MAXIWA_ACTIVE_POLL_MS : MAXIWA_FALLBACK_POLL_MS);
+  page.addEventListener("visibilitychange", run);
+  return () => {
+    stopped = true;
+    timers.clearInterval(timer);
+    page.removeEventListener("visibilitychange", run);
+  };
+}
 
 function maxiwaTimeoutError(timeoutMs) {
   const error = new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
@@ -22,6 +43,7 @@ async function maxiwaFetchWithTimeout(url, options = {}, timeoutMs = MAXIWA_REAL
 const API = (() => {
   const BASE = (typeof window !== "undefined" && window.API_BASE) ? window.API_BASE : "/api";
   const GET_CACHE_TTL = 15000;
+  const STATIC_GET_TTLS = { "admin/getHolidays": 15 * 60 * 1000, getKPIsByTeam: 5 * 60 * 1000, systemLinks: 5 * 60 * 1000, adminAnnouncement: 5 * 60 * 1000 };
   const GET_TIMEOUT_MS = 25000;
   const POST_TIMEOUT_MS = 30000;
   const RETRY_DELAYS_MS = [700, 1600];
@@ -63,9 +85,11 @@ const API = (() => {
     return JSON.stringify([endpoint, sortedParams, sortedHeaders]);
   }
 
-  function clearGetCache() {
+  function clearGetCache(includeStatic = false) {
     cacheGeneration += 1;
-    getCache.clear();
+    for (const key of getCache.keys()) {
+      if (includeStatic || !STATIC_GET_TTLS[JSON.parse(key)[0]]) getCache.delete(key);
+    }
     inflightGets.clear();
   }
 
@@ -146,7 +170,7 @@ const API = (() => {
     if (!res.ok) {
       throw await readError(res);
     }
-    clearGetCache();
+    if (endpoint !== "session/heartbeat") clearGetCache(endpoint.startsWith("admin/") || endpoint === "getInitialData");
     const data = await res.json();
     announceTaskMutation(endpoint, body, data);
     return data;
@@ -173,7 +197,7 @@ const API = (() => {
         return res.json();
       });
       if (requestGeneration === cacheGeneration) {
-        getCache.set(key, { data, expiresAt: Date.now() + GET_CACHE_TTL });
+        getCache.set(key, { data, expiresAt: Date.now() + (STATIC_GET_TTLS[endpoint] || GET_CACHE_TTL) });
       }
       return data;
     })();
@@ -194,7 +218,7 @@ const API = (() => {
     if (!res.ok) {
       throw await readError(res);
     }
-    clearGetCache();
+    clearGetCache(true);
     return res.json().catch(() => ({}));
   }
 
@@ -289,6 +313,8 @@ let supabaseClient = null;
 let supabaseInitPromise = null;
 const realtimeSubscriptions = {};
 const realtimeDebounceTimers = {};
+const realtimeGenerations = {};
+const realtimeConnectionStops = {};
 const realtimeStates = {};
 
 function updateRealtimeState(tableName, active, statusCallback, status, error) {
@@ -334,7 +360,11 @@ async function initSupabaseClient() {
 }
 
 async function subscribeToRealtime(tableName, callback, statusCallback) {
+  const generation = (realtimeGenerations[tableName] || 0) + 1;
+  realtimeGenerations[tableName] = generation;
+  realtimeConnectionStops[tableName]?.();
   const client = await initSupabaseClient();
+  if (realtimeGenerations[tableName] !== generation) return null;
   if (!client) {
     updateRealtimeState(tableName, false, statusCallback, "UNAVAILABLE");
     return null;
@@ -344,6 +374,7 @@ async function subscribeToRealtime(tableName, callback, statusCallback) {
     try {
       await client.removeChannel(realtimeSubscriptions[tableName]);
     } catch {}
+    if (realtimeGenerations[tableName] !== generation) return null;
     delete realtimeSubscriptions[tableName];
   }
 
@@ -354,11 +385,10 @@ async function subscribeToRealtime(tableName, callback, statusCallback) {
     "postgres_changes",
     { event: "*", schema: "public", table: tableName },
     (payload) => {
+      if (realtimeSubscriptions[tableName] !== channel) return;
       API.invalidateGetCache();
-      if (realtimeDebounceTimers[tableName]) clearTimeout(realtimeDebounceTimers[tableName]);
-      realtimeDebounceTimers[tableName] = setTimeout(() => {
-        if (typeof callback === "function") callback(payload);
-      }, 250);
+      // Deliver every row change: debouncing payloads discarded earlier tasks in a burst.
+      if (typeof callback === "function") callback(payload);
     }
   );
 
@@ -369,8 +399,11 @@ async function subscribeToRealtime(tableName, callback, statusCallback) {
       if (settled) return;
       settled = true;
       clearTimeout(connectTimer);
+      if (realtimeConnectionStops[tableName] === stop) delete realtimeConnectionStops[tableName];
       resolve(value);
     };
+    const stop = () => finish(null);
+    realtimeConnectionStops[tableName] = stop;
 
     connectTimer = setTimeout(() => {
       if (realtimeSubscriptions[tableName] !== channel) return finish(null);
@@ -394,6 +427,8 @@ async function subscribeToRealtime(tableName, callback, statusCallback) {
 }
 
 async function unsubscribeFromRealtime(tableName) {
+  realtimeGenerations[tableName] = (realtimeGenerations[tableName] || 0) + 1;
+  realtimeConnectionStops[tableName]?.();
   const client = supabaseClient;
   const channel = realtimeSubscriptions[tableName];
   if (!channel) return;
@@ -598,5 +633,6 @@ window.initSupabaseClient = initSupabaseClient;
 window.getSupabaseSystemLinks = getSupabaseSystemLinks;
 window.saveSupabaseSystemLinks = saveSupabaseSystemLinks;
 window.subscribeToRealtime = subscribeToRealtime;
+window.startMaxiwaRefreshLoop = startMaxiwaRefreshLoop;
 window.unsubscribeFromRealtime = unsubscribeFromRealtime;
 window.calcWeightedScores = calcWeightedScores;

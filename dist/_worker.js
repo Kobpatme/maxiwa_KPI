@@ -8,6 +8,12 @@ const READ_RETRY_DELAYS_MS = [500, 1200];
 const READ_TABLES = ["users", "tasks", "kpis", "teams", "holidays", "audit_log", "app_system_links", "app_system_settings"];
 const ADMIN_ANNOUNCEMENT_SETTING_KEY = "admin_announcement";
 const SERVER_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+export const SESSION_VALIDATION_TTL_MS = 30000;
+export const SESSION_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+const SESSION_CACHE_LIMIT = 500;
+const SESSION_VALIDATIONS = new Map();
+const STATIC_READ_TTLS = { holidays: 15 * 60 * 1000, kpis: 5 * 60 * 1000, app_system_links: 5 * 60 * 1000, app_system_settings: 5 * 60 * 1000 };
+const STATIC_READS = new Map();
 const TABLE_COLUMNS_CACHE = new Map();
 const OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
@@ -854,6 +860,22 @@ async function retryRead(operation) {
 }
 
 async function supabaseFetch(env, table, query = "") {
+  const ttl = STATIC_READ_TTLS[table];
+  if (!ttl) return supabaseFetchUncached(env, table, query);
+  const key = JSON.stringify([supabaseSettings(env)?.url, table, query]);
+  const cached = STATIC_READS.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  if (STATIC_READS.size >= 200) STATIC_READS.delete(STATIC_READS.keys().next().value);
+  const entry = { expiresAt: Date.now() + ttl };
+  entry.promise = supabaseFetchUncached(env, table, query).catch((error) => {
+    if (STATIC_READS.get(key) === entry) STATIC_READS.delete(key);
+    throw error;
+  });
+  STATIC_READS.set(key, entry);
+  return entry.promise;
+}
+
+async function supabaseFetchUncached(env, table, query = "") {
   const settings = supabaseSettings(env);
   if (!settings) throw new Error("Supabase environment variables are not configured");
   return retryRead(async () => {
@@ -889,8 +911,21 @@ async function supabaseWrite(env, table, { method = "POST", query = "", body, pr
     body: body === undefined ? undefined : JSON.stringify(body),
   }, WRITE_TIMEOUT_MS);
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new Error(data?.message || data?.error || `Supabase ${table} HTTP ${res.status}`);
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { /* Non-JSON gateway errors retain HTTP status. */ }
+  if (!res.ok) {
+    const error = new Error(`Supabase ${table} HTTP ${res.status}`);
+    error.status = res.status;
+    error.code = /^[A-Z0-9_]{1,32}$/.test(data?.code || "") ? data.code : "";
+    throw error;
+  }
+  for (const key of STATIC_READS.keys()) {
+    const [url, cachedTable] = JSON.parse(key);
+    if (url === settings.url && cachedTable === table) STATIC_READS.delete(key);
+  }
+  if (table === "users" && !(body && Object.keys(body).every((key) => key === "active_session_updated_at" || key === "active_session_expires_at"))) {
+    SESSION_VALIDATIONS.clear();
+  }
   return Array.isArray(data) ? data : (data ? [data] : []);
 }
 
@@ -915,14 +950,15 @@ async function readAllForDashboard(env, table) {
 }
 
 async function tableColumns(env, table) {
-  if (TABLE_COLUMNS_CACHE.has(table)) return TABLE_COLUMNS_CACHE.get(table);
+  const key = JSON.stringify([supabaseSettings(env)?.url, table]);
+  if (TABLE_COLUMNS_CACHE.has(key)) return TABLE_COLUMNS_CACHE.get(key);
   const promise = supabaseFetch(env, table, "select=*&limit=1")
     .then((page) => (page[0] ? new Set(Object.keys(page[0])) : null))
     .catch((error) => {
-      TABLE_COLUMNS_CACHE.delete(table);
+      TABLE_COLUMNS_CACHE.delete(key);
       throw error;
     });
-  TABLE_COLUMNS_CACHE.set(table, promise);
+  TABLE_COLUMNS_CACHE.set(key, promise);
   return promise;
 }
 
@@ -976,24 +1012,55 @@ async function writeServerSession(env, user, requestedSessionId = "") {
   return { sessionId, enforced: true, expiresAt };
 }
 
-async function validateServerSession(request, env) {
+export async function validateServerSession(request, env) {
   const sessionId = String(request.headers.get("x-session-id") || "").trim();
   const empId = String(request.headers.get("x-session-empid") || "").trim();
-  if (!sessionId || !empId) return { ok: true, enforced: false };
+  if (!sessionId || !empId) return { ok: false, status: 401, code: "SESSION_INVALID", error: "Session identity is required" };
+  const key = JSON.stringify([supabaseSettings(env)?.url, empId, sessionId]);
+  const cached = SESSION_VALIDATIONS.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  for (const [oldKey, entry] of SESSION_VALIDATIONS) {
+    if (entry.expiresAt <= Date.now()) SESSION_VALIDATIONS.delete(oldKey);
+  }
+  if (SESSION_VALIDATIONS.size >= SESSION_CACHE_LIMIT) SESSION_VALIDATIONS.delete(SESSION_VALIDATIONS.keys().next().value);
+  const entry = { expiresAt: Date.now() + SESSION_VALIDATION_TTL_MS };
+  entry.promise = validateAuthoritativeSession(env, empId, sessionId).then((result) => {
+    entry.expiresAt = Math.min(entry.expiresAt, result.expiresAt || Infinity);
+    if (!result.ok || !result.enforced) {
+      if (SESSION_VALIDATIONS.get(key) === entry) SESSION_VALIDATIONS.delete(key);
+    }
+    return result;
+  }).catch((error) => {
+    if (SESSION_VALIDATIONS.get(key) === entry) SESSION_VALIDATIONS.delete(key);
+    throw error;
+  });
+  SESSION_VALIDATIONS.set(key, entry);
+  return entry.promise;
+}
+
+async function validateAuthoritativeSession(env, empId, sessionId) {
   const columns = await tableColumns(env, "users");
   const sessionColumns = serverSessionColumns(columns);
   if (!sessionColumns) return { ok: true, enforced: false };
-  const user = await findUserByEmpId(env, empId).catch(() => null);
+  const empColumn = columns.has("empid") ? "empid" : "empId";
+  const [user] = await supabaseFetch(env, "users", `select=*&${empColumn}=eq.${encodeEq(empId)}&limit=1`);
   if (!user) return { ok: false, status: 401, error: "Session user was not found" };
   const activeSessionId = String(user[sessionColumns.id] || "").trim();
   const expiresAt = sessionColumns.expiresAt ? new Date(user[sessionColumns.expiresAt] || "") : null;
-  if (activeSessionId && activeSessionId !== sessionId) {
+  if (activeSessionId !== sessionId) {
     return { ok: false, status: 409, code: "SESSION_SUPERSEDED", error: "This account is active in another session" };
   }
   if (expiresAt && !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
     return { ok: false, status: 401, code: "SESSION_EXPIRED", error: "Session expired" };
   }
-  const empColumn = columns?.has("empid") ? "empid" : (columns?.has("empId") ? "empId" : "empid");
+  if (sessionColumns.expiresAt && (!expiresAt || Number.isNaN(expiresAt.getTime()))) {
+    return { ok: false, status: 401, code: "SESSION_EXPIRED", error: "Session expiry is invalid" };
+  }
+  const now = Date.now();
+  const updatedAt = Date.parse(user[sessionColumns.updatedAt] || "");
+  const needsTouch = (Number.isFinite(updatedAt) ? now - updatedAt >= SESSION_TOUCH_INTERVAL_MS : !expiresAt || expiresAt.getTime() - now <= SERVER_SESSION_TTL_MS - SESSION_TOUCH_INTERVAL_MS)
+    || (expiresAt && expiresAt.getTime() - now <= SESSION_TOUCH_INTERVAL_MS);
+  if (!needsTouch) return { ok: true, enforced: true, expiresAt: expiresAt?.getTime() };
   const updates = {
     ...(sessionColumns.expiresAt ? { [sessionColumns.expiresAt]: new Date(Date.now() + SERVER_SESSION_TTL_MS).toISOString() } : {}),
     ...(sessionColumns.updatedAt ? { [sessionColumns.updatedAt]: new Date().toISOString() } : {}),
@@ -1001,12 +1068,12 @@ async function validateServerSession(request, env) {
   if (Object.keys(updates).length > 0) {
     await supabaseWrite(env, "users", {
       method: "PATCH",
-      query: `${empColumn}=eq.${encodeEq(empId)}`,
+      query: `${empColumn}=eq.${encodeEq(empId)}&${sessionColumns.id}=eq.${encodeEq(sessionId)}`,
       body: updates,
       prefer: "return=minimal",
-    }).catch(() => null);
+    }).catch((error) => console.warn(JSON.stringify({ operation: "session_touch", table: "users", status: error.status || null, code: error.code || "" })));
   }
-  return { ok: true, enforced: true };
+  return { ok: true, enforced: true, expiresAt: expiresAt?.getTime() };
 }
 
 function encodeEq(value) {
@@ -1491,14 +1558,7 @@ export function taskInPeriod(task, month, year, allTime) {
 
 async function readRecentAuditLogs(env, limit = 200) {
   const safeLimit = Math.min(500, Math.max(1, Number(limit) || 200));
-  for (const orderColumn of ["created_at", "timestamp"]) {
-    try {
-      return await supabaseFetch(env, "audit_log", `select=*&order=${orderColumn}.desc&limit=${safeLimit}`);
-    } catch (error) {
-      if (error?.status !== 400 && error?.status !== 404) throw error;
-    }
-  }
-  return supabaseFetch(env, "audit_log", `select=*&limit=${safeLimit}`).catch(() => []);
+  return supabaseFetch(env, "audit_log", `select=*&order=timestamp.desc&limit=${safeLimit}`);
 }
 
 function performanceMonths(params = {}) {
@@ -1768,29 +1828,25 @@ async function findKpi(env, team, subkpi) {
   return kpis.find((kpi) => String(kpiSub(kpi)).trim().toLowerCase() === wanted) || null;
 }
 
-async function writeAudit(env, event) {
-  const candidates = [
-    {
-      task_id: event.taskId || event.task_id || null,
-      action: event.action || event.type || "update",
-      changed_by: event.changedBy || event.changed_by || event.user || "",
-      details: event.details || event,
-      created_at: new Date().toISOString(),
-    },
-    {
-      taskid: event.taskId || event.task_id || null,
-      action: event.action || event.type || "update",
-      changedby: event.changedBy || event.changed_by || event.user || "",
-      details: JSON.stringify(event.details || event),
-      created_at: new Date().toISOString(),
-    },
-  ];
-  for (const row of candidates) {
-    try {
-      const shaped = await shapeForTable(env, "audit_log", row);
-      await supabaseWrite(env, "audit_log", { body: shaped, prefer: "return=minimal" });
-      return;
-    } catch {}
+// Verified production schema: taskid/text, by_user/text, details/text, timestamp/timestamptz.
+export function auditPayload(event, detailsType = "text") {
+  const details = event.details ?? {};
+  return {
+    taskid: event.taskId || event.task_id || null,
+    action: event.action || event.type || "update",
+    by_user: event.changedBy || event.changed_by || event.user || "",
+    details: ["json", "jsonb"].includes(detailsType) ? details : JSON.stringify(details),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function writeAudit(env, event) {
+  try {
+    await supabaseWrite(env, "audit_log", { body: auditPayload(event), prefer: "return=minimal" });
+    return true;
+  } catch (error) {
+    console.warn(JSON.stringify({ operation: "audit_insert", table: "audit_log", status: error.status || null, code: error.code || "", correlationId: randomId() }));
+    return false;
   }
 }
 
@@ -2126,7 +2182,7 @@ async function handleApi(request, env, apiPath) {
     const body = await request.json().catch(() => ({}));
     const user = await findUserByEmpId(env, body.empId || body.empid);
     if (!user) return jsonResponse(request, { error: "User profile was not found" }, 404, { "X-Maxiwa-Backend": "supabase" });
-    const serverSession = await writeServerSession(env, user, body.sessionId).catch(() => ({ sessionId: body.sessionId || randomId(), enforced: false }));
+    const serverSession = await writeServerSession(env, user, body.sessionId);
     const kpis = await kpisForTeam(env, user.team || "");
     return jsonResponse(request, {
       user: {
@@ -2312,7 +2368,7 @@ async function handleApi(request, env, apiPath) {
   if (apiPath === "getAuditLogsByTask") {
     const taskId = url.searchParams.get("taskId") || "";
     const logs = taskId
-      ? await supabaseFetch(env, "audit_log", `select=*&or=(task_id.eq.${encodeEq(taskId)},taskid.eq.${encodeEq(taskId)})`).catch(() => [])
+      ? await supabaseFetch(env, "audit_log", `select=*&taskid=eq.${encodeEq(taskId)}&order=timestamp.desc`)
       : [];
     return jsonResponse(request, { logs }, 200, { "X-Maxiwa-Backend": "supabase" });
   }

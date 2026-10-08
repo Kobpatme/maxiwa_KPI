@@ -2790,8 +2790,8 @@ function useAppData(user, view) {
   }, [user]);
 
   const refreshVisibleView = useCallback((options = { silent: true }) => {
-    if (view === 'executive' || ['dashboard', 'my-dashboard'].includes(view)) loadDashboard(options);
-    if (['tasks', 'my-tasks'].includes(view)) loadTasks(options);
+    if (view === 'executive' || ['dashboard', 'my-dashboard'].includes(view)) return loadDashboard(options);
+    if (['tasks', 'my-tasks'].includes(view)) return loadTasks(options);
   }, [view, loadDashboard, loadTasks]);
 
   const refreshVisibleViewRef = React.useRef(refreshVisibleView);
@@ -2834,8 +2834,6 @@ function useAppData(user, view) {
       }
     }, (active) => {
       if (!cancelled) setRealtimeActive(active);
-    }).then((channel) => {
-      if (!cancelled) setRealtimeActive(Boolean(channel));
     }).catch(() => {
       if (!cancelled) setRealtimeActive(false);
     });
@@ -2848,17 +2846,7 @@ function useAppData(user, view) {
 
   useEffect(() => {
     if (!user) return undefined;
-    const refresh = () => refreshVisibleView({ silent: true });
-    const intervalMs = realtimeActive ? 60000 : 10000;
-    const timer = setInterval(refresh, intervalMs);
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') refresh();
-    };
-    document.addEventListener('visibilitychange', refreshWhenVisible);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
-    };
+    return window.startMaxiwaRefreshLoop(() => refreshVisibleView({ silent: true }), realtimeActive);
   }, [user, refreshVisibleView, realtimeActive]);
 
   useEffect(() => {
@@ -6781,7 +6769,9 @@ function App() {
         });
     };
     loadAnnouncement();
-    const timer = setInterval(loadAnnouncement, 30000);
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') loadAnnouncement();
+    }, 5 * 60 * 1000);
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -6870,12 +6860,16 @@ function App() {
     };
     if (forceLogoutIfSuperseded()) return undefined;
     writeActiveSessionLock(user);
+    let heartbeatRunning = false;
     const timer = setInterval(() => {
       if (!forceLogoutIfSuperseded()) {
         writeActiveSessionLock(user);
-        API.validateSession?.().catch(() => {});
+        if (document.visibilityState === 'visible' && !heartbeatRunning) {
+          heartbeatRunning = true;
+          Promise.resolve(API.validateSession?.()).catch(() => {}).finally(() => { heartbeatRunning = false; });
+        }
       }
-    }, 15000);
+    }, 30000);
     const handleStorage = (event) => {
       if (event.key === SESSION_LOCK_KEY) forceLogoutIfSuperseded();
     };
@@ -7161,7 +7155,7 @@ function App() {
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs" role="status" aria-live="polite">
                     <span className={cn('mx-badge !py-1.5', syncing ? 'mx-status-pending' : realtimeActive ? 'mx-status-completed' : 'mx-status-hold')}>
                       <i className={cn('fa-solid', syncing ? 'fa-rotate fa-spin' : realtimeActive ? 'fa-bolt' : 'fa-clock')}></i>
-                      {syncing ? 'กำลังซิงก์ข้อมูล' : realtimeActive ? 'Realtime เชื่อมต่อแล้ว' : 'โหมดสำรอง: ตรวจทุก 10 วินาที'}
+                      {syncing ? 'กำลังซิงก์ข้อมูล' : realtimeActive ? 'Realtime เชื่อมต่อแล้ว' : 'โหมดสำรอง: ตรวจทุก 30 วินาที'}
                     </span>
                     {lastSyncedAt && (
                       <span className="text-[var(--mx-muted)]">

@@ -212,3 +212,4 @@ await testAsync("Performance task reads request 1000 rows per page", async () =>
 });
 
 console.log("All logic tests passed.");
+await import("./reliability-tests.mjs");
