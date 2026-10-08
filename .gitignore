@@ -2,6 +2,7 @@
 Thumbs.db
 .wrangler
 .cache/
+.jev/
 node_modules
 .claude/
 .qwen/

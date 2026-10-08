@@ -15,7 +15,7 @@ async function fixture(run) {
   }
   globalThis.Date = Clock;
   const user = { empid: "EMP001", name: "Test", team: "Test", role: "Staff", active_session_id: "session-1", active_session_updated_at: new Clock().toISOString(), active_session_expires_at: new Clock(now + 8 * 3600000).toISOString() };
-  const task = { id: "task-1", job: "Job", name: "Test", team: "Test", empid: "EMP001", status: "On Process", note: "", extra_data: {}, deadline: "2026-10-20", startdate: "2026-10-08", created_at: new Clock().toISOString() };
+  const task = { id: "task-1", job: "Job", name: "Test", team: "Test", empid: "EMP001", status: "On Process", note: "", extra_data: {}, deadline: "2026-10-20", startdate: "2026-10-08", completiondate: null, created_at: new Clock().toISOString() };
   const calls = [];
   const warnings = [];
   const state = { auditFails: false, takeoverOnTouch: false, touchFails: false, holidays: [] };
@@ -143,6 +143,38 @@ await test("Task mutation remains successful on one observable audit failure wit
   assert.equal(warnings[0].status, 400);
   assert.equal(warnings[0].code, "PGRST204");
   assert.ok(!JSON.stringify(warnings).includes("secret-bearing"));
+});
+
+for (const endpoint of ["updateTaskStatus", "updateTaskStatusWithLog"]) {
+  await test(`${endpoint} preserves completion dates and existing notes with one task PATCH and one audit insert`, async ({ env, request, task, calls }) => {
+    task.note = "Existing work history";
+    const response = await worker.fetch(request(endpoint, { id: task.id, status: "Completed", note: "", changedBy: "Test" }), env);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.ok, true);
+    assert.equal(result.task.status, "Completed");
+    assert.equal(result.task.note, task.note);
+    assert.match(result.task.completiondate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(calls.filter((call) => call.table === "tasks" && call.method === "PATCH").length, 1);
+    const audits = calls.filter((call) => call.table === "audit_log");
+    assert.equal(audits.length, 1);
+    assert.equal(audits[0].body.action, "status_change");
+    assert.equal(audits[0].body.taskid, task.id);
+    assert.equal(JSON.parse(audits[0].body.details).status, "Completed");
+  });
+}
+
+await test("Expired and superseded sessions reject task mutations before persistence", async ({ env, user, request, calls }) => {
+  user.active_session_expires_at = new Date(Date.now() - 1).toISOString();
+  const expired = await worker.fetch(request("updateTaskStatus", { id: "task-1", status: "Completed" }), env);
+  assert.equal(expired.status, 401);
+  assert.equal((await expired.json()).code, "SESSION_EXPIRED");
+  user.active_session_expires_at = new Date(Date.now() + 8 * 3600000).toISOString();
+  user.active_session_id = "replacement-session";
+  const superseded = await worker.fetch(request("saveNewTask", { jobs: ["Rejected"] }), env);
+  assert.equal(superseded.status, 409);
+  assert.equal((await superseded.json()).code, "SESSION_SUPERSEDED");
+  assert.equal(calls.filter((call) => call.method !== "GET").length, 0);
 });
 
 for (const endpoint of ["saveNewTask", "assignNewTask"]) {

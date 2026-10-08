@@ -74,6 +74,15 @@ Optional browser checks use Playwright installed in the environment:
 all API requests intercepted using synthetic data. Start the local server first.
 `node scripts/browser-smoke.mjs --production` only checks public pages and the
 Realtime transport; it does not log in or create production records.
+For release verification, pass `--expect-commit=<full pushed SHA>` with
+`--production`. The smoke check requires `/version.json`, the browser build
+identifier and local asset query versions to agree; it also checks public config
+for a publishable/anon key and fails on application asset HTTP errors, API 5xx
+responses or JavaScript exceptions. A successful Realtime transport check does
+not prove task-event delivery without the publication prerequisite below.
+The local synthetic smoke check additionally completes a newly created task
+through the UI and verifies one task PATCH, one additional audit insert and no
+additional session activity write.
 Set `MAXIWA_PLAYWRIGHT_MODULE` to an absolute Playwright `index.mjs` if it is not
 available as a project dependency.
 
