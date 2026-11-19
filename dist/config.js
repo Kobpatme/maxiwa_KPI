@@ -1,3 +1,3 @@
 window.API_BASE = window.API_BASE || "/api";
 
-window.MAXIWA_BUILD_VERSION = {"app":"metrixverity","commit":"5415aecfd90d611f6b89758f5302100cea02eb58","shortCommit":"5415aec","branch":"main","builtAt":"2026-11-19T14:34:04.386Z"};
+window.MAXIWA_BUILD_VERSION = {"app":"metrixverity","commit":"6609e28db0eeec1188dbb0741bc7df700b07b4a6","shortCommit":"6609e28","branch":"main","builtAt":"2026-11-19T15:00:09.571Z"};
