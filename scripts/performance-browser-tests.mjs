@@ -18,10 +18,11 @@ await mkdir(output, { recursive: true });
 const kpis = [
   { id: 'K1', team: 'Alpha', main: 'Delivery', sub: 'Install', main_weight: 50 },
   { id: 'K2', team: 'Alpha', main: 'Delivery', sub: 'Audit', main_weight: 50 },
+  { id: 'K4', team: 'Alpha', main: 'Unused Main', sub: 'Unused Sub', main_weight: 10 },
   { id: 'K3', team: 'Beta', main: 'Quality', sub: 'Inspect', main_weight: 20 },
 ];
 const staff = [
-  { empid: 'E1', name: 'Fixture One', team: 'Alpha', role: 'Staff', permissions: { kpiAssignments: { K1: true, K2: true }, kpiOverrides: { K1: { weight: 25 } } } },
+  { empid: 'E1', name: 'Fixture One', team: 'Alpha', role: 'Staff', permissions: { kpiAssignments: { K1: true, K2: true, K4: true }, kpiOverrides: { K1: { weight: 25 } } } },
   { empid: 'E2', name: 'Fixture Two', team: 'Beta', role: 'Staff' },
   { empid: 'E3', name: 'No Work', team: 'Alpha', role: 'Staff' },
 ];
@@ -92,13 +93,18 @@ try {
   await page.getByRole('button', { name: 'Active Weight', exact: true }).click();
   assert.equal(await page.locator('tbody tr').first().getByRole('button', { name: 'Alpha', exact: true }).count(), 1);
   await page.getByRole('button', { name: 'รายบุคคล', exact: true }).click();
+  const cardWeights = page.locator('.employee-card').filter({ hasText: 'Fixture One' }).locator('.person-configured-weights');
+  assert.ok((await cardWeights.innerText()).includes('25%'));
+  assert.ok(!(await cardWeights.innerText()).includes('Audit'));
   await page.locator('.employee-card').filter({ hasText: 'Fixture One' }).click();
   let dialog = page.getByRole('dialog', { name: 'รายละเอียดบุคคล' });
   await dialog.waitFor();
+  assert.ok(!(await dialog.locator('.personal-kpi-detail').innerText()).includes('Unused Main'));
+  assert.equal(await dialog.locator('.personal-kpi-detail tbody tr').count(), 2);
   const kpiRow = dialog.locator('.personal-kpi-detail tbody tr').filter({ hasText: 'Install' });
   assert.ok((await kpiRow.innerText()).includes('25%'));
   assert.ok((await kpiRow.innerText()).includes('30% / 35% / 40%'));
-  assert.ok((await dialog.innerText()).includes('ยังไม่มีงานในช่วงนี้'));
+  assert.ok(!(await dialog.locator('.personal-kpi-detail').innerText()).includes('Audit'));
   await page.screenshot({ path: path.join(output, 'person-desktop.png'), fullPage: false });
   await dialog.getByRole('button', { name: 'Delivery / Install', exact: true }).click();
   await page.getByRole('dialog', { name: 'Delivery / Install', exact: true }).waitFor();

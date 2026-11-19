@@ -957,13 +957,19 @@ function ScoreMethod({ tasks, holidays = [] }) {
     </div></details>;
 }
 
-function PersonalKpiTable({ person, catalog, holidays, mode = 'both' }) {
-  const rows = buildPersonalKpiRows(person, catalog, holidays).filter((row) => mode === 'both' || (mode === 'actual' ? row.items.length > 0 : row.configured && row.assigned));
+function visiblePersonalKpiRows(person, catalog, holidays, mode = 'actual') {
+  return buildPersonalKpiRows(person, catalog, holidays).filter((row) => mode === 'current'
+    ? row.configured && row.assigned
+    : row.items.length > 0);
+}
+
+function PersonalKpiTable({ person, catalog, holidays, mode = 'actual' }) {
+  const rows = visiblePersonalKpiRows(person, catalog, holidays, mode);
   const mains = Object.entries(groupBy(rows, (row) => row.main));
   return <div className="personal-kpi-detail mt-5">
     <h3 className="m-0 text-lg font-black">Main KPI → Sub KPI และน้ำหนักรายบุคคล</h3>
-    <p className="text-sm text-[var(--mx-muted)]">แยกค่าตั้งปัจจุบันกับงานจริงในช่วงที่เลือก • ค่าหลายค่าคั่นด้วย / โดยไม่บวกน้ำหนักซ้ำ • กดชื่อ KPI เพื่อดูงานต้นทาง</p>
-    {!rows.length && <p>ยังไม่มีข้อมูล KPI ที่ได้รับมอบหมายหรืองานในช่วงนี้</p>}
+    <p className="text-sm text-[var(--mx-muted)]">{mode === 'current' ? 'KPI ที่ได้รับมอบหมายตามการตั้งค่าปัจจุบัน' : 'เฉพาะ Main KPI และ Sub KPI ที่มีงานของบุคคลนี้ในช่วงที่เลือก'} • กดชื่อ KPI เพื่อดูงานต้นทาง</p>
+    {!rows.length && <p>{mode === 'current' ? 'ยังไม่มี KPI ที่มอบหมายในขอบเขตนี้' : 'ยังไม่มีงานในช่วงนี้'}</p>}
     <div className="grid gap-3">{mains.map(([main, subs]) => {
       const items = subs.flatMap((row) => row.items);
       const p = buildPortfolio(items, holidays, person.asOfDate);
@@ -2172,6 +2178,30 @@ function EmployeeDetailModal({ person, holidays = [], kpis = [], onClose }) {
   );
 }
 
+function configuredWeightsForPerson(person, catalog = []) {
+  // Only current assignments and the staff profile can confirm a personal setting.
+  // Never turn task snapshot weights into current configuration.
+  if (!person?.profile) return { state: 'missing-profile', rows: [] };
+  if (!catalog.length) return { state: 'missing-catalog', rows: [] };
+  const performed = new Set((person.items || []).map((task) => kpiCompositeKey({ team: teamName(task), main: mainKpi(task), sub: subKpi(task) })));
+  const rows = assignedSubKpisForPerson({ ...person, items: [] }, catalog).filter((row) => performed.has(kpiCompositeKey(row)));
+  return { state: rows.length ? 'ready' : 'empty', rows };
+}
+
+function PersonConfiguredWeights({ person, catalog, limit = 3 }) {
+  const configured = configuredWeightsForPerson(person, catalog);
+  const rows = configured.rows.slice(0, limit);
+  return <span className="person-configured-weights">
+    <span className="person-weight-heading">น้ำหนัก KPI ที่ตั้งไว้{configured.rows.length > 0 ? ' (' + configured.rows.length + ')' : ''}</span>
+    {rows.map((kpi) => <span className="person-weight-row" key={kpi.key}>
+      <span className="person-weight-name"><b>{kpi.main}</b><small>{kpi.sub}</small></span>
+      <span className="person-weight-value"><strong>{fmtPct(kpi.effectiveWeight)}</strong><small>{kpi.overridden ? 'เฉพาะบุคคล' : 'ค่ามาตรฐาน'}</small></span>
+    </span>)}
+    {configured.state !== 'ready' && <span className="person-weight-empty">{configured.state === 'missing-profile' ? 'ยังยืนยันการตั้งค่ารายบุคคลไม่ได้' : configured.state === 'missing-catalog' ? 'ไม่มีข้อมูลทะเบียน KPI' : 'ยังไม่มี KPI จากงานในช่วงที่เลือก'}</span>}
+    {configured.rows.length > limit && <span className="person-weight-more">อีก {configured.rows.length - limit} รายการ • เปิดรายละเอียดเพื่อดูทั้งหมด</span>}
+  </span>;
+}
+
 function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilter, tasks, selectedPerson, setSelectedPerson, holidays = [], kpis = [] }) {
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [employeeBandFilter, setEmployeeBandFilter] = useState('all');
@@ -2218,6 +2248,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
                 </div>
               </div>
             </div>
+            <PersonConfiguredWeights person={row} catalog={kpis} />
             <div className="mini-metric-grid mt-5">
               <div><span>Total</span><strong>{fmtNum(row.total)}</strong></div>
               <div><span>Active Weight</span><strong>{fmtWeightShare(row.activeWeight, row.totalWeight)}</strong></div>
@@ -2245,6 +2276,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
               <th className="p-4">ลำดับ</th>
               <SortHeader label="Name" sortKey="person" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
               <SortHeader label="Team" sortKey="team" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
+              <th className="p-4">น้ำหนัก KPI ที่ตั้งไว้</th>
               <SortHeader label="Total" sortKey="total" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
               <SortHeader label="Active Weight" sortKey="activeOwnShare" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
               <SortHeader label="Team Load" sortKey="workloadShare" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
@@ -2262,11 +2294,12 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
                 <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td>
                 <td className="p-4 font-black"><button className="metric-link" onClick={() => setSelectedPerson(row)}>{row.person}</button></td>
                 <td className="p-4"><span className="mx-badge status-neutral">{row.team}</span></td>
+                <td className="p-4 person-weight-cell"><button className="person-weight-open" onClick={() => setSelectedPerson(row)} aria-label={'ดูน้ำหนัก KPI ของ ' + row.person}><PersonConfiguredWeights person={row} catalog={kpis} /></button></td>
                 <td className="p-4">{fmtNum(row.total)}</td><td className="p-4 font-bold">{fmtWeightShare(row.activeWeight, row.totalWeight)}</td><td className="p-4">{fmtPct(row.workloadShare)}</td><td className="p-4">{fmtNum(row.completed)}</td><td className="p-4">{fmtNum(row.slaPass)}</td><td className="p-4"><TaskLink title={row.team + ' / งานเสร็จช้า'} items={row.items.filter(isCompletedLate)}>{fmtNum(row.slaFail)}</TaskLink></td><td className="p-4 font-bold">{fmtPct(row.sla)}</td><td className="p-4 font-bold">{fmtPct(row.completion)}</td>
                 <td className="p-4"><span className={`mx-badge ${healthClass(row.weightedScore)}`}>{fmtPct(row.weightedScore)} • {performanceLabel(row.weightedScore)}</span></td>
               </tr>
             ))}
-            {!filtered.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="12">No employee records match these filters.</td></tr>}
+            {!filtered.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="13">No employee records match these filters.</td></tr>}
           </tbody>
         </DataTable>
       </section>

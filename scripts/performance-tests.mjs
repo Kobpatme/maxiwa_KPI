@@ -7,7 +7,7 @@ const context = vm.createContext({ console, Date, Set, Map, URLSearchParams, win
   React: { createContext: (value) => ({ value }) } });
 vm.runInContext(fs.readFileSync('public/js/api.js', 'utf8'), context);
 const source = fs.readFileSync('public/js/executive-dashboard.js', 'utf8').replace(/ReactDOM\.createRoot[\s\S]*$/, '');
-vm.runInContext(transformSync(source, { loader: 'jsx' }).code + '\n globalThis.model = { buildPortfolio, buildGroupRows, buildKpiRows, buildPersonalKpiRows, buildWeightCatalogRows, buildPeopleRows, taskWeight, hasExplicitWeight, buildDataQuality, buildAgingBuckets, scopeTasksForUser, filterByAllowedTeams, sortRows, performanceLabel, daysUntil, getPerformanceRiskAsOfDate };', context);
+vm.runInContext(transformSync(source, { loader: 'jsx' }).code + '\n globalThis.model = { buildPortfolio, buildGroupRows, buildKpiRows, buildPersonalKpiRows, buildWeightCatalogRows, buildPeopleRows, taskWeight, hasExplicitWeight, buildDataQuality, buildAgingBuckets, scopeTasksForUser, filterByAllowedTeams, sortRows, performanceLabel, daysUntil, getPerformanceRiskAsOfDate, visiblePersonalKpiRows, configuredWeightsForPerson };', context);
 const m = context.model;
 const asOf = new Date('2026-11-19T00:00:00');
 const make = (patch = {}) => ({ id: 'T1', empid: 'E1', name: 'Fixture One', team: 'Alpha', mainkpi: 'Delivery', subkpi: 'Install', status: 'Pending', mainkpiweight: 30, startdate: '2025-12-01', deadline: '2026-11-18', ...patch });
@@ -130,5 +130,14 @@ test('Missing staff profiles never imply confirmed personal assignments', () => 
 test('Staff directory aliases retain the employee identity', () => {
   const rows = m.buildPeopleRows([make()], [{ emp_id: 'E1', fullname: 'Fixture One', team: 'Alpha' }], [], asOf);
   assert.equal(rows.length, 1); assert.equal(rows[0].empId, 'E1'); assert.ok(rows[0].profile);
+});
+test('Personal display hides zero-work Main and Sub KPIs while retaining configured overrides', () => {
+  const person = { team: 'Alpha', profile: { ...profile, permissions: { ...profile.permissions, kpiAssignments: { K1: true, K2: true, K3: true } } }, asOfDate: asOf, items: [make()] };
+  const rows = m.visiblePersonalKpiRows(person, catalog, []);
+  assert.equal(rows.length, 1); assert.equal(rows[0].sub, 'Install'); assert.equal(rows[0].effectiveWeight, 25);
+  assert.equal(m.visiblePersonalKpiRows({ ...person, items: [] }, catalog, []).length, 0);
+  assert.equal(m.visiblePersonalKpiRows(person, catalog, [], 'current').length, 3);
+  const card = m.configuredWeightsForPerson(person, catalog);
+  assert.equal(card.rows.length, 1); assert.equal(card.rows[0].effectiveWeight, 25);
 });
 console.log('Passed ' + count + ' Performance model tests');

@@ -1710,6 +1710,20 @@
       .employee-detail-layout > section { margin:14px 0; }
       .max-h-80, .team-modal-scroll, .priority-watchlist-scroll { max-height:none; overflow:visible; }
     }
+    /* Personal configuration stays alongside the existing employee metrics. */
+    .person-configured-weights { display:block; margin-top:16px; padding:12px; border:1px solid var(--mx-line); border-radius:10px; background:var(--mx-surface); font-size:12px; line-height:1.5; }
+    .person-weight-heading { display:block; font-weight:850; margin-bottom:6px; }
+    .person-weight-row { display:flex; justify-content:space-between; align-items:start; gap:12px; padding:7px 0; border-top:1px solid var(--mx-line); }
+    .person-weight-name { min-width:0; overflow-wrap:anywhere; }
+    .person-weight-name b, .person-weight-name small, .person-weight-value strong, .person-weight-value small { display:block; }
+    .person-weight-value { text-align:right; flex-shrink:0; }
+    .person-weight-value strong { color:var(--mx-info); font-size:15px; }
+    .person-weight-row small, .person-weight-empty, .person-weight-more { color:var(--mx-muted); font-size:11px; }
+    .person-weight-more { display:block; padding-top:6px; }
+    .person-weight-cell { min-width:240px; max-width:340px; }
+    .person-weight-cell .person-configured-weights { margin:0; }
+    .person-weight-open { display:block; width:100%; text-align:left; border-radius:10px; }
+    @media print { .person-weight-cell { min-width:0; } .person-configured-weights { padding:6px; } .person-weight-row { gap:5px; } }
   </style>
 </head>
 <body>
