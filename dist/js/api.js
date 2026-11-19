@@ -49,7 +49,7 @@ const API = (() => {
   const RETRY_DELAYS_MS = [700, 1600];
   const TASK_MUTATION_ENDPOINTS = new Set([
     "saveNewTask", "assignNewTask", "acceptTask", "updateTaskStatus",
-    "updateTaskStatusWithLog", "updateTaskDetails", "deleteTask",
+    "updateTaskStatusWithLog", "updateTaskDetails", "deleteTask", "admin/applyPerformanceEdit",
   ]);
   const getCache = new Map();
   const inflightGets = new Map();
@@ -289,6 +289,8 @@ const API = (() => {
     getDashboardData: () => get("getDashboardData"),
     saveUser: (userData, headers = {}) => post("admin/saveUser", userData, headers),
     deleteUser: (empId, headers = {}) => del("admin/deleteUser", { empId }, headers),
+    previewPerformanceEdit: (payload) => post("admin/previewPerformanceEdit", payload),
+    applyPerformanceEdit: (payload) => post("admin/applyPerformanceEdit", payload),
     saveKpi: (kpiData, headers = {}) => post("admin/saveKpi", kpiData, headers),
     deleteKpi: (id, headers = {}) => del("admin/deleteKpi", { id }, headers),
     getAuditLogs: (headers = {}) => get("admin/getAuditLogs", {}, headers),

@@ -1,3 +1,4 @@
+import { buildPerformanceEditPlan, performancePlanFingerprint } from './performance-admin-model.js';
 const DEFAULT_BACKEND_API_BASE = "";
 const DEFAULT_THAI_HOLIDAY_API_URL = "https://api.iapp.co.th/v3/store/data/thai-holiday";
 const PAGE_SIZE = 1000;
@@ -2147,6 +2148,76 @@ async function syncKpiRuleToTasks(env, beforeKpi, afterKpi) {
   return updated;
 }
 
+async function performanceConditionalPatch(env, table, before, patch, keysToCheck) {
+  const columns = await tableColumns(env, table);
+  if (!columns || Object.keys(patch).some((key) => !columns.has(key))) {
+    const error = new Error('ฐานข้อมูลยังไม่มีคอลัมน์ที่จำเป็นสำหรับการแก้ไขนี้'); error.status = 409; throw error;
+  }
+  const query = keysToCheck.filter((key) => columns.has(key) && before[key] !== undefined).map((key) => {
+    const value = before[key];
+    return value === null ? key + '=is.null' : key + '=eq.' + encodeURIComponent(typeof value === 'object' ? JSON.stringify(value) : String(value));
+  }).join('&');
+  if (!query) throw new Error('ไม่พบรหัสสำหรับบันทึกข้อมูล');
+  const rows = await supabaseWrite(env, table, { method: 'PATCH', query, body: patch });
+  if (rows.length !== 1) { const error = new Error('ข้อมูลเปลี่ยนระหว่างตรวจผลกระทบ กรุณาโหลดและตรวจใหม่'); error.status = 409; throw error; }
+  return rows[0];
+}
+
+async function handlePerformanceAdminEdit(request, env, apiPath, session) {
+  const actorId = String(request.headers.get('x-session-empid') || '').trim();
+  const actor = await findUserByEmpId(env, actorId);
+  if (!session.enforced || actor?.role !== 'Admin') return jsonResponse(request, { error: 'เฉพาะแอดมินที่เข้าสู่ระบบด้วย server session เท่านั้น', code: 'ADMIN_REQUIRED' }, 403);
+  const body = await request.json().catch(() => ({}));
+  try {
+    const user = await findUserByEmpId(env, body.empId);
+    const team = String(body.team || '').trim();
+    if (!team) return jsonResponse(request, { error: 'กรุณาระบุทีม' }, 400);
+    const [kpis, tasks] = await Promise.all([readAll(env, 'kpis'), readAll(env, 'tasks', 'select=*&team=eq.' + encodeEq(team))]);
+    const plan = buildPerformanceEditPlan({ actor, user, kpis, tasks, body, inPeriod: performanceTaskInPeriod });
+    const fingerprint = await performancePlanFingerprint(plan);
+    if (apiPath === 'admin/previewPerformanceEdit') return jsonResponse(request, { ...plan.preview, fingerprint }, 200, { 'Cache-Control': 'no-store' });
+    if (!body.fingerprint || body.fingerprint !== fingerprint) return jsonResponse(request, { error: 'ข้อมูลหรือค่าที่แก้เปลี่ยนไป กรุณาตรวจผลกระทบอีกครั้ง', code: 'PREVIEW_STALE' }, 409);
+    const updatedIds = [], savedSettings = { team: false, personal: false }, notUpdatedIds = plan.changes.map((change) => String(change.before.id));
+    let failure = null;
+    try {
+      if (plan.teamPatch) {
+        await performanceConditionalPatch(env, 'kpis', plan.target, plan.teamPatch, ['id', 'team', 'main', 'sub', 'main_weight', 'weight', 'days']);
+        savedSettings.team = true;
+      }
+      if (plan.userPatch) {
+        const columns = await tableColumns(env, 'users');
+        const empColumn = columns.has('empid') ? 'empid' : 'empId';
+        await performanceConditionalPatch(env, 'users', plan.user, plan.userPatch, [empColumn, 'role', 'permissions']);
+        savedSettings.personal = true;
+      }
+      for (let offset = 0; offset < plan.changes.length; offset += 5) {
+        const chunk = plan.changes.slice(offset, offset + 5);
+        const results = await Promise.allSettled(chunk.map(async (change) => {
+          const columns = await tableColumns(env, 'tasks');
+          const patch = shapeWithColumns(change.patch, columns);
+          if (!columns.has('extra_data') || !columns.has('mainkpi') || !columns.has('subkpi') || !columns.has('mainkpiweight')) throw new Error('โครงสร้างงานไม่รองรับการบันทึกน้ำหนักและ KPI');
+          await performanceConditionalPatch(env, 'tasks', change.before, patch, ['id', 'empid', 'empId', 'team', 'name', 'mainkpi', 'subkpi', 'mainkpiweight', 'weight', 'extra_data', 'status', 'deadline', 'completiondate', 'updated_at']);
+          updatedIds.push(String(change.before.id));
+        }));
+        const rejected = results.find((result) => result.status === 'rejected');
+        if (rejected) throw rejected.reason;
+      }
+    } catch (error) { failure = error; }
+    const remaining = notUpdatedIds.filter((id) => !updatedIds.includes(id));
+    const auditRecorded = await writeAudit(env, { action: 'admin_performance_edit', changedBy: actorId, details: {
+      empId: body.empId, team, reason: body.reason.trim(), target: plan.preview.target,
+      selectedTaskIds: body.taskIds, updatedIds, notUpdatedIds: remaining, savedSettings, partial: !!failure,
+      scoresPreview: plan.preview.scores,
+    } });
+    return jsonResponse(request, { ok: !failure, partial: !!failure, updatedIds, notUpdatedIds: remaining, savedSettings, auditRecorded,
+      message: failure ? 'บันทึกได้บางส่วน กรุณาโหลดข้อมูลและตรวจผลกระทบใหม่ก่อนทำรายการที่เหลือ' : 'บันทึกการตั้งค่าและงานที่เลือกลงฐานข้อมูลแล้ว',
+      ...(failure ? { error: failure.message } : {}),
+    }, 200, { 'Cache-Control': 'no-store' });
+  } catch (error) {
+    return jsonResponse(request, { error: error.message || 'ไม่สามารถตรวจผลกระทบได้' }, error.status || 500, { 'Cache-Control': 'no-store' });
+  }
+}
+
 async function handleApi(request, env, apiPath) {
   const url = new URL(request.url);
   if (apiPath === "openmeteo/weather") {
@@ -2204,6 +2275,8 @@ async function handleApi(request, env, apiPath) {
       code: session.code || "SESSION_INVALID",
     }, session.status || 401, { "X-Maxiwa-Backend": "supabase" });
   }
+
+  if (request.method === 'POST' && ['admin/previewPerformanceEdit', 'admin/applyPerformanceEdit'].includes(apiPath)) return handlePerformanceAdminEdit(request, env, apiPath, session);
 
   if (apiPath === "session/heartbeat") {
     return jsonResponse(request, { ok: true, session }, 200, { "X-Maxiwa-Backend": "supabase" });
