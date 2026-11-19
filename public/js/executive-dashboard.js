@@ -963,6 +963,13 @@ function visiblePersonalKpiRows(person, catalog, holidays, mode = 'actual') {
     : row.items.length > 0);
 }
 
+function sumPersonalKpiWeights(rows = []) {
+  if (!rows.length || rows.some((row) => !row.configured || !row.assignmentKnown || !Number.isFinite(row.effectiveWeight) || row.effectiveWeight <= 0)) return null;
+  // Sum distinct Sub KPI settings, not task occurrences or distinct numeric values.
+  const unique = new Map(rows.map((row) => [row.key, row.effectiveWeight]));
+  return roundMetric([...unique.values()].reduce((total, weight) => total + weight, 0), 4);
+}
+
 function PersonalKpiTable({ person, catalog, holidays, mode = 'actual' }) {
   const rows = visiblePersonalKpiRows(person, catalog, holidays, mode);
   const mains = Object.entries(groupBy(rows, (row) => row.main));
@@ -974,8 +981,9 @@ function PersonalKpiTable({ person, catalog, holidays, mode = 'actual' }) {
       const items = subs.flatMap((row) => row.items);
       const p = buildPortfolio(items, holidays, person.asOfDate);
       const current = [...new Set(subs.filter((row) => row.configured && row.assignmentKnown).map((row) => row.effectiveWeight))];
+      const totalWeight = sumPersonalKpiWeights(subs);
       return <details key={main} className="mx-soft p-4">
-        <summary><strong>{main}</strong> • น้ำหนักปัจจุบัน {formatWeights(current)} {current.length > 1 ? '(ต่างกันตาม Sub KPI)' : ''} • {items.length} งาน</summary>
+        <summary className="personal-main-summary"><span className="personal-main-caption"><strong>{main}</strong> • น้ำหนักปัจจุบัน {formatWeights(current)} {current.length > 1 ? '(ต่างกันตาม Sub KPI)' : ''} • {items.length} งาน</span><span className="personal-main-total" title={totalWeight === null ? 'ข้อมูลน้ำหนักที่ตั้งไว้ไม่ครบ จึงยังสรุปผลรวมไม่ได้' : 'ผลรวมน้ำหนักที่ตั้งไว้ของ Sub KPI ที่แสดง อย่างละหนึ่งครั้ง'}>รวม {totalWeight === null ? '—' : fmtPct(totalWeight)}</span></summary>
         <div className="flex flex-wrap gap-2 mt-3"><TaskLink items={items} title={'งาน Main KPI: ' + main}>ดูงานทั้งหมด ({items.length})</TaskLink>
           <span>W.Completion {fmtPct(p.completion)} • W.SLA {fmtPct(p.scores.sla)}</span></div>
         <DataTable minWidth={1020}><thead><tr><th>Sub KPI / การมอบหมาย</th><th>พื้นฐานปัจจุบัน</th><th>ใช้กับบุคคลปัจจุบัน</th><th>บันทึกกับงาน</th><th>ทั้งหมด / เสร็จ / ค้าง / ยกเลิก / เกิน</th><th>W.Completion</th><th>W.SLA</th></tr></thead>

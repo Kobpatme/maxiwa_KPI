@@ -104,6 +104,9 @@ try {
   assert.ok(!(await dialog.locator('.personal-kpi-detail').innerText()).includes('Unused Main'));
   assert.equal(await dialog.locator('.personal-kpi-detail tbody tr').count(), 2);
   assert.equal(await dialog.locator('.personal-kpi-detail details[open]').count(), 0);
+  const deliverySummary = dialog.locator('.personal-main-summary').filter({ hasText: 'Delivery' });
+  assert.equal(await deliverySummary.locator('.personal-main-total').innerText(), 'รวม 25%');
+  assert.equal(await dialog.locator('.personal-main-summary').filter({ hasText: 'Legacy' }).locator('.personal-main-total').innerText(), 'รวม —');
   await dialog.locator('.personal-kpi-detail details > summary').filter({ hasText: 'Delivery' }).click();
   assert.equal(await dialog.locator('.personal-kpi-detail details[open]').count(), 1);
   const kpiRow = dialog.locator('.personal-kpi-detail tbody tr').filter({ hasText: 'Install' });
@@ -134,6 +137,7 @@ try {
   assert.equal(await page.locator('.personal-kpi-detail details[open]').count(), 0);
   await page.locator('.personal-kpi-detail details > summary').filter({ hasText: 'Delivery' }).click();
   assert.ok((await page.locator('.personal-kpi-detail').innerText()).includes('Audit'));
+  assert.equal(await page.locator('.personal-main-summary').filter({ hasText: 'Delivery' }).locator('.personal-main-total').innerText(), 'รวม 75%');
   assert.ok(!(await page.locator('.personal-kpi-detail').innerText()).includes('Legacy'));
   await page.getByRole('combobox', { name: 'มุมมอง', exact: true }).selectOption('actual');
   assert.ok(!(await page.locator('.personal-kpi-detail').innerText()).includes('Audit'));

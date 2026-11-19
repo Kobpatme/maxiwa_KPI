@@ -7,7 +7,7 @@ const context = vm.createContext({ console, Date, Set, Map, URLSearchParams, win
   React: { createContext: (value) => ({ value }) } });
 vm.runInContext(fs.readFileSync('public/js/api.js', 'utf8'), context);
 const source = fs.readFileSync('public/js/executive-dashboard.js', 'utf8').replace(/ReactDOM\.createRoot[\s\S]*$/, '');
-vm.runInContext(transformSync(source, { loader: 'jsx' }).code + '\n globalThis.model = { buildPortfolio, buildGroupRows, buildKpiRows, buildPersonalKpiRows, buildWeightCatalogRows, buildPeopleRows, taskWeight, hasExplicitWeight, buildDataQuality, buildAgingBuckets, scopeTasksForUser, filterByAllowedTeams, sortRows, performanceLabel, daysUntil, getPerformanceRiskAsOfDate, visiblePersonalKpiRows, configuredWeightsForPerson };', context);
+vm.runInContext(transformSync(source, { loader: 'jsx' }).code + '\n globalThis.model = { buildPortfolio, buildGroupRows, buildKpiRows, buildPersonalKpiRows, buildWeightCatalogRows, buildPeopleRows, taskWeight, hasExplicitWeight, buildDataQuality, buildAgingBuckets, scopeTasksForUser, filterByAllowedTeams, sortRows, performanceLabel, daysUntil, getPerformanceRiskAsOfDate, visiblePersonalKpiRows, configuredWeightsForPerson, sumPersonalKpiWeights };', context);
 const m = context.model;
 const asOf = new Date('2026-11-19T00:00:00');
 const make = (patch = {}) => ({ id: 'T1', empid: 'E1', name: 'Fixture One', team: 'Alpha', mainkpi: 'Delivery', subkpi: 'Install', status: 'Pending', mainkpiweight: 30, startdate: '2025-12-01', deadline: '2026-11-18', ...patch });
@@ -139,5 +139,15 @@ test('Personal display hides zero-work Main and Sub KPIs while retaining configu
   assert.equal(m.visiblePersonalKpiRows(person, catalog, [], 'current').length, 3);
   const card = m.configuredWeightsForPerson(person, catalog);
   assert.equal(card.rows.length, 1); assert.equal(card.rows[0].effectiveWeight, 25);
+});
+test('Main KPI total sums each displayed Sub KPI once, preserves equal weights and applies personal overrides', () => {
+  const person = { team: 'Alpha', profile, items: [make(), make({ id: 'T2' }), make({ id: 'T3', subkpi: 'Audit' })] };
+  const rows = m.visiblePersonalKpiRows(person, catalog, []);
+  assert.equal(m.sumPersonalKpiWeights(rows), 75);
+  assert.equal(m.sumPersonalKpiWeights(rows.map((row) => ({ ...row, effectiveWeight: 5 }))), 10);
+  const install = rows.find((row) => row.sub === 'Install');
+  assert.equal(m.sumPersonalKpiWeights([install, install]), 25);
+  assert.equal(m.sumPersonalKpiWeights(rows.map((row) => ({ ...row, assignmentKnown: false }))), null);
+  assert.equal(m.sumPersonalKpiWeights([]), null);
 });
 console.log('Passed ' + count + ' Performance model tests');
