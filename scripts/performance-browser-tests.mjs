@@ -76,10 +76,12 @@ try {
     await page.goto(base + '/dashboard?empId=VIEWER&year=2026&months=11&tab=' + tab);
     await page.getByRole('button', { name: 'รีเฟรช', exact: true }).waitFor();
     if (expectError) { await page.getByText('Fixture task failed', { exact: true }).waitFor(); return page; }
-    await page.waitForFunction(() => document.querySelector('.scope-panel')?.textContent.includes('อัปเดตล่าสุด') && !document.querySelector('.scope-panel')?.textContent.includes('ยังไม่มีข้อมูล'));
+    await page.waitForFunction(() => document.querySelector('.load-status')?.textContent.includes('อัปเดตล่าสุด'));
     return page;
   }
   const page = await open();
+  assert.equal(await page.locator('.scope-panel').count(), 0);
+  assert.equal(await page.getByText('ขอบเขตข้อมูลทุกแท็บ', { exact: true }).count(), 0);
   await page.getByRole('button', { name: 'เกินกำหนด', exact: true }).click();
   await page.getByRole('dialog', { name: 'เกินกำหนด', exact: true }).waitFor();
   assert.equal(await page.getByRole('dialog').locator('tbody tr').count(), 1);
@@ -101,6 +103,9 @@ try {
   await dialog.waitFor();
   assert.ok(!(await dialog.locator('.personal-kpi-detail').innerText()).includes('Unused Main'));
   assert.equal(await dialog.locator('.personal-kpi-detail tbody tr').count(), 2);
+  assert.equal(await dialog.locator('.personal-kpi-detail details[open]').count(), 0);
+  await dialog.locator('.personal-kpi-detail details > summary').filter({ hasText: 'Delivery' }).click();
+  assert.equal(await dialog.locator('.personal-kpi-detail details[open]').count(), 1);
   const kpiRow = dialog.locator('.personal-kpi-detail tbody tr').filter({ hasText: 'Install' });
   assert.ok((await kpiRow.innerText()).includes('25%'));
   assert.ok((await kpiRow.innerText()).includes('30% / 35% / 40%'));
@@ -126,6 +131,8 @@ try {
   await page.getByRole('button', { name: 'น้ำหนัก KPI', exact: true }).click();
   assert.ok((await page.locator('tbody').innerText()).includes('Audit'));
   await page.getByRole('combobox', { name: 'บุคคล', exact: true }).selectOption('emp:e1');
+  assert.equal(await page.locator('.personal-kpi-detail details[open]').count(), 0);
+  await page.locator('.personal-kpi-detail details > summary').filter({ hasText: 'Delivery' }).click();
   assert.ok((await page.locator('.personal-kpi-detail').innerText()).includes('Audit'));
   assert.ok(!(await page.locator('.personal-kpi-detail').innerText()).includes('Legacy'));
   await page.getByRole('combobox', { name: 'มุมมอง', exact: true }).selectOption('actual');
@@ -137,12 +144,9 @@ try {
   assert.ok((await page.locator('tbody').innerText()).includes('ไม่มีทะเบียนที่ตรงกัน'));
   await page.getByRole('button', { name: 'วิเคราะห์ KPI', exact: true }).click();
   assert.ok((await page.locator('.watch-row').first().innerText()).includes('Delivery'));
-  await page.locator('.scope-panel').getByLabel('ทีม', { exact: true }).selectOption('Beta');
-  assert.ok(!(await page.locator('.kpi-portfolio-list').innerText()).includes('Delivery'));
-  await page.locator('.scope-panel').getByLabel('ทีม', { exact: true }).selectOption('all');
-  await page.locator('.scope-panel').getByLabel('Main KPI', { exact: true }).selectOption('Delivery');
+  await page.locator('.kpi-intelligence input').fill('Delivery');
   assert.ok(!(await page.locator('.kpi-portfolio-list').innerText()).includes('Quality'));
-  await page.locator('.scope-panel').getByLabel('Main KPI', { exact: true }).selectOption('all');
+  await page.locator('.kpi-intelligence input').fill('');
   await page.getByRole('button', { name: 'ภาพรวม', exact: true }).click();
   await page.getByRole('button', { name: 'ไม่มีน้ำหนัก (ใช้ค่าสำรอง 1)', exact: true }).click();
   assert.equal(await page.getByRole('dialog').locator('tbody tr').count(), 1);
@@ -150,7 +154,7 @@ try {
   await page.getByRole('button', { name: 'Toggle Performance View theme' }).click();
   assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
   await page.screenshot({ path: path.join(output, 'overview-dark.png'), fullPage: true });
-  results.push({ check: 'Desktop: all tabs, nested drilldowns, zero-work staff, weights, quality, shared filters, theme, print', passed: true });
+  results.push({ check: 'Desktop: all tabs, nested drilldowns, zero-work staff, weights, quality, tab search, theme, print, collapsed KPI groups, no scope panel', passed: true });
   await page.close();
   const mobile = await open('employees', { viewport: { width: 390, height: 844 }, isMobile: true, deviceScaleFactor: 1 });
   assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth > 390), false);
@@ -174,7 +178,7 @@ try {
   results.push({ check: 'Six role boundaries in rendered tasks, people and catalog', passed: true });
   role = 'Admin'; catalogFails = true;
   const partial = await open('weights');
-  assert.ok((await partial.locator('.scope-panel').innerText()).includes('โหลดทะเบียน KPI ไม่สำเร็จ'));
+  assert.ok((await partial.locator('header').innerText()).includes('โหลดทะเบียน KPI ไม่สำเร็จ'));
   await partial.close(); catalogFails = false;
   empty = true;
   const blank = await open('employees');
@@ -183,7 +187,7 @@ try {
   results.push({ check: 'Partial catalog warning and empty dataset', passed: true });
   taskFails = true;
   const failed = await open('overview', {}, true);
-  assert.ok((await failed.locator('.scope-panel').innerText()).includes('ยังไม่มีข้อมูล'));
+  assert.ok((await failed.locator('header').innerText()).includes('Fixture task failed'));
   assert.ok((await failed.locator('.hero-band').innerText()).includes('0'));
   await failed.close(); taskFails = false;
   dense = true;
@@ -207,11 +211,11 @@ try {
 
   await many.keyboard.press('Escape');
   await many.getByRole('combobox', { name: 'Filter year', exact: true }).selectOption('2025');
-  await many.waitForFunction(() => document.querySelector('.scope-panel')?.textContent.includes('30 พ.ย. 2568') && !document.querySelector('.scope-panel')?.textContent.includes('ยังไม่มีข้อมูล'));
+  await many.waitForFunction(() => new URL(location.href).searchParams.get('year') === '2025' && document.querySelector('.load-status')?.textContent.includes('อัปเดตล่าสุด'));
   assert.equal(await many.getByRole('button', { name: 'เกินกำหนด', exact: true }).innerText(), '0');
   await many.locator('.month-picker-btn').click();
   await many.getByTitle('September', { exact: true }).click();
-  await many.waitForFunction(() => new URL(location.href).searchParams.get('months')?.split(',').length === 2 && !document.querySelector('.scope-panel')?.textContent.includes('ยังไม่มีข้อมูล'));
+  await many.waitForFunction(() => new URL(location.href).searchParams.get('months')?.split(',').length === 2 && document.querySelector('.load-status')?.textContent.includes('อัปเดตล่าสุด'));
   await many.close(); dense = false;
   results.push({ check: 'Failed task API is visible; 43 staff show-all; 61-task pagination/search; historic year and multiple months', passed: true });
 

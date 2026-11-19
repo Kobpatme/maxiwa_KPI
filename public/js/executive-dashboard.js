@@ -974,7 +974,7 @@ function PersonalKpiTable({ person, catalog, holidays, mode = 'actual' }) {
       const items = subs.flatMap((row) => row.items);
       const p = buildPortfolio(items, holidays, person.asOfDate);
       const current = [...new Set(subs.filter((row) => row.configured && row.assignmentKnown).map((row) => row.effectiveWeight))];
-      return <details key={main} className="mx-soft p-4" open>
+      return <details key={main} className="mx-soft p-4">
         <summary><strong>{main}</strong> • น้ำหนักปัจจุบัน {formatWeights(current)} {current.length > 1 ? '(ต่างกันตาม Sub KPI)' : ''} • {items.length} งาน</summary>
         <div className="flex flex-wrap gap-2 mt-3"><TaskLink items={items} title={'งาน Main KPI: ' + main}>ดูงานทั้งหมด ({items.length})</TaskLink>
           <span>W.Completion {fmtPct(p.completion)} • W.SLA {fmtPct(p.scores.sla)}</span></div>
@@ -1997,7 +1997,7 @@ function EmployeeDetailModal({ person, holidays = [], kpis = [], onClose }) {
           </div>
         </div>
         <ReportContext />
-        <PersonalKpiTable person={person} catalog={kpis} holidays={holidays} />
+        <PersonalKpiTable key={person.employeeKey} person={person} catalog={kpis} holidays={holidays} />
         <button className="mx-btn no-print mt-3" onClick={() => openTeam({ team: person.team })}>ดูทีม {person.team}</button>
         <div className="employee-summary-grid">
           <div><span>Total Work</span><strong>{fmtNum(person.total)}</strong></div>
@@ -2526,7 +2526,7 @@ function KpiWeightsPanel({ catalog, tasks, personRows, holidays, asOfDate, kpiSe
       <label>เรียงตาม<select className="mx-input" aria-label="เรียงตาม" value={sort} onChange={(e) => setSort(e.target.value)}><option value="main">Main KPI</option><option value="total">จำนวนงาน</option><option value="risk">น้ำหนักงานเสี่ยง</option></select></label></>}
     </div>
     <p className="text-sm">{person ? 'รายละเอียดบุคคล: ' + person.person + (mode === 'current' ? ' • KPI ที่ได้รับมอบหมายตามทะเบียนปัจจุบัน' : ' • KPI จากงานจริงในช่วงที่เลือก') : (mode === 'current' ? 'การตั้งค่าปัจจุบัน' : 'น้ำหนักจากงานในช่วงที่เลือก') + ' • ' + rows.length + ' รายการ'} • ตัวกรองหน้านี้ใช้เฉพาะตารางนี้</p>
-    {person ? <PersonalKpiTable person={person} catalog={catalog} holidays={holidays} mode={mode} /> : <>
+    {person ? <PersonalKpiTable key={person.employeeKey} person={person} catalog={catalog} holidays={holidays} mode={mode} /> : <>
       <DataTable minWidth={1100}><thead><tr><th>ทีม</th><th>Main KPI</th><th>Sub KPI</th><th>น้ำหนักพื้นฐานปัจจุบัน</th><th>น้ำหนักที่บันทึกกับงาน</th><th>ทั้งหมด / เสร็จ / ค้าง / ยกเลิก</th><th>W.Completion</th><th>W.SLA</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.key}><td>{row.team}</td><td>{row.main}</td><td><TaskLink title={row.main + ' / ' + row.sub} items={row.items}>{row.sub}</TaskLink><small className="block">{row.configured ? 'มีในทะเบียนปัจจุบัน' : 'จากงานจริง / ไม่มีทะเบียนที่ตรงกัน'}</small></td>
           <td>{formatWeights(row.baseWeights)}</td><td>{formatWeights(row.weights)}{row.weights.length > 1 && <small className="block">หลายค่าน้ำหนัก ไม่ใช้ค่าสูงสุดแทนทั้งกลุ่ม</small>}{row.items.some((task) => !hasExplicitWeight(task)) && <small className="block">มีงานใช้ค่าสำรอง 1</small>}</td>
@@ -2559,8 +2559,6 @@ function App() {
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [taskSelection, setTaskSelection] = useState(null);
-  const [scopeTeam, setScopeTeam] = useState('all');
-  const [scopeMain, setScopeMain] = useState('all');
   const [theme, setTheme] = useState(getInitialExecutiveTheme);
   const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [], holidays: [], kpis: [], lastUpdated: null });
   const loadRequestRef = React.useRef(0);
@@ -2688,14 +2686,10 @@ function App() {
   const visibleCatalog = useMemo(() => filterByAllowedTeams(state.user, state.kpis || []).filter((kpi) =>
     (!isTeamScopedRole(state.user?.role) || kpi.team === state.user.team)
     && (!isSelfScopedRole(state.user?.role) || ((!kpi.team || kpi.team === state.user.team) && isKpiAssignedToPerson(state.user, kpi)))), [state.kpis, state.user]);
-  const scopeTeams = [...new Set([...allTasks.map(teamName), ...visibleStaff.map(teamName), ...visibleCatalog.map((kpi) => kpi.team).filter(Boolean)])].sort();
-  const scopeMains = [...new Set([...allTasks.filter((task) => scopeTeam === 'all' || teamName(task) === scopeTeam).map(mainKpi),
-    ...visibleCatalog.filter((kpi) => scopeTeam === 'all' || kpi.team === scopeTeam).map(kpiMainValue)])].filter(Boolean).sort();
-  const tasks = useMemo(() => allTasks.filter((task) => (scopeTeam === 'all' || teamName(task) === scopeTeam) && (scopeMain === 'all' || mainKpi(task) === scopeMain)), [allTasks, scopeTeam, scopeMain]);
-  const catalog = useMemo(() => visibleCatalog.filter((kpi) => (scopeTeam === 'all' || kpi.team === scopeTeam) && (scopeMain === 'all' || kpiMainValue(kpi) === scopeMain)), [visibleCatalog, scopeTeam, scopeMain]);
-  const staffDirectory = useMemo(() => visibleStaff.filter((profile) => (scopeTeam === 'all' || teamName(profile) === scopeTeam)
-    && (scopeMain === 'all' || assignedSubKpisForPerson(profile, visibleCatalog).some((kpi) => kpi.main === scopeMain) || tasks.some((task) => personGroupKey(task) === personGroupKey(profile)))), [visibleStaff, visibleCatalog, scopeTeam, scopeMain, tasks]);
-  useEffect(() => { setTaskSelection(null); setSelectedPerson(null); setSelectedTeam(null); }, [state.tasks, scopeTeam, scopeMain, year, selectedMonths.join(',')]);
+  const tasks = allTasks;
+  const catalog = visibleCatalog;
+  const staffDirectory = visibleStaff;
+  useEffect(() => { setTaskSelection(null); setSelectedPerson(null); setSelectedTeam(null); }, [state.tasks, year, selectedMonths.join(',')]);
   const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
   // riskAsOfDate: for single-month use end-of-month; for multi-month or all: use end of latest selected month or today
   const riskAsOfDate = useMemo(() => {
@@ -2844,7 +2838,7 @@ function App() {
   const activePerson = personRows.find((row) => row.employeeKey === selectedPerson?.employeeKey) || null;
   const activeTeam = teamRows.find((row) => row.team === selectedTeam?.team) || null;
   const actions = {
-    reportContext: periodLabel + ' • ทีม ' + (scopeTeam === 'all' ? 'ทั้งหมดที่มีสิทธิ์' : scopeTeam) + ' • Main KPI ' + (scopeMain === 'all' ? 'ทั้งหมด' : scopeMain) + ' • ' + riskAsOfLabel(riskAsOfDate) + ' • อัปเดต ' + (state.lastUpdated ? new Date(state.lastUpdated).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'ยังไม่มีข้อมูล') + ' (เวลาไทย) • สถานะล่าสุดที่โหลด',
+    reportContext: periodLabel + ' • ทีม ' + 'ทั้งหมดที่มีสิทธิ์' + ' • Main KPI ' + 'ทั้งหมด' + ' • ' + riskAsOfLabel(riskAsOfDate) + ' • อัปเดต ' + (state.lastUpdated ? new Date(state.lastUpdated).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'ยังไม่มีข้อมูล') + ' (เวลาไทย) • สถานะล่าสุดที่โหลด',
     openTasks: (title, items) => { const visible = new Set(tasks); setTaskSelection({ title, items: items.filter((task) => visible.has(task)) }); },
     openPerson: (source) => {
       const row = personRows.find((person) => person.employeeKey === source?.employeeKey || person.employeeKey === personGroupKey(source) || person.items.includes(source));
@@ -2886,19 +2880,9 @@ function App() {
           </div>
         </div>
         {state.error && <div className="mt-4 mx-soft p-4 text-sm font-bold text-[var(--mx-danger)]">{state.error}</div>}
+        {(state.warnings || []).map((warning) => <p key={warning} role="status" className="mt-3 text-sm text-[var(--mx-warning)]">{warning}</p>)}
       </header>
 
-      <section className="mx-card p-5 scope-panel" aria-label="ขอบเขตข้อมูล">
-        <h2 className="section-title">ขอบเขตข้อมูลทุกแท็บ</h2>
-        <div className="scope-controls no-print"><label>ทีม<select className="mx-input" aria-label="ทีม" value={scopeTeam} onChange={(e) => { setScopeTeam(e.target.value); setScopeMain('all'); setPersonTeamFilter('all'); }}><option value="all">ทุกทีมที่มีสิทธิ์</option>{scopeTeams.map((team) => <option key={team}>{team}</option>)}</select></label>
-          <label>Main KPI<select className="mx-input" aria-label="Main KPI" value={scopeMain} onChange={(e) => setScopeMain(e.target.value)}><option value="all">ทั้งหมด</option>{scopeMains.map((main) => <option key={main}>{main}</option>)}</select></label></div>
-        <p>{periodLabel} • ทีม {scopeTeam === 'all' ? 'ทั้งหมดที่มีสิทธิ์' : scopeTeam} • Main KPI {scopeMain === 'all' ? 'ทั้งหมด' : scopeMain} • {riskAsOfLabel(riskAsOfDate)}</p>
-        <p className="text-sm text-[var(--mx-muted)]">ข้อมูลสถานะล่าสุดที่โหลด ไม่ใช่ประวัติสถานะ ณ วันย้อนหลัง • งานเสร็จเลือกตามวันปิดในช่วงที่เลือก งานค้างรวมงานเริ่มก่อนสิ้นช่วงจากปีก่อนด้วย • กราฟงานเข้า–เสร็จคำนวณจากชุดข้อมูลที่โหลดในขอบเขตนี้</p>
-        <p className="text-sm">อัปเดตล่าสุด {state.lastUpdated ? new Date(state.lastUpdated).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'ยังไม่มีข้อมูล'} (เวลาไทย) • บุคลากรมีงาน {personRows.filter((row) => row.total > 0).length} / {personRows.length} คนในขอบเขต • ไม่มีงาน {personRows.filter((row) => row.total === 0).length} คน</p>
-        {state.loading && <p role="status">กำลังโหลดข้อมูลช่วงที่เลือก… ตัวเลขจะแสดงเมื่อโหลดข้อมูลสำเร็จ</p>}
-        {(state.warnings || []).map((warning) => <p key={warning} role="status" className="text-[var(--mx-warning)]">{warning}</p>)}
-        <ScoreMethod tasks={tasks} holidays={holidaySet} />
-      </section>
       <section className="mx-card hero-band p-5 md:p-8">
         <div className="presentation-grid items-stretch">
           <div className="grid md:grid-cols-2 gap-5">
