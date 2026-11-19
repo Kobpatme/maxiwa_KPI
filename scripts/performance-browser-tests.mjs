@@ -1,3 +1,4 @@
+import { createPerformanceAdminFixture } from './performance-admin-fixture.mjs';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
@@ -26,18 +27,26 @@ const staff = [
   { empid: 'E2', name: 'Fixture Two', team: 'Beta', role: 'Staff' },
   { empid: 'E3', name: 'No Work', team: 'Alpha', role: 'Staff' },
 ];
-const make = (patch) => ({ id: 'T1', empid: 'E1', name: 'Fixture One', team: 'Alpha', mainkpi: 'Delivery', subkpi: 'Install', mainkpiweight: 30, status: 'Pending', startdate: '2025-12-01', deadline: '2026-11-18', job: 'JOB001_01 Fixture work', ...patch });
+const make = (patch) => ({ id: 'T1', empid: 'E1', name: 'Fixture One', team: 'Alpha', mainkpi: 'Delivery', subkpi: 'Install', mainkpiweight: 30, weight: null, extra_data: {}, note: '', status: 'Pending', startdate: '2025-12-01', deadline: '2026-11-18', job: 'JOB001_01 Fixture work', ...patch });
 const tasks = [make({ status: 'Completed', completiondate: '2026-11-17' }), make({ id: 'T2', mainkpiweight: 40, job: 'JOB002_01 Overdue fixture' }), make({ id: 'T3', deadline: '2026-11-20', extra_data: { kpi_effective_weight: 35 }, mainkpiweight: undefined }),
   make({ id: 'T4', status: 'Cancelled', completiondate: '2026-11-17' }), make({ id: 'T5', empid: 'E2', name: 'Fixture Two', team: 'Beta', mainkpi: 'Quality', subkpi: 'Inspect', status: 'Completed', completiondate: '2026-11-19' }),
   make({ id: 'T6', mainkpi: 'Legacy', subkpi: '', deadline: null, mainkpiweight: undefined }),
 ];
 let role = 'Admin'; let catalogFails = false; let taskFails = false; let empty = false; let dense = false; let legacyFixture = false;
 const apiCalls = [];
+const adminActor = { empid: 'VIEWER', name: 'Fixture Viewer', team: 'Alpha', role: 'Admin', permissions: {}, active_session_id: 'fixture-session', active_session_updated_at: new Date().toISOString(), active_session_expires_at: new Date(Date.now() + 3600000).toISOString() };
+const adminDatabase = createPerformanceAdminFixture({ users: [adminActor, ...staff], kpis, tasks });
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const json = (value) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(value)); };
   if (url.pathname.startsWith('/api/')) {
     apiCalls.push({ method: req.method, endpoint: url.pathname, query: Object.fromEntries(url.searchParams) });
+    if (['/api/admin/previewPerformanceEdit', '/api/admin/applyPerformanceEdit'].includes(url.pathname)) {
+      const chunks = []; for await (const chunk of req) chunks.push(chunk);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      const result = await adminDatabase.request(url.pathname.slice(5), body, { empId: req.headers['x-session-empid'], sessionId: req.headers['x-session-id'] });
+      res.statusCode = result.status; res.setHeader('content-type', 'application/json'); return res.end(await result.text());
+    }
     if (url.pathname.endsWith('/getInitialData')) {
       const user = role === 'Staff' ? staff[0] : { empid: 'VIEWER', name: 'Fixture Viewer', team: 'Alpha', role, permissions: { allowedTeams: ['Alpha'] } };
       return json({ user, kpis, sessionId: 'fixture-session' });
@@ -248,8 +257,64 @@ try {
   await many.close(); dense = false;
   results.push({ check: 'Failed task API is visible; 43 staff show-all; 61-task pagination/search; historic year and multiple months', passed: true });
 
+  const adminPage = await open('employees');
+  await adminPage.locator('.employee-card').filter({ hasText: 'Fixture One' }).click();
+  const adminPerson = adminPage.getByRole('dialog', { name: 'รายละเอียดบุคคล' });
+  await adminPerson.locator('.personal-main-summary').filter({ hasText: 'Legacy' }).click();
+  await adminPerson.getByRole('button', { name: 'แก้ไข KPI General', exact: true }).click();
+  const editor = adminPage.getByRole('dialog', { name: 'แอดมินแก้ไข KPI และน้ำหนัก' });
+  await editor.getByRole('combobox', { name: 'KPI ปลายทาง', exact: true }).selectOption('K1');
+  await editor.getByRole('checkbox', { name: 'ปรับน้ำหนักมาตรฐานทีม', exact: true }).check();
+  await editor.getByRole('spinbutton', { name: 'น้ำหนักมาตรฐานทีม', exact: true }).fill('60');
+  await editor.getByRole('combobox', { name: 'รูปแบบน้ำหนักบุคคล', exact: true }).selectOption('custom');
+  await editor.getByRole('spinbutton', { name: 'น้ำหนักเฉพาะบุคคล', exact: true }).fill('20');
+  await editor.getByRole('textbox', { name: 'เหตุผลการแก้ไข', exact: true }).fill('Fix legacy fixture KPI and selected task weight');
+  await editor.getByRole('checkbox', { name: 'เลือกงาน T6', exact: true }).check();
+  await editor.getByRole('button', { name: 'ตรวจรายการและคะแนนก่อนบันทึก', exact: true }).click();
+  await editor.locator('.admin-edit-preview').waitFor();
+  assert.ok((await editor.locator('.admin-edit-preview').innerText()).includes('คะแนน'));
+  assert.equal(adminDatabase.state.calls.filter((call) => call.method !== 'GET').length, 0);
+  await editor.getByRole('spinbutton', { name: 'น้ำหนักเฉพาะบุคคล', exact: true }).fill('21');
+  await editor.locator('.admin-edit-preview').waitFor({ state: 'detached' });
+  await editor.getByRole('spinbutton', { name: 'น้ำหนักเฉพาะบุคคล', exact: true }).fill('20');
+  await editor.getByRole('button', { name: 'ตรวจรายการและคะแนนก่อนบันทึก', exact: true }).click();
+  await editor.locator('.admin-edit-preview').waitFor();
+  await adminPage.screenshot({ path: path.join(output, 'admin-edit-preview.png'), fullPage: false });
+  await editor.getByRole('button', { name: 'ยืนยันบันทึกลงฐานข้อมูล', exact: true }).click();
+  await editor.getByRole('button', { name: 'ปิดและดูข้อมูลล่าสุด', exact: true }).click();
+  await editor.waitFor({ state: 'detached' });
+  assert.equal(tasks.find((task) => task.id === 'T6').mainkpi, 'Delivery');
+  assert.equal(tasks.find((task) => task.id === 'T6').subkpi, 'Install');
+  assert.equal(tasks.find((task) => task.id === 'T6').mainkpiweight, 20);
+  assert.equal(tasks.find((task) => task.id === 'T1').mainkpiweight, 30);
+  assert.equal(kpis.find((kpi) => kpi.id === 'K1').main_weight, 60);
+  assert.equal(staff[0].permissions.kpiOverrides.K1.weight, 20);
+  assert.ok((await adminPage.locator('.employee-card').filter({ hasText: 'Fixture One' }).innerText()).includes('20%'));
+  await adminPage.close();
+  const mobileAdmin = await open('employees', { viewport: { width: 390, height: 844 }, isMobile: true, deviceScaleFactor: 1 });
+  await mobileAdmin.locator('.employee-card').filter({ hasText: 'Fixture One' }).click();
+  await mobileAdmin.locator('.personal-main-summary').filter({ hasText: 'Delivery' }).click();
+  await mobileAdmin.getByRole('button', { name: 'แก้ไข KPI Install', exact: true }).click();
+  const mobileEditor = mobileAdmin.getByRole('dialog', { name: 'แอดมินแก้ไข KPI และน้ำหนัก' });
+  await mobileEditor.getByRole('combobox', { name: 'รูปแบบน้ำหนักบุคคล', exact: true }).selectOption('custom');
+  await mobileEditor.getByRole('spinbutton', { name: 'น้ำหนักเฉพาะบุคคล', exact: true }).fill('21');
+  await mobileEditor.getByRole('textbox', { name: 'เหตุผลการแก้ไข', exact: true }).fill('Mobile preview only');
+  const beforeMobileWrites = adminDatabase.state.calls.filter((call) => call.method !== 'GET').length;
+  await mobileEditor.getByRole('button', { name: 'ตรวจรายการและคะแนนก่อนบันทึก', exact: true }).click();
+  await mobileEditor.getByRole('region', { name: 'ผลกระทบก่อนบันทึก', exact: true }).waitFor();
+  assert.equal(await mobileAdmin.evaluate(() => document.documentElement.scrollWidth > 390), false);
+  assert.equal(adminDatabase.state.calls.filter((call) => call.method !== 'GET').length, beforeMobileWrites);
+  await mobileAdmin.screenshot({ path: path.join(output, 'admin-edit-mobile.png'), fullPage: false });
+  await mobileAdmin.close();
+  results.push({ check: 'Admin editor and score preview at 390px stay within viewport and preview performs no writes', passed: true });
+  role = 'Staff'; const readOnly = await open('employees');
+  await readOnly.locator('.employee-card').filter({ hasText: 'Fixture One' }).click();
+  await readOnly.locator('.personal-main-summary').filter({ hasText: 'Delivery' }).click();
+  assert.equal(await readOnly.getByRole('button', { name: /^แก้ไข KPI/ }).count(), 0);
+  await readOnly.close(); role = 'Admin';
+  results.push({ check: 'Admin edits KPI mapping/team and personal settings with real worker preview/apply against fixture DB; only selected task updated; Staff is read-only', passed: true });
   assert.equal(results.filter((r) => r.pageError).length, 0, JSON.stringify(results));
-  assert.ok(apiCalls.every((call) => call.method === 'GET' || call.endpoint === '/api/getInitialData'), 'Unexpected mutation');
+  assert.ok(apiCalls.every((call) => call.method === 'GET' || ['/api/getInitialData', '/api/admin/previewPerformanceEdit', '/api/admin/applyPerformanceEdit'].includes(call.endpoint)), 'Unexpected mutation');
   await writeFile(path.join(output, 'results.json'), JSON.stringify({ results, apiCalls: apiCalls.length }, null, 2));
   console.log(JSON.stringify(results, null, 2));
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }

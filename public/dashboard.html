@@ -1729,6 +1729,20 @@
     .personal-main-total { position:absolute; right:0; top:50%; transform:translateY(-50%); display:inline-block; padding:5px 12px; border:1px solid var(--mx-line-strong); border-radius:8px; background:var(--mx-panel-strong); color:var(--mx-info); font-size:15px; font-weight:900; white-space:nowrap; }
     @media (max-width:640px) { .personal-kpi-detail .personal-main-summary { padding-right:142px; } .personal-main-total { padding:4px 8px; font-size:13px; } }
     @media print { .personal-main-total { font-size:10pt; } }
+    .performance-edit-backdrop { z-index:180; }
+    .performance-edit-modal { width:min(1280px,100%); padding-top:48px; }
+    .admin-edit-field { display:grid; gap:6px; font-size:13px; font-weight:800; }
+    .admin-edit-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .admin-edit-check { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:800; }
+    .admin-edit-check input, .admin-task-option input { width:18px; height:18px; flex-shrink:0; }
+    .admin-task-selection { max-height:300px; overflow:auto; }
+    .admin-task-option { display:flex; align-items:start; gap:10px; padding:10px 0; border-top:1px solid var(--mx-line); font-size:12px; }
+    .admin-task-option span { overflow-wrap:anywhere; min-width:0; }
+    .admin-task-option small { display:block; color:var(--mx-muted); margin-top:4px; }
+    .admin-edit-preview th, .admin-edit-preview td { padding:10px; border-bottom:1px solid var(--mx-line); vertical-align:top; text-align:left; font-size:12px; }
+    .admin-edit-preview p { margin:10px 0; font-size:13px; line-height:1.7; }
+    .admin-impact-warning { color:var(--mx-warning); font-weight:800; }
+    @media(max-width:640px) { .admin-edit-grid { grid-template-columns:1fr; } .performance-edit-modal { padding:48px 14px 16px; } }
   </style>
 </head>
 <body>

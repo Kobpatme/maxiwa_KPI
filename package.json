@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node scripts/logic-tests.mjs && node scripts/performance-tests.mjs",
+    "test": "node scripts/logic-tests.mjs && node scripts/performance-tests.mjs && node scripts/performance-admin-tests.mjs",
     "test:logic": "node scripts/logic-tests.mjs",
     "test:build": "node scripts/build-tests.mjs",
     "dev": "npm run build && node local-dev-server.mjs",
     "deploy": "npm run build && wrangler pages deploy dist --project-name metrixverity",
     "test:performance": "node scripts/performance-tests.mjs",
-    "test:performance:browser": "node scripts/performance-browser-tests.mjs"
+    "test:performance:browser": "node scripts/performance-browser-tests.mjs",
+    "test:performance:admin": "node scripts/performance-admin-tests.mjs"
   },
   "devDependencies": {
     "esbuild": "0.27.3",

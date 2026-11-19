@@ -1025,6 +1025,7 @@ function sumPersonalKpiWeights(rows = []) {
 }
 
 function PersonalKpiTable({ person, catalog, holidays, mode = 'actual' }) {
+  const { canEditPerformance, openPerformanceEdit } = React.useContext(PerformanceActions);
   const rows = visiblePersonalKpiRows(person, catalog, holidays, mode);
   const mains = Object.entries(groupBy(rows, (row) => row.main));
   return <div className="personal-kpi-detail mt-5">
@@ -1041,11 +1042,11 @@ function PersonalKpiTable({ person, catalog, holidays, mode = 'actual' }) {
         <summary className="personal-main-summary"><span className="personal-main-caption"><strong>{main}</strong> • น้ำหนักปัจจุบัน {formatWeights(current)} {current.length > 1 ? '(ต่างกันตาม Sub KPI)' : ''} • {items.length} งาน</span><span className="personal-main-total" title={weightSummary.complete ? 'ผลรวมน้ำหนักที่ตั้งไว้ของ Sub KPI ที่แสดง อย่างละหนึ่งครั้ง' : 'ยังยืนยันน้ำหนักปัจจุบันไม่ได้ ' + weightSummary.missing + ' รายการ'}>{weightSummary.complete ? 'รวม ' : totalWeight === null ? 'รวม ' : 'รวมที่ทราบ '}{totalWeight === null ? '—' : fmtPct(totalWeight)}{!weightSummary.complete && <small className="personal-total-incomplete">ข้อมูลไม่ครบ {weightSummary.missing} รายการ</small>}</span></summary>
         <div className="flex flex-wrap gap-2 mt-3"><TaskLink items={items} title={'งาน Main KPI: ' + main}>ดูงานทั้งหมด ({items.length})</TaskLink>
           <span>W.Completion {fmtPct(p.completion)} • W.SLA {fmtPct(p.scores.sla)}</span></div>
-        <DataTable minWidth={1020}><thead><tr><th>Sub KPI / การมอบหมาย</th><th>พื้นฐานปัจจุบัน</th><th>ใช้กับบุคคลปัจจุบัน</th><th>บันทึกกับงาน</th><th>ทั้งหมด / เสร็จ / ค้าง / ยกเลิก / เกิน</th><th>W.Completion</th><th>W.SLA</th></tr></thead>
+        <DataTable minWidth={1020}><thead><tr><th>Sub KPI / การมอบหมาย</th><th>พื้นฐานปัจจุบัน</th><th>ใช้กับบุคคลปัจจุบัน</th><th>บันทึกกับงาน</th><th>ทั้งหมด / เสร็จ / ค้าง / ยกเลิก / เกิน</th><th>W.Completion</th><th>W.SLA</th>{canEditPerformance && <th className="no-print">จัดการ</th>}</tr></thead>
           <tbody>{subs.map((row) => <tr key={row.key}><td><TaskLink items={row.items} title={main + ' / ' + row.sub}>{row.sub}</TaskLink><small className="block">{row.configured ? !row.assignmentKnown ? 'ข้อมูลการมอบหมายบุคคลไม่ครบ' : row.assigned ? 'ได้รับมอบหมาย' : 'ไม่ได้รับมอบหมายปัจจุบัน' : 'จับคู่ทะเบียนปัจจุบันไม่ได้'}{row.items.length === 0 ? ' • ยังไม่มีงานในช่วงนี้' : ''}</small></td>
             <td>{row.configured ? fmtPct(row.baseWeight) : '—'}</td><td>{row.configured ? row.assignmentKnown ? fmtPct(row.effectiveWeight) : 'ไม่ทราบ' : '—'}{row.overridden && <small className="block">ปรับเฉพาะบุคคล</small>}</td>
             <td>{formatWeights(row.weights)}{row.items.some((task) => !hasExplicitWeight(task)) && <small className="block">มีงานใช้ค่าสำรอง 1</small>}</td>
-            <td>{row.items.length} / {row.portfolio.completed.length} / {row.portfolio.active.length} / {row.portfolio.cancelled.length} / {row.portfolio.overdue.length}</td><td>{fmtPct(row.portfolio.completion)}</td><td>{fmtPct(row.portfolio.scores.sla)}</td></tr>)}</tbody>
+            <td>{row.items.length} / {row.portfolio.completed.length} / {row.portfolio.active.length} / {row.portfolio.cancelled.length} / {row.portfolio.overdue.length}</td><td>{fmtPct(row.portfolio.completion)}</td><td>{fmtPct(row.portfolio.scores.sla)}</td>{canEditPerformance && <td className="no-print"><button type="button" className="mx-btn" disabled={!person.empId && !userEmpId(person.profile)} onClick={() => openPerformanceEdit(person, row)} aria-label={'แก้ไข KPI ' + row.sub}>แก้ไข</button></td>}</tr>)}</tbody>
         </DataTable></details>;
     })}</div><div className="mt-4"><ScoreMethod tasks={person.items} holidays={holidays} /></div>
   </div>;
@@ -2612,6 +2613,89 @@ function KpiWeightsPanel({ catalog, tasks, personRows, holidays, asOfDate, kpiSe
   </section>;
 }
 
+function AdminPerformanceEditor({ selection, catalog, scope, onClose, onSaved }) {
+  const person = selection.person, source = selection.row;
+  const profile = person.profile || {};
+  const team = source.team || person.team;
+  const options = catalog.filter((kpi) => String(kpi.team || '').trim().toLowerCase() === String(team).trim().toLowerCase() && kpi.id);
+  const initial = options.find((kpi) => String(kpi.id) === String(source.settingKey)) || options.find((kpi) => kpiMainValue(kpi) === source.main && kpiSubValue(kpi) === source.sub);
+  const [targetId, setTargetId] = useState(initial ? String(initial.id) : '');
+  const [changeTeam, setChangeTeam] = useState(false);
+  const [teamWeight, setTeamWeight] = useState(String(initial ? kpiBaseWeight(initial) : ''));
+  const [personalMode, setPersonalMode] = useState('keep');
+  const [personalWeight, setPersonalWeight] = useState(String(initial ? personalKpiOverride(profile, initial) || kpiBaseWeight(initial) : ''));
+  const [assigned, setAssigned] = useState(initial ? isKpiAssignedToPerson(profile, initial) : true);
+  const [reason, setReason] = useState('');
+  const [ids, setIds] = useState([]);
+  const [page, setPage] = useState(0);
+  const [preview, setPreview] = useState(null);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const busyRef = React.useRef(false);
+  const previewRef = React.useRef(null);
+  useEffect(() => { if (preview) previewRef.current?.scrollIntoView({ block: 'start' }); }, [preview]);
+  const close = () => { if (!busyRef.current) onClose(); };
+  useDialogAccessibility(true, close);
+  const tasks = source.items.filter((task) => task.id);
+  const pageCount = Math.max(1, Math.ceil(tasks.length / 25));
+  const shown = tasks.slice(page * 25, (page + 1) * 25);
+  const change = (setter, value) => { setter(value); setPreview(null); setError(''); };
+  const payload = { empId: person.empId || userEmpId(profile), team, targetKpiId: targetId, taskIds: ids, changeTeamWeight: changeTeam, teamWeight: Number(teamWeight), personalMode, personalWeight: Number(personalWeight), assigned, reason: reason.trim(), year: Number(scope.year), months: scope.months.map(Number) };
+  const selectTarget = (value) => {
+    const kpi = options.find((row) => String(row.id) === value);
+    setTargetId(value); setTeamWeight(kpi ? String(kpiBaseWeight(kpi)) : ''); setChangeTeam(false); setPersonalMode('keep');
+    setPersonalWeight(kpi ? String(personalKpiOverride(profile, kpi) || kpiBaseWeight(kpi)) : '');
+    setAssigned(kpi ? isKpiAssignedToPerson(profile, kpi) : true); setPreview(null); setError('');
+  };
+  const toggleTask = (id) => change(setIds, ids.includes(id) ? ids.filter((value) => value !== id) : ids.length < 50 ? [...ids, id] : ids);
+  const run = async (apply = false) => {
+    if (busyRef.current || (apply && !preview)) return;
+    busyRef.current = true; setBusy(true); setError('');
+    try {
+      const response = apply ? await API.applyPerformanceEdit({ ...payload, fingerprint: preview.fingerprint }) : await API.previewPerformanceEdit(payload);
+      if (apply) { setResult(response); setPreview(null); await onSaved(response); }
+      else { if (response.error) throw new Error(response.error); setPreview(response); }
+    } catch (failure) { setError(failure.message || 'ดำเนินการไม่สำเร็จ'); if (apply) setPreview(null); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+  return <div className="modal-backdrop performance-edit-backdrop" onClick={close}><div className="modal-card performance-edit-modal" role="dialog" aria-modal="true" aria-label="แอดมินแก้ไข KPI และน้ำหนัก" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
+    <button type="button" className="modal-close" disabled={busy} onClick={close} aria-label="ปิดหน้าต่างแก้ไข">×</button>
+    <h2 className="section-title">แก้ไข KPI และน้ำหนัก</h2><p className="text-sm">{person.person} • {team} • {source.main} / {source.sub}</p>
+    {result ? <div className="mx-soft p-4" role="status"><h3>{result.partial ? 'บันทึกได้บางส่วน' : 'บันทึกลงฐานข้อมูลแล้ว'}</h3><p>{result.message}</p><p>อัปเดตงาน {result.updatedIds.length} รายการ • ยังไม่อัปเดต {result.notUpdatedIds.length} รายการ</p>
+      {result.error && <p>{result.error}</p>}{result.notUpdatedIds.length > 0 && <p className="task-job">รหัสงานที่เหลือ: {result.notUpdatedIds.join(', ')}</p>}
+      {!result.auditRecorded && <p>บันทึกข้อมูลแล้ว แต่บันทึกประวัติการแก้ไขไม่สำเร็จ</p>}<button className="mx-btn" disabled={busy} onClick={close}>ปิดและดูข้อมูลล่าสุด</button></div> : <form onSubmit={(event) => { event.preventDefault(); run(false); }}>
+      <fieldset disabled={busy} className="grid gap-4">
+        <label className="admin-edit-field">จับคู่กับ Main/Sub KPI ในทะเบียน<select className="mx-input" aria-label="KPI ปลายทาง" required value={targetId} onChange={(event) => selectTarget(event.target.value)}><option value="">เลือก KPI ของทีมนี้</option>{options.map((kpi) => <option key={kpi.id} value={String(kpi.id)}>{kpiMainValue(kpi)} / {kpiSubValue(kpi)}</option>)}</select></label>
+        {!options.length && <p>ยังไม่มีทะเบียน KPI ของทีมนี้ ให้เพิ่มกฎ KPI ในเมนูแอดมินก่อน</p>}
+        <div className="admin-edit-grid"><div className="mx-soft p-4"><label className="admin-edit-check"><input type="checkbox" checked={changeTeam} onChange={(event) => change(setChangeTeam, event.target.checked)} />ปรับน้ำหนักมาตรฐานทีม</label>
+          <label className="admin-edit-field">น้ำหนักทีม (%)<input className="mx-input" aria-label="น้ำหนักมาตรฐานทีม" type="number" min="0.0001" max="10000" step="any" disabled={!changeTeam} required={changeTeam} value={teamWeight} onChange={(event) => change(setTeamWeight, event.target.value)} /></label><p className="text-sm text-[var(--mx-muted)]">มีผลกับคะแนนทีมทุกงานที่ใช้กฎนี้ แม้ไม่ได้เลือกงานนั้น</p></div>
+          <div className="mx-soft p-4"><label className="admin-edit-field">น้ำหนักรายบุคคล<select className="mx-input" aria-label="รูปแบบน้ำหนักบุคคล" value={personalMode} onChange={(event) => change(setPersonalMode, event.target.value)}><option value="keep">คงค่าที่ตั้งไว้เดิม</option><option value="standard">ใช้ค่าน้ำหนักทีม</option><option value="custom">กำหนดเฉพาะบุคคล</option></select></label>
+          {personalMode === 'custom' && <label className="admin-edit-field">น้ำหนักเฉพาะบุคคล (%)<input className="mx-input" aria-label="น้ำหนักเฉพาะบุคคล" type="number" min="0.0001" max="10000" step="any" required value={personalWeight} onChange={(event) => change(setPersonalWeight, event.target.value)} /></label>}
+          <label className="admin-edit-check mt-3"><input type="checkbox" checked={assigned} onChange={(event) => change(setAssigned, event.target.checked)} />มอบหมาย KPI นี้ให้บุคคล</label></div></div>
+        <label className="admin-edit-field">เหตุผลการแก้ไข<input className="mx-input" aria-label="เหตุผลการแก้ไข" required maxLength={500} value={reason} onChange={(event) => change(setReason, event.target.value)} placeholder="เช่น แก้ Sub KPI งานเก่าให้ตรงกับทะเบียน" /></label>
+        <section className="mx-soft p-4"><h3 className="font-black">เลือกงานเก่าที่จะอัปเดต ({ids.length}/50)</h3><p className="text-sm">เฉพาะงานที่เลือกจะเปลี่ยน Main/Sub KPI และน้ำหนักที่บันทึกไว้ • ไม่แก้สถานะ วันที่ กำหนดส่ง หรือหมายเหตุ • ไม่เลือกงาน = ไม่เขียนทับข้อมูลที่บันทึกกับงานเก่า</p>
+          <div className="flex flex-wrap gap-2 mt-3"><button type="button" className="mx-btn" onClick={() => change(setIds, [...new Set([...ids, ...shown.map((task) => String(task.id))])].slice(0, 50))}>เลือกหน้านี้</button><button type="button" className="mx-btn" onClick={() => change(setIds, [])}>ล้างงานที่เลือก</button></div>
+          <div className="admin-task-selection mt-3">{shown.map((task) => <label className="admin-task-option" key={task.id}><input type="checkbox" aria-label={'เลือกงาน ' + task.id} checked={ids.includes(String(task.id))} disabled={ids.length >= 50 && !ids.includes(String(task.id))} onChange={() => toggleTask(String(task.id))} /><span><strong>{task.id} • {task.job || '-'}</strong><small>{task.status || '-'} • น้ำหนักบุคคลที่บันทึก {fmtPct(taskWeight(task))}</small></span></label>)}{!tasks.length && <p>ไม่มีงานในช่วงนี้ เลือกแก้การตั้งค่าได้</p>}</div>
+          <div className="flex gap-2 items-center mt-3"><button type="button" className="mx-btn" disabled={page === 0} onClick={() => setPage(page - 1)}>ก่อนหน้า</button><span>หน้า {page + 1}/{pageCount} • {tasks.length} งาน</span><button type="button" className="mx-btn" disabled={page + 1 >= pageCount} onClick={() => setPage(page + 1)}>ถัดไป</button></div>
+        </section>
+        <button className="mx-btn mx-btn-primary" type="submit" disabled={!targetId || !payload.empId || !reason.trim()}>ตรวจรายการและคะแนนก่อนบันทึก</button>
+      </fieldset>
+      {error && <p className="mt-3 text-[var(--mx-danger)]" role="alert">{error}</p>}
+      {preview && <section ref={previewRef} className="admin-edit-preview mx-soft p-4 mt-4" role="region" aria-label="ผลกระทบก่อนบันทึก"><h3 className="font-black">ตรวจผลกระทบก่อนบันทึก</h3>
+        <p>ช่วง {preview.scope.months.length ? preview.scope.months.join(', ') : 'ทุกเดือน'} / {preview.scope.year} • ทีม {preview.scope.team} • งานทีม {preview.scope.teamTaskCount} / งานบุคคลในทีมนี้ {preview.scope.personalTaskCount}</p>
+        {preview.settings.teamChanged && <p className="admin-impact-warning">กำลังเปลี่ยนน้ำหนักมาตรฐานทีมทั้งกฎ มีงานที่น้ำหนักทีมเปลี่ยนในช่วงนี้ {preview.teamAffected} รายการ รวมงานที่ไม่ได้เลือกด้วย</p>}
+        <p>น้ำหนักทีม {fmtPct(preview.target.beforeTeamWeight)} → {fmtPct(preview.target.afterTeamWeight)} • ค่าบุคคล {fmtPct(preview.target.beforePersonalWeight)} → {fmtPct(preview.target.afterPersonalWeight)}</p><p>การมอบหมาย: {preview.target.beforeAssigned ? 'มอบหมาย' : 'ไม่มอบหมาย'} → {preview.target.afterAssigned ? 'มอบหมาย' : 'ไม่มอบหมาย'}</p>
+        <DataTable minWidth={600}><thead><tr><th>คะแนนในช่วงที่เลือก</th><th>Completion ก่อน → หลัง</th><th>SLA ก่อน → หลัง</th><th>Performance ก่อน → หลัง</th></tr></thead><tbody>{[['team', 'ทีม (มาตรฐานทีม)'], ['personal', 'บุคคล (เฉพาะทีมนี้)']].map(([key, label]) => <tr key={key}><td>{label}</td>{['completion','sla','score'].map((metric) => <td key={metric}>{fmtPct(preview.scores[key].before[metric])} → {fmtPct(preview.scores[key].after[metric])}</td>)}</tr>)}</tbody></DataTable>
+        <DataTable minWidth={850}><thead><tr><th>งานที่เลือก</th><th>Main/Sub เดิม → ใหม่</th><th>น้ำหนักบุคคล ก่อน → หลัง</th><th>น้ำหนักทีม ก่อน → หลัง</th></tr></thead><tbody>{preview.rows.map((row) => <tr key={row.id}><td>{row.id}<small className="block">{row.job}</small></td><td>{row.beforeMain} / {row.beforeSub}<br/>→ {row.afterMain} / {row.afterSub}</td><td>{fmtPct(row.beforePersonalWeight)} → {fmtPct(row.afterPersonalWeight)}</td><td>{fmtPct(row.beforeTeamWeight)} → {fmtPct(row.afterTeamWeight)}</td></tr>)}{!preview.rows.length && <tr><td colSpan="4">เปลี่ยนเฉพาะการตั้งค่า ไม่เขียนทับข้อมูลในงานเก่า</td></tr>}</tbody></DataTable>
+        <p className="text-sm">ปรับค่าหรือเลือกงานเพิ่มแล้วต้องตรวจผลกระทบใหม่ หากข้อมูลถูกแก้ระหว่างนี้ ระบบจะให้ตรวจใหม่ก่อนบันทึก</p>
+        <button className="mx-btn mx-btn-primary mt-3" type="button" disabled={busy} onClick={() => run(true)}>{busy ? 'กำลังบันทึก…' : 'ยืนยันบันทึกลงฐานข้อมูล'}</button>
+      </section>}
+      {busy && <p role="status" className="mt-3">กำลังดำเนินการ กรุณารอ…</p>}
+    </form>}
+  </div></div>;
+}
+
 function App() {
   const params = new URLSearchParams(window.location.search);
   const initialEmpId = String(params.get('empId') || '').trim().toUpperCase();
@@ -2635,6 +2719,8 @@ function App() {
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [taskSelection, setTaskSelection] = useState(null);
+  const [performanceEdit, setPerformanceEdit] = useState(null);
+  const [editNotice, setEditNotice] = useState('');
   const [theme, setTheme] = useState(getInitialExecutiveTheme);
   const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [], holidays: [], kpis: [], lastUpdated: null });
   const loadRequestRef = React.useRef(0);
@@ -2923,6 +3009,8 @@ function App() {
   const activePerson = personRows.find((row) => row.employeeKey === selectedPerson?.employeeKey) || null;
   const activeTeam = teamRows.find((row) => row.team === selectedTeam?.team) || null;
   const actions = {
+    canEditPerformance: state.user?.role === 'Admin',
+    openPerformanceEdit: (person, row) => { if (state.user?.role === 'Admin') { setEditNotice(''); setPerformanceEdit({ person, row }); } },
     teamWeightForTask,
     overviewBasis: portfolio.scoreBasis,
     reportContext: periodLabel + ' • ทีม ' + 'ทั้งหมดที่มีสิทธิ์' + ' • Main KPI ' + 'ทั้งหมด' + ' • ' + riskAsOfLabel(riskAsOfDate) + ' • อัปเดต ' + (state.lastUpdated ? new Date(state.lastUpdated).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'ยังไม่มีข้อมูล') + ' (เวลาไทย) • สถานะล่าสุดที่โหลด',
@@ -2934,7 +3022,7 @@ function App() {
     openTeam: (source) => { setTaskSelection(null); setSelectedPerson(null); setSelectedTeam(source); },
   };
   return (
-    <PerformanceActions.Provider value={actions}><div className={taskSelection || activePerson || activeTeam ? 'performance-root has-dialog' : 'performance-root'}><Shell>
+    <PerformanceActions.Provider value={actions}><div className={performanceEdit || taskSelection || activePerson || activeTeam ? 'performance-root has-dialog' : 'performance-root'}><Shell>
       <header className="mx-card stage-header p-5 md:p-8">
         <div className="executive-header-grid">
           <div className="min-w-0">
@@ -2966,6 +3054,7 @@ function App() {
             <button className="mx-btn print-btn" onClick={() => window.print()}><i className="fa-solid fa-print mr-2"></i>พิมพ์</button>
           </div>
         </div>
+        {editNotice && <p role="status" className="mt-3 text-sm">{editNotice}</p>}
         {state.error && <div className="mt-4 mx-soft p-4 text-sm font-bold text-[var(--mx-danger)]">{state.error}</div>}
         {(state.warnings || []).map((warning) => <p key={warning} role="status" className="mt-3 text-sm text-[var(--mx-warning)]">{warning}</p>)}
       </header>
@@ -3007,6 +3096,7 @@ function App() {
       <TeamDetailModal team={activeTeam} holidays={holidaySet} personRows={personRows} onClose={() => setSelectedTeam(null)} />
       <EmployeeDetailModal person={activePerson} holidays={holidaySet} kpis={catalog} onClose={() => setSelectedPerson(null)} />
       {taskSelection && <TaskExplorer key={taskSelection.title} selection={taskSelection} holidays={holidaySet} asOfDate={riskAsOfDate} onClose={() => setTaskSelection(null)} />}
+      {performanceEdit && state.user?.role === 'Admin' && <AdminPerformanceEditor selection={performanceEdit} catalog={visibleCatalog} scope={{ year, months: selectedMonths }} onClose={() => setPerformanceEdit(null)} onSaved={async (result) => { setEditNotice(result.message + ' • อัปเดตงาน ' + result.updatedIds.length + ' รายการ'); await load(empId); }} />}
     </Shell></div></PerformanceActions.Provider>
   );
 }
