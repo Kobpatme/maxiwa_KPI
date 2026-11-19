@@ -67,7 +67,7 @@ let browser;
 const results = [];
 try {
   browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge', headless: true });
-  async function open(tab = 'overview', options = {}, expectError = false, details = true) {
+  async function open(tab = 'overview', options = {}, expectError = false) {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, ...options });
     page.on('pageerror', (error) => { results.push({ pageError: error.message }); });
     await page.route('**/*', (route) => route.request().url().startsWith(base) ? route.continue() : route.abort());
@@ -76,39 +76,8 @@ try {
     await page.getByRole('button', { name: 'รีเฟรช', exact: true }).waitFor();
     if (expectError) { await page.getByText('Fixture task failed', { exact: true }).waitFor(); return page; }
     await page.waitForFunction(() => document.querySelector('.scope-panel')?.textContent.includes('อัปเดตล่าสุด') && !document.querySelector('.scope-panel')?.textContent.includes('ยังไม่มีข้อมูล'));
-    if (details) { await page.locator('.advanced-performance > summary').click(); await page.locator('.advanced-content').waitFor(); }
     return page;
   }
-  const brief = await open('overview', {}, false, false);
-  assert.equal(await brief.locator('.hero-band').count(), 0);
-  assert.equal(await brief.locator('.tab-strip').count(), 0);
-  assert.equal(await brief.locator('.score-method').count(), 0);
-  assert.equal(await brief.locator('.executive-table th').count(), 6);
-  assert.equal(await brief.locator('.executive-table tbody tr').count(), 4);
-  assert.ok((await brief.locator('.executive-table tbody tr').first().innerText()).includes('Fixture One'));
-  assert.ok((await brief.locator('.executive-table tbody tr').first().innerText()).includes('25%–50%'));
-  assert.ok((await brief.locator('.executive-counts').innerText()).includes('3'));
-  await brief.getByRole('textbox', { name: 'ค้นหาผู้รับผิดชอบหรือ KPI' }).fill('Fixture Two');
-  assert.equal(await brief.locator('.executive-table tbody tr').count(), 1);
-  await brief.getByRole('textbox', { name: 'ค้นหาผู้รับผิดชอบหรือ KPI' }).fill('');
-  await brief.screenshot({ path: path.join(output, 'executive-brief-desktop.png'), fullPage: true });
-  await brief.emulateMedia({ media: 'print' });
-  assert.ok(await brief.locator('.executive-summary').isVisible());
-  assert.equal(await brief.locator('.advanced-performance').isVisible(), false);
-  await brief.emulateMedia({ media: 'screen' });
-  await brief.getByRole('button', { name: 'Fixture One', exact: true }).first().click();
-  await brief.getByRole('dialog', { name: 'รายละเอียดบุคคล' }).waitFor();
-  await brief.keyboard.press('Escape');
-  await brief.locator('.advanced-performance > summary').click();
-  await brief.locator('.executive-summary').waitFor({ state: 'detached' });
-  await brief.locator('.advanced-performance > summary').click();
-  await brief.locator('.executive-summary').waitFor();
-  await brief.close();
-  const briefMobile = await open('overview', { viewport: { width: 390, height: 844 }, isMobile: true }, false, false);
-  assert.equal(await briefMobile.evaluate(() => document.documentElement.scrollWidth > 390), false);
-  await briefMobile.screenshot({ path: path.join(output, 'executive-brief-mobile.png'), fullPage: true });
-  await briefMobile.close();
-  results.push({ check: 'Executive brief: six columns, real personal weights, no invented targets, one count per person, search, mobile, print, details opt-in', passed: true });
   const page = await open();
   await page.getByRole('button', { name: 'เกินกำหนด', exact: true }).click();
   await page.getByRole('dialog', { name: 'เกินกำหนด', exact: true }).waitFor();
@@ -209,7 +178,7 @@ try {
   taskFails = true;
   const failed = await open('overview', {}, true);
   assert.ok((await failed.locator('.scope-panel').innerText()).includes('ยังไม่มีข้อมูล'));
-  assert.ok((await failed.locator('.executive-summary').innerText()).includes('0'));
+  assert.ok((await failed.locator('.hero-band').innerText()).includes('0'));
   await failed.close(); taskFails = false;
   dense = true;
   const many = await open('employees');
@@ -232,7 +201,7 @@ try {
 
   await many.keyboard.press('Escape');
   await many.getByRole('combobox', { name: 'Filter year', exact: true }).selectOption('2025');
-  await many.waitForFunction(() => document.querySelector('.advanced-content')?.textContent.includes('30 พ.ย. 2568') && !document.querySelector('.scope-panel')?.textContent.includes('ยังไม่มีข้อมูล'));
+  await many.waitForFunction(() => document.querySelector('.scope-panel')?.textContent.includes('30 พ.ย. 2568') && !document.querySelector('.scope-panel')?.textContent.includes('ยังไม่มีข้อมูล'));
   assert.equal(await many.getByRole('button', { name: 'เกินกำหนด', exact: true }).innerText(), '0');
   await many.locator('.month-picker-btn').click();
   await many.getByTitle('September', { exact: true }).click();
