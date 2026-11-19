@@ -239,6 +239,7 @@ const API = (() => {
           offset,
           includeHolidays: includeHolidays && page === 0,
         });
+        if (result?.error) throw new Error(result.error);
         tasks.push(...(result.tasks || []));
         if (result.holidays?.length) holidays = result.holidays;
         if (!result.hasMore || result.nextOffset === null || result.nextOffset === undefined) break;

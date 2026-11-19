@@ -39,7 +39,7 @@ function isStrategicViewRole(role) {
 }
 
 function userEmpId(user) {
-  return String(user?.empId || user?.empid || '').trim();
+  return String(user?.empId || user?.empid || user?.emp_id || '').trim();
 }
 
 function readExecutiveSession(empId, sessionId) {
@@ -114,7 +114,7 @@ function riskAsOfLabel(value) {
 }
 
 function normalizeStatus(task) {
-  return String(task?.status || '').trim().toLowerCase();
+  return String(task?.status || '').trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
 }
 
 function isCompleted(task) {
@@ -142,7 +142,8 @@ function taskWeight(task) {
 }
 
 function hasExplicitWeight(task) {
-  const raw = task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight;
+  const extra = normalizeExtraData(task?.extra_data);
+  const raw = extra.kpi_effective_weight ?? task?.kpi_effective_weight ?? task?.mainkpiweight ?? task?.main_weight ?? task?.weight ?? task?.kpiweight;
   const weight = typeof raw === 'string' ? Number.parseFloat(raw.replace('%', '').trim()) : Number(raw);
   return Number.isFinite(weight) && weight > 0;
 }
@@ -263,11 +264,11 @@ function assignedSubKpisForPerson(person, kpis = []) {
 }
 
 function personName(task) {
-  return String(task?.name || task?.assignee || task?.owner || task?.empName || task?.empId || task?.empid || 'Unassigned').trim();
+  return String(task?.name || task?.fullname || task?.assignee || task?.owner || task?.empName || task?.empId || task?.empid || 'Unassigned').trim();
 }
 
 function taskPersonId(task) {
-  return String(task?.empId || task?.empid || task?.assignedToEmpId || '').trim();
+  return String(task?.empId || task?.empid || task?.emp_id || task?.assignedToEmpId || '').trim();
 }
 
 function personGroupKey(task) {
@@ -287,6 +288,16 @@ function isResignedText(value) {
 
 function isResignedTask(task = {}) {
   return isResignedText(task.team) || isResignedText(task.name) || isResignedText(task.assignee) || isResignedText(task.owner);
+}
+
+function scopeTasksForUser(user, tasks = []) {
+  return filterByAllowedTeams(user, tasks).filter((task) => {
+    if (isTeamScopedRole(user?.role)) return teamName(task) === user.team;
+    if (!isSelfScopedRole(user?.role)) return true;
+    const emp = taskPersonId(task);
+    return emp ? emp.toLowerCase() === userEmpId(user).toLowerCase()
+      : personName(task).toLowerCase() === personName(user).toLowerCase() && teamName(task) === user.team;
+  });
 }
 
 function filterPerformanceTasks(tasks = []) {
@@ -332,7 +343,8 @@ function isCompletedLate(task) {
 }
 
 function normalizeDateOnly(value) {
-  const date = value instanceof Date ? new Date(value) : new Date(value);
+  if (!value) return null;
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   date.setHours(0, 0, 0, 0);
   return date;
@@ -402,7 +414,7 @@ function getActiveHoldStart(task) {
 function normalizeExtraData(extraData) {
   if (!extraData) return {};
   if (typeof extraData === 'string') {
-    try { return JSON.parse(extraData); } catch { return {}; }
+    try { const parsed = JSON.parse(extraData); return parsed && typeof parsed === 'object' ? parsed : {}; } catch { return {}; }
   }
   return typeof extraData === 'object' ? extraData : {};
 }
@@ -414,15 +426,15 @@ function getTaskHoldDays(task, holidays = [], endValue = new Date()) {
   return Math.max(0, Number(days || 0));
 }
 
-function getEffectiveDeadline(task, holidays = []) {
+function getEffectiveDeadline(task, holidays = [], asOfDate = new Date()) {
   if (!task?.deadline) return null;
-  const activeHoldDays = normalizeStatus(task) === 'on hold' ? getTaskHoldDays(task, holidays) : 0;
+  const activeHoldDays = normalizeStatus(task) === 'on hold' ? getTaskHoldDays(task, holidays, asOfDate) : 0;
   return activeHoldDays > 0 ? addBusinessDays(task.deadline, activeHoldDays, holidays) : normalizeDateOnly(task.deadline);
 }
 
 function daysUntil(task, holidays = [], asOfDate = new Date()) {
   if (!task?.deadline) return null;
-  return businessDaysBetween(asOfDate, getEffectiveDeadline(task, holidays), holidays);
+  return businessDaysBetween(asOfDate, getEffectiveDeadline(task, holidays, asOfDate), holidays);
 }
 
 function getPerformanceRiskAsOfDate(month, year) {
@@ -469,7 +481,7 @@ function performanceLabel(value) {
   if (band === 'good') return 'Good';
   if (band === 'monitor') return 'Monitor';
   if (band === 'critical') return 'Critical';
-  return 'Unrated';
+  return 'ยังประเมินไม่ได้';
 }
 
 function matchesSearch(row, keys, search) {
@@ -483,8 +495,8 @@ function matchesBand(value, filter) {
 }
 
 function compareSortValues(a, b) {
-  const aNum = Number(a);
-  const bNum = Number(b);
+  const aNum = a === null || a === undefined ? NaN : Number(a);
+  const bNum = b === null || b === undefined ? NaN : Number(b);
   if (Number.isFinite(aNum) && Number.isFinite(bNum)) return aNum - bNum;
   return String(a ?? '').localeCompare(String(b ?? ''), 'th');
 }
@@ -492,7 +504,12 @@ function compareSortValues(a, b) {
 function sortRows(rows, sortConfig) {
   if (!sortConfig?.key) return rows;
   const direction = sortConfig.direction === 'asc' ? 1 : -1;
-  return [...rows].sort((a, b) => compareSortValues(a?.[sortConfig.key], b?.[sortConfig.key]) * direction);
+  return [...rows].sort((a, b) => {
+    const av = a?.[sortConfig.key], bv = b?.[sortConfig.key];
+    if (av == null || Number.isNaN(av)) return bv == null || Number.isNaN(bv) ? 0 : 1;
+    if (bv == null || Number.isNaN(bv)) return -1;
+    return compareSortValues(av, bv) * direction;
+  });
 }
 
 function nextSort(current, key) {
@@ -532,7 +549,7 @@ function riskBadge(days) {
 }
 
 function groupBy(items, getKey) {
-  const map = {};
+  const map = Object.create(null);
   (items || []).forEach((item) => {
     const key = getKey(item) || 'Unassigned';
     if (!map[key]) map[key] = [];
@@ -580,7 +597,7 @@ function roundMetric(value, digits = 1) {
 }
 
 function fmtWeight(value) {
-  return roundMetric(value, 1).toLocaleString();
+  return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
 function fmtWorkUnits(value) {
@@ -595,21 +612,21 @@ function weightShare(value, total) {
 }
 
 function fmtWeightShare(value, total) {
-  return fmtPct(weightShare(value, total));
+  return Number(total) > 0 ? fmtPct(weightShare(value, total)) : '—';
 }
 
 function taskWorkUnits(task) {
-  return roundMetric(taskWeight(task) / 100, 4);
+  return taskWeight(task) / 100;
 }
 
 function sumWeight(items = []) {
-  return roundMetric((items || []).reduce((sum, task) => sum + taskWorkUnits(task), 0), 2);
+  return (items || []).reduce((sum, task) => sum + taskWorkUnits(task), 0);
 }
 
 function avgBusinessCloseDays(tasks = [], holidays = []) {
   const days = (tasks || [])
     .filter(isCompleted)
-    .map((task) => businessDaysBetween(task.startdate || task.created_at || task.deadline, task.completiondate || task.deadline, holidays))
+    .map((task) => businessDaysBetween(task.startdate || task.created_at, task.completiondate, holidays))
     .filter((value) => value !== null && Number.isFinite(value) && value >= 0);
   return days.length ? roundMetric(days.reduce((sum, value) => sum + value, 0) / days.length, 1) : null;
 }
@@ -620,17 +637,18 @@ function buildAgingBuckets(activeTasks = [], holidays = [], asOfDate = new Date(
     overdue1to3: { label: 'Overdue 1-3bd', total: 0, weight: 0, items: [] },
     overdue4to7: { label: 'Overdue 4-7bd', total: 0, weight: 0, items: [] },
     overdue8plus: { label: 'Overdue >7bd', total: 0, weight: 0, items: [] },
-    noDeadline: { label: 'No deadline', total: 0, weight: 0, items: [] },
+    noDeadline: { label: 'ไม่มีวันครบกำหนด', total: 0, weight: 0, items: [] },
+    future: { label: 'ครบกำหนดเกิน 3 วันทำการ', total: 0, weight: 0, items: [] },
   };
   (activeTasks || []).forEach((task) => {
     const days = daysUntil(task, holidays, asOfDate);
-    let key = 'noDeadline';
+    let key = days === null ? 'noDeadline' : 'future';
     if (days !== null && days >= 0 && days <= 3) key = 'dueSoon';
     else if (days !== null && days < 0 && Math.abs(days) <= 3) key = 'overdue1to3';
     else if (days !== null && days < 0 && Math.abs(days) <= 7) key = 'overdue4to7';
     else if (days !== null && days < 0) key = 'overdue8plus';
     buckets[key].total += 1;
-    buckets[key].weight = roundMetric(buckets[key].weight + taskWorkUnits(task), 2);
+    buckets[key].weight += taskWorkUnits(task);
     buckets[key].items.push(task);
   });
   return buckets;
@@ -638,14 +656,15 @@ function buildAgingBuckets(activeTasks = [], holidays = [], asOfDate = new Date(
 
 function buildDataQuality(tasks = []) {
   const checks = [
-    { key: 'missingSubKpi', label: 'Missing SubKPI', items: tasks.filter((task) => !hasExplicitSubKpi(task)) },
-    { key: 'missingWeight', label: 'Missing Weight', items: tasks.filter((task) => !hasExplicitWeight(task)) },
-    { key: 'missingDeadline', label: 'Missing Deadline', items: tasks.filter((task) => !task.deadline) },
-    { key: 'completedNoDate', label: 'Completed No Date', items: tasks.filter((task) => isCompleted(task) && !task.completiondate) },
-    { key: 'statusUnknown', label: 'Unknown Status', items: tasks.filter((task) => !normalizeStatus(task)) },
+    { key: 'missingSubKpi', label: 'ไม่มี Sub KPI', items: tasks.filter((task) => !hasExplicitSubKpi(task)) },
+    { key: 'missingWeight', label: 'ไม่มีน้ำหนัก (ใช้ค่าสำรอง 1)', items: tasks.filter((task) => !hasExplicitWeight(task)) },
+    { key: 'missingDeadline', label: 'ไม่มีวันครบกำหนด', items: tasks.filter((task) => !task.deadline) },
+    { key: 'completedNoDate', label: 'เสร็จแต่ไม่มีวันปิดงาน', items: tasks.filter((task) => isCompleted(task) && !task.completiondate) },
+    { key: 'statusUnknown', label: 'สถานะไม่รู้จัก', items: tasks.filter((task) => !['pending', 'on process', 'on hold', 'completed', 'cancelled'].includes(normalizeStatus(task))) },
+    { key: 'invalidDate', label: 'วันที่ไม่ถูกต้อง', items: tasks.filter((task) => ['deadline', 'completiondate', 'startdate'].some((key) => task[key] && !normalizeDateOnly(task[key]))) },
   ];
   const totalIssues = checks.reduce((sum, check) => sum + check.items.length, 0);
-  return { checks, totalIssues };
+  return { checks, totalIssues, affectedTasks: tasks.filter((task) => checks.some((check) => check.items.includes(task))).length };
 }
 
 function getTaskDate(task, fields = []) {
@@ -694,7 +713,8 @@ function buildPortfolio(tasks, holidays = [], asOfDate = new Date()) {
   const slaPass = tasks.filter(isCompletedOnTime);
   const slaFail = tasks.filter(isCompletedLate);
   const scores = calcWeightedScores(tasks);
-  const completion = scores.completion ?? (tasks.length ? Math.round((completed.length / tasks.length) * 1000) / 10 : null);
+  const completion = scores.completion;
+  const cancelled = tasks.filter(isCancelled);
   const weightedScore = completion !== null && scores.sla !== null
     ? Math.round(((completion + scores.sla) / 2) * 10) / 10
     : (completion ?? scores.sla);
@@ -714,6 +734,7 @@ function buildPortfolio(tasks, holidays = [], asOfDate = new Date()) {
 
   return {
     active,
+    cancelled,
     completed,
     onProcess,
     overdue,
@@ -741,7 +762,7 @@ function buildGroupRows(tasks, getKey, holidays = [], asOfDate = new Date()) {
   return Object.entries(groupBy(tasks, getKey)).map(([name, items]) => {
     const portfolio = buildPortfolio(items, holidays, asOfDate);
     const topKpiEntry = Object.entries(groupBy(items, mainKpi)).sort((a, b) => b[1].length - a[1].length)[0];
-    const health = Math.round(((portfolio.scores.sla ?? portfolio.completion ?? 0) + (portfolio.completion ?? portfolio.scores.sla ?? 0)) / 2)
+    const health = portfolio.weightedScore === null ? null : Math.round(((portfolio.scores.sla ?? portfolio.completion ?? 0) + (portfolio.completion ?? portfolio.scores.sla ?? 0)) / 2)
       - portfolio.overdue.length * 5
       - portfolio.atRisk.length * 2;
     return {
@@ -759,7 +780,9 @@ function buildGroupRows(tasks, getKey, holidays = [], asOfDate = new Date()) {
       active: portfolio.active.length,
       completed: portfolio.completed.length,
       onProcess: portfolio.onProcess.length,
-      backlog: Math.max(0, items.length - portfolio.completed.length),
+      backlog: portfolio.active.length,
+      cancelled: portfolio.cancelled.length,
+      activeOwnShare: portfolio.totalWeight > 0 ? weightShare(portfolio.activeWeight, portfolio.totalWeight) : null,
       overdue: portfolio.overdue.length,
       risk: portfolio.atRisk.length,
       slaPass: portfolio.slaPass.length,
@@ -783,11 +806,14 @@ function buildKpiRows(tasks, holidays = [], asOfDate = new Date()) {
     const portfolio = buildPortfolio(items, holidays, asOfDate);
     return {
       name,
+      items,
       total: items.length,
+      overdue: portfolio.overdue.length,
+      risk: portfolio.atRisk.length,
+      riskItems: [...portfolio.overdue, ...portfolio.atRisk],
       active: portfolio.active.length,
       completed: portfolio.completed.length,
       onProcess: portfolio.onProcess.length,
-      weight: Math.max(...items.map(taskWeight), 1),
       totalWeight: portfolio.totalWeight,
       completedWeight: portfolio.completedWeight,
       activeWeight: portfolio.activeWeight,
@@ -795,7 +821,7 @@ function buildKpiRows(tasks, holidays = [], asOfDate = new Date()) {
       atRiskWeight: portfolio.atRiskWeight,
       avgCloseDays: portfolio.avgCloseDays,
       share: tasks.length ? Math.round((items.length / tasks.length) * 1000) / 10 : 0,
-      weightShare: sumWeight(tasks) ? roundMetric((portfolio.totalWeight / sumWeight(tasks)) * 100, 1) : 0,
+      weightShare: weightShare(portfolio.totalWeight, sumWeight(tasks.filter((task) => !isCancelled(task)))),
       sla: portfolio.scores.sla,
       completion: portfolio.completion,
       slaPass: portfolio.slaPass.length,
@@ -804,26 +830,207 @@ function buildKpiRows(tasks, holidays = [], asOfDate = new Date()) {
   }).sort((a, b) => b.total - a.total);
 }
 
-function buildKpiWeightRows(tasks, holidays = [], asOfDate = new Date()) {
-  return Object.entries(groupBy(tasks, (task) => `${teamName(task)}|${mainKpi(task)}|${subKpi(task)}`)).map(([key, items]) => {
-    const [team, main, sub] = key.split('|');
-    const portfolio = buildPortfolio(items, holidays, asOfDate);
-    return {
-      team,
-      main,
-      sub,
-      weight: Math.max(...items.map(taskWeight), 1),
-      total: items.length,
-      totalWeight: portfolio.totalWeight,
-      activeWeight: portfolio.activeWeight,
-      overdueWeight: portfolio.overdueWeight,
-      completed: portfolio.completed.length,
-      pending: Math.max(0, items.length - portfolio.completed.length),
-      slaPass: portfolio.slaPass.length,
-      slaFail: portfolio.slaFail.length,
-      sla: portfolio.scores.sla,
+// Shared definitions for all five Performance View tabs. No writes to KPI/task data.
+function taskWeightSource(task) {
+  const extra = normalizeExtraData(task?.extra_data);
+  if (readKpiWeight(extra.kpi_effective_weight, '') || readKpiWeight(task?.kpi_effective_weight, '')) return 'น้ำหนักที่บันทึกกับงาน';
+  return hasExplicitWeight(task) ? 'น้ำหนักในข้อมูลงานเดิม' : 'ค่าสำรอง 1 (ข้อมูลไม่ครบ)';
+}
+
+function weightValues(items = []) {
+  return [...new Set(items.map(taskWeight))].sort((a, b) => a - b);
+}
+
+function formatWeights(values = []) {
+  const unique = [...new Set(values.filter((value) => Number.isFinite(value) && value > 0))].sort((a, b) => a - b);
+  return unique.length ? unique.map((value) => fmtPct(value)).join(' / ') : '—';
+}
+
+function buildPersonalKpiRows(person, catalog = [], holidays = []) {
+  const assigned = assignedSubKpisForPerson(person, catalog);
+  const assignmentKnown = Boolean(person?.profile || !person?.items);
+  const rows = new Map();
+  assigned.forEach((row) => {
+    rows.set(kpiCompositeKey(row), { ...row, assigned: true, configured: catalog.some((kpi) => kpiCompositeKey(kpi) === kpiCompositeKey(row)), items: [] });
+  });
+  (person?.items || []).forEach((task) => {
+    const entry = { team: teamName(task), main: mainKpi(task), sub: subKpi(task) };
+    const key = kpiCompositeKey(entry);
+    if (!rows.has(key)) {
+      const configured = catalog.find((kpi) => kpiCompositeKey(kpi) === key);
+      const override = configured ? personalKpiOverride(person?.profile || person, configured) : '';
+      rows.set(key, { ...entry, key, assigned: false, configured: Boolean(configured), baseWeight: configured ? kpiBaseWeight(configured) : null,
+        effectiveWeight: configured ? override || kpiBaseWeight(configured) : null, overridden: Boolean(override), items: [] });
+    }
+    rows.get(key).items.push(task);
+  });
+  return [...rows.values()].map((row) => ({
+    ...row, assignmentKnown, key: kpiCompositeKey(row), weights: weightValues(row.items),
+    portfolio: buildPortfolio(row.items, holidays, person?.asOfDate),
+  })).sort((a, b) => a.main.localeCompare(b.main, 'th') || a.sub.localeCompare(b.sub, 'th'));
+}
+
+function buildPeopleRows(tasks, directory, holidays, asOfDate) {
+  const profiles = new Map(directory.filter((profile) => profile && !isResignedTask(profile)).map((profile) => [personGroupKey(profile), profile]));
+  const resolveKey = (task) => {
+    if (taskPersonId(task)) return personGroupKey(task);
+    const matches = [...profiles.values()].filter((profile) => personName(profile).trim().toLowerCase() === personName(task).trim().toLowerCase() && teamName(profile).trim().toLowerCase() === teamName(task).trim().toLowerCase());
+    return matches.length === 1 ? personGroupKey(matches[0]) : personGroupKey(task);
+  };
+  const groups = new Map(buildGroupRows(tasks, resolveKey, holidays, asOfDate).map((row) => [row.name, row]));
+  profiles.forEach((profile, key) => {
+    if (!groups.has(key)) groups.set(key, { ...emptyPersonMetrics(holidays, asOfDate), name: key });
+  });
+  const totals = {};
+  const rows = [...groups.entries()].map(([key, row]) => {
+    const profile = profiles.get(key) || null;
+    const first = row.items[0] || profile || {};
+    const team = teamName(first);
+    const total = totals[team] ||= { weight: 0, active: 0, risk: 0 };
+    total.weight += row.totalWeight; total.active += row.activeWeight; total.risk += row.overdueWeight + row.atRiskWeight;
+    return { ...row, employeeKey: key, person: profile ? personName(profile) : personName(first), team, empId: taskPersonId(profile || first), profile };
+  });
+  return sortRows(rows.map((row) => ({ ...row,
+    workloadShare: weightShare(row.totalWeight, totals[row.team].weight),
+    activeWeightShare: weightShare(row.activeWeight, totals[row.team].active),
+    riskWeightShare: weightShare(row.overdueWeight + row.atRiskWeight, totals[row.team].risk),
+  })), { key: 'weightedScore', direction: 'desc' });
+}
+
+function emptyPersonMetrics(holidays, asOfDate) {
+  const p = buildPortfolio([], holidays, asOfDate);
+  return { items: [], asOfDate, total: 0, totalWeight: 0, completedWeight: 0, activeWeight: 0, overdueWeight: 0, atRiskWeight: 0,
+    avgWeightPerTask: 0, avgCloseDays: null, active: 0, completed: 0, onProcess: 0, backlog: 0, cancelled: 0, activeOwnShare: null,
+    overdue: 0, risk: 0, slaPass: 0, slaFail: 0, sla: null, completion: null, weightedScore: null, riskAdjustedScore: null,
+    riskPenalty: 0, aging: p.aging, dataQuality: p.dataQuality, health: null, topKpi: 'ยังไม่มีงาน', topKpiCount: 0 };
+}
+
+function buildWeightCatalogRows(catalog, tasks, holidays, asOfDate) {
+  const groups = new Map();
+  catalog.forEach((kpi) => {
+    const entry = { team: kpi.team || '-', main: kpiMainValue(kpi) || '-', sub: kpiSubValue(kpi) || '-' };
+    const key = kpiCompositeKey(entry);
+    const row = groups.get(key) || { ...entry, key, configured: true, baseWeights: [], items: [] };
+    row.baseWeights.push(kpiBaseWeight(kpi)); groups.set(key, row);
+  });
+  tasks.forEach((task) => {
+    const entry = { team: teamName(task), main: mainKpi(task), sub: subKpi(task) };
+    const key = kpiCompositeKey(entry);
+    if (!groups.has(key)) groups.set(key, { ...entry, key, configured: false, baseWeights: [], items: [] });
+    groups.get(key).items.push(task);
+  });
+  return [...groups.values()].map((row) => ({ ...row, weights: weightValues(row.items), portfolio: buildPortfolio(row.items, holidays, asOfDate) }));
+}
+
+const PerformanceActions = React.createContext({ openTasks: () => {}, openPerson: () => {}, openTeam: () => {} });
+
+function ReportContext() {
+  const { reportContext } = React.useContext(PerformanceActions);
+  return <p className="report-context text-sm text-[var(--mx-muted)]">{reportContext}</p>;
+}
+
+function TaskLink({ items, title, children }) {
+  const { openTasks } = React.useContext(PerformanceActions);
+  return <button type="button" className="metric-link" onClick={() => openTasks(title, items)} aria-label={title}>{children}</button>;
+}
+
+function AllItems({ rows, children, initial = 12 }) {
+  const [expanded, setExpanded] = useState(false);
+  return <><div className="all-items-list">{(expanded ? rows : rows.slice(0, initial)).map(children)}</div>
+    {rows.length > initial && <button type="button" className="mx-btn no-print mt-3" onClick={() => setExpanded(!expanded)}>{expanded ? 'ย่อรายการ' : 'ดูทั้งหมด'} ({fmtNum(rows.length)})</button>}
+    <span className="print-only">{rows.length > initial && !expanded ? 'รายงานนี้แสดงบางส่วน กรุณากดดูทั้งหมดก่อนพิมพ์' : ''}</span></>;
+}
+
+function ScoreMethod({ tasks, holidays = [] }) {
+  const p = buildPortfolio(tasks, holidays);
+  const scores = p.scores;
+  return <details className="mx-soft p-4 score-method"><summary>นิยามตัวเลขและที่มาคะแนน • {fmtNum(tasks.length)} งาน</summary>
+    <div className="mt-3 grid gap-2 text-sm">
+      <p>งานทั้งหมด {tasks.length} = เสร็จ {p.completed.length} + ค้าง (Active/Backlog) {p.active.length} + ยกเลิก {p.cancelled.length} งาน งานยกเลิกไม่รวมในตัวหารคะแนนและภาระงานถ่วงน้ำหนัก</p>
+      <p>W.Completion = น้ำหนักงานเสร็จ {fmtWeight(scores.completedWeight)} ÷ น้ำหนักงานที่ไม่ยกเลิก {fmtWeight(scores.totalWeight)} × 100 = {fmtPct(scores.completion)}</p>
+      <p>W.SLA = น้ำหนักงานเสร็จตรงเวลา {fmtWeight(scores.onTimeWeight)} ÷ น้ำหนักงานเสร็จ {fmtWeight(scores.slaWeight)} × 100 = {fmtPct(scores.sla)}</p>
+      <p>Performance = (W.Completion + W.SLA) ÷ 2 = {fmtPct(p.weightedScore)} หากมีเพียงค่าเดียว ใช้ค่านั้นตามสูตรเดิม; ไม่มีข้อมูลแสดง “ยังประเมินไม่ได้”</p>
+      <p>น้ำหนัก KPI ที่ตั้งค่าเป็นค่าต่อ KPI ไม่รวมซ้ำตามจำนวนงาน ส่วนคะแนนใช้ผลรวมน้ำหนักที่บันทึกกับงานแต่ละงาน ค่าที่ตั้งปัจจุบันอาจต่างจากงานเก่า น้ำหนักไม่จำเป็นต้องรวมเป็น 100%</p>
+      <p>สัดส่วนภาระงาน = น้ำหนักงานในกลุ่ม ÷ น้ำหนักงานทั้งหมดในขอบเขตเดียวกัน • Active Weight = น้ำหนักงานค้าง ÷ น้ำหนักงานที่ไม่ยกเลิกของแถวนั้น • Team Load / Risk Share ใช้ผลรวมของทีมเป็นตัวหาร</p>
+      <p>ระดับ Performance: Excellent ≥90%, Good ≥75%, Monitor ≥60%, Critical &lt;60% เป็นเกณฑ์แสดงผลเดิม จำนวนงานประกอบการเปรียบเทียบ ไม่มีการเพิ่มเกณฑ์ประเมินใหม่</p>
+      <p>SLA ของงานเสร็จใช้วันปิดงานเทียบ deadline; วันที่ไม่ครบยังอยู่ในตัวหารตามสูตรเดิม โปรดดูคุณภาพข้อมูลประกอบ Risk/Aging ใช้วันทำการและวันหยุด</p>
+    </div></details>;
+}
+
+function PersonalKpiTable({ person, catalog, holidays, mode = 'both' }) {
+  const rows = buildPersonalKpiRows(person, catalog, holidays).filter((row) => mode === 'both' || (mode === 'actual' ? row.items.length > 0 : row.configured && row.assigned));
+  const mains = Object.entries(groupBy(rows, (row) => row.main));
+  return <div className="personal-kpi-detail mt-5">
+    <h3 className="m-0 text-lg font-black">Main KPI → Sub KPI และน้ำหนักรายบุคคล</h3>
+    <p className="text-sm text-[var(--mx-muted)]">แยกค่าตั้งปัจจุบันกับงานจริงในช่วงที่เลือก • ค่าหลายค่าคั่นด้วย / โดยไม่บวกน้ำหนักซ้ำ • กดชื่อ KPI เพื่อดูงานต้นทาง</p>
+    {!rows.length && <p>ยังไม่มีข้อมูล KPI ที่ได้รับมอบหมายหรืองานในช่วงนี้</p>}
+    <div className="grid gap-3">{mains.map(([main, subs]) => {
+      const items = subs.flatMap((row) => row.items);
+      const p = buildPortfolio(items, holidays, person.asOfDate);
+      const current = [...new Set(subs.filter((row) => row.configured && row.assignmentKnown).map((row) => row.effectiveWeight))];
+      return <details key={main} className="mx-soft p-4" open>
+        <summary><strong>{main}</strong> • น้ำหนักปัจจุบัน {formatWeights(current)} {current.length > 1 ? '(ต่างกันตาม Sub KPI)' : ''} • {items.length} งาน</summary>
+        <div className="flex flex-wrap gap-2 mt-3"><TaskLink items={items} title={'งาน Main KPI: ' + main}>ดูงานทั้งหมด ({items.length})</TaskLink>
+          <span>W.Completion {fmtPct(p.completion)} • W.SLA {fmtPct(p.scores.sla)}</span></div>
+        <DataTable minWidth={1020}><thead><tr><th>Sub KPI / การมอบหมาย</th><th>พื้นฐานปัจจุบัน</th><th>ใช้กับบุคคลปัจจุบัน</th><th>บันทึกกับงาน</th><th>ทั้งหมด / เสร็จ / ค้าง / ยกเลิก / เกิน</th><th>W.Completion</th><th>W.SLA</th></tr></thead>
+          <tbody>{subs.map((row) => <tr key={row.key}><td><TaskLink items={row.items} title={main + ' / ' + row.sub}>{row.sub}</TaskLink><small className="block">{row.configured ? !row.assignmentKnown ? 'ข้อมูลการมอบหมายบุคคลไม่ครบ' : row.assigned ? 'ได้รับมอบหมาย' : 'ไม่ได้รับมอบหมายปัจจุบัน' : 'จากงานจริง / ไม่มีทะเบียนที่ตรงกัน'}{row.items.length === 0 ? ' • ยังไม่มีงานในช่วงนี้' : ''}</small></td>
+            <td>{row.configured ? fmtPct(row.baseWeight) : '—'}</td><td>{row.configured ? row.assignmentKnown ? fmtPct(row.effectiveWeight) : 'ไม่ทราบ' : '—'}{row.overridden && <small className="block">ปรับเฉพาะบุคคล</small>}</td>
+            <td>{formatWeights(row.weights)}{row.items.some((task) => !hasExplicitWeight(task)) && <small className="block">มีงานใช้ค่าสำรอง 1</small>}</td>
+            <td>{row.items.length} / {row.portfolio.completed.length} / {row.portfolio.active.length} / {row.portfolio.cancelled.length} / {row.portfolio.overdue.length}</td><td>{fmtPct(row.portfolio.completion)}</td><td>{fmtPct(row.portfolio.scores.sla)}</td></tr>)}</tbody>
+        </DataTable></details>;
+    })}</div><div className="mt-4"><ScoreMethod tasks={person.items} holidays={holidays} /></div>
+  </div>;
+}
+
+function TaskExplorer({ selection, holidays, asOfDate, onClose }) {
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
+  const [showAll, setShowAll] = useState(false);
+  const { openPerson } = React.useContext(PerformanceActions);
+  const rows = selection.items.filter((task) => matchesSearch({ job: task.job, name: personName(task), main: mainKpi(task), sub: subKpi(task), id: task.id }, ['job', 'name', 'main', 'sub', 'id'], search));
+  const count = Math.max(1, Math.ceil(rows.length / 50));
+  const currentPage = Math.min(page, count - 1);
+  useDialogAccessibility(true, onClose);
+  return <div className="modal-backdrop explorer-backdrop" onClick={onClose}><div className="modal-card task-explorer" role="dialog" aria-modal="true" aria-label={selection.title} onClick={(e) => e.stopPropagation()} tabIndex={-1}>
+    <button className="modal-close no-print" onClick={onClose} aria-label="ปิดรายการงาน">×</button>
+    <h2 className="section-title">{selection.title}</h2><ReportContext /><p>{rows.length} จาก {selection.items.length} งาน • ใช้ขอบเขตและช่วงเวลาจากหน้าหลัก</p>
+    <label className="no-print">ค้นหางานหรือผู้รับผิดชอบ<input className="mx-input" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} /></label>
+    <DataTable minWidth={1000}><thead><tr><th>งาน / รายละเอียด</th><th>ผู้รับผิดชอบ</th><th>KPI</th><th>สถานะ</th><th>น้ำหนักที่ใช้</th><th>วันที่</th></tr></thead><tbody>
+      {(showAll ? rows : rows.slice(currentPage * 50, (currentPage + 1) * 50)).map((task, index) => <tr key={task.id || index}>
+        <td><details><summary>{extractJobCode(task.job)} • {task.id || 'ไม่มีรหัส'}</summary><p className="task-job">{task.job || 'ไม่มีชื่องาน'}</p>{task.note && <p className="task-job">หมายเหตุ: {task.note}</p>}</details></td>
+        <td><button className="metric-link" onClick={() => openPerson(task)}>{personName(task)}</button><small className="block">{teamName(task)}</small></td>
+        <td>{mainKpi(task)}<small className="block">{subKpi(task)}</small></td><td>{task.status || 'ไม่ระบุ'}{isActive(task) && <small className="block">{riskBadge(daysUntil(task, holidays, asOfDate))[0]}</small>}</td><td>{fmtPct(taskWeight(task))}<small className="block">{taskWeightSource(task)}</small></td>
+        <td>เริ่ม {fmtDate(task.startdate || task.created_at)}<br/>กำหนด {fmtDate(task.deadline)}<br/>ปิด {fmtDate(task.completiondate)}{isActive(task) && dateKey(getEffectiveDeadline(task, holidays, asOfDate)) !== dateKey(task.deadline) && <small className="block">กำหนดหลังชดเชย On Hold: {fmtDate(getEffectiveDeadline(task, holidays, asOfDate))}</small>}{isCompleted(task) && (!normalizeDateOnly(task.deadline) || !normalizeDateOnly(task.completiondate)) && <small className="block">ข้อมูลไม่ครบสำหรับตรวจ SLA</small>}</td>
+      </tr>)}{!rows.length && <tr><td colSpan="6">ไม่มีงานตรงกับเงื่อนไข</td></tr>}</tbody></DataTable>
+    <div className="flex flex-wrap gap-3 items-center mt-3 no-print"><button className="mx-btn" onClick={() => setShowAll(!showAll)}>{showAll ? 'แบ่งหน้าละ 50 งาน' : 'แสดงทั้งหมดเพื่อพิมพ์'}</button><button className="mx-btn" disabled={showAll || currentPage === 0} onClick={() => setPage(currentPage - 1)}>ก่อนหน้า</button><span>หน้า {currentPage + 1} / {count} (หน้าละ 50 งาน)</span><button className="mx-btn" disabled={showAll || currentPage + 1 >= count} onClick={() => setPage(currentPage + 1)}>ถัดไป</button></div>
+    <p className="print-only">{showAll ? 'รายการงานทั้งหมด' : 'รายการงานหน้า ' + (currentPage + 1) + ' / ' + count} • {rows.length} งาน</p>
+  </div></div>;
+}
+
+function useDialogAccessibility(open, onClose) {
+  const callback = React.useRef(onClose); callback.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement;
+    const dialogs = document.querySelectorAll('[role="dialog"]');
+    const dialog = dialogs[dialogs.length - 1];
+    if (!dialog) return;
+    dialog.focus();
+    const keydown = (event) => {
+      const active = [...document.querySelectorAll('[role="dialog"]')].pop();
+      if (active !== dialog) return;
+      if (event.key === 'Escape') { event.preventDefault(); callback.current(); }
+      if (event.key === 'Tab') {
+        const focusable = [...dialog.querySelectorAll('button:not([disabled]), input, select, summary, [href], [tabindex="0"]')].filter((el) => el.getClientRects().length);
+        const first = focusable[0], last = focusable[focusable.length - 1];
+        if (!first) { event.preventDefault(); dialog.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) { event.preventDefault(); first.focus(); }
+      }
     };
-  }).sort((a, b) => a.team.localeCompare(b.team) || b.total - a.total);
+    document.addEventListener('keydown', keydown);
+    return () => { document.removeEventListener('keydown', keydown); if (previous?.isConnected) previous.focus(); };
+  }, [open]);
 }
 
 function Shell({ children }) {
@@ -835,14 +1042,14 @@ function Shell({ children }) {
   );
 }
 
-function Metric({ label, value, sub, icon, tone = 'status-info' }) {
+function Metric({ label, value, sub, icon, tone = 'status-info', items }) {
   return (
     <div className={`mx-card metric-card p-5 ${tone}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">{label}</div>
         <span className={`mx-badge ${tone}`}><i className={`fa-solid ${icon}`}></i></span>
       </div>
-      <div className="mt-5 metric-number">{value}</div>
+      <div className="mt-5 metric-number">{items ? <TaskLink title={label} items={items}>{value}</TaskLink> : value}</div>
       <div className="mt-2 text-sm text-[var(--mx-muted)]">{sub}</div>
     </div>
   );
@@ -1056,7 +1263,7 @@ function TabBar({ activeTab, setActiveTab, selectedMonths, setSelectedMonths, ye
       </div>
       <div className="load-status" role="status">
         <span className={`load-status-dot ${loading ? 'is-loading' : ''}`}></span>
-        {loading ? 'กำลังอัปเดตข้อมูล โดยยังแสดงข้อมูลเดิมให้ใช้งานได้' : lastUpdated ? `อัปเดตล่าสุด ${new Date(lastUpdated).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.` : 'พร้อมโหลดข้อมูล'}
+        {loading ? 'กำลังโหลดข้อมูลตามช่วงที่เลือก' : lastUpdated ? `อัปเดตล่าสุด ${new Date(lastUpdated).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.` : 'พร้อมโหลดข้อมูล'}
       </div>
     </nav>
   );
@@ -1132,23 +1339,24 @@ function DonutChart({ rows, total }) {
 }
 
 function StackedWorkloadChart({ rows }) {
-  const maxTotal = Math.max(...rows.map((row) => row.total), 1);
+  const maxTotal = Math.max(...rows.map((row) => row.total - (row.cancelled || 0)), 1);
   return (
     <div className="stacked-chart">
-      {rows.slice(0, 10).map((row) => {
-        const completed = row.total ? (row.completed / row.total) * 100 : 0;
-        const onProcess = row.total ? (row.onProcess / row.total) * 100 : 0;
-        const backlog = Math.max(0, 100 - completed - onProcess);
+      {rows.map((row) => {
+        const eligible = row.total - (row.cancelled || 0);
+        const completed = eligible ? (row.completed / eligible) * 100 : 0;
+        const onProcess = eligible ? (row.onProcess / eligible) * 100 : 0;
+        const backlog = eligible ? Math.max(0, 100 - completed - onProcess) : 0;
         return (
           <div key={row.team} className="stacked-row">
             <div className="stacked-name">
               <strong>{row.team}</strong>
-              <span>{fmtNum(row.total)} tasks</span>
+              <span>{fmtNum(eligible)} งานที่ไม่ยกเลิก</span>
             </div>
-            <div className="stacked-track" style={{ width: `${Math.max(18, (row.total / maxTotal) * 100)}%` }}>
+            <div className="stacked-track" style={{ width: `${Math.max(18, (eligible / maxTotal) * 100)}%` }}>
               <span className="seg done" style={{ width: `${completed}%` }} title={`Completed ${fmtNum(row.completed)}`}></span>
               <span className="seg process" style={{ width: `${onProcess}%` }} title={`On process ${fmtNum(row.onProcess)}`}></span>
-              <span className="seg backlog" style={{ width: `${backlog}%` }} title={`Backlog ${fmtNum(row.backlog)}`}></span>
+              <span className="seg backlog" style={{ width: `${backlog}%` }} title={`ค้างสถานะอื่น ${fmtNum(Math.max(0, row.backlog - row.onProcess))}`}></span>
             </div>
             <div className="stacked-meta">{fmtPct(row.completion)}</div>
           </div>
@@ -1157,7 +1365,7 @@ function StackedWorkloadChart({ rows }) {
       <div className="chart-legend">
         <span><i className="legend-dot done"></i>Completed</span>
         <span><i className="legend-dot process"></i>On Process</span>
-        <span><i className="legend-dot backlog"></i>Backlog</span>
+        <span><i className="legend-dot backlog"></i>ค้างสถานะอื่น (ไม่รวม On Process)</span>
       </div>
     </div>
   );
@@ -1172,7 +1380,7 @@ function PerformanceScatter({ rows }) {
   const maxTotal = Math.max(...rows.map((row) => row.total), 1);
   const x = (value) => pad.left + (plotW * clampPercent(value)) / 100;
   const y = (value) => pad.top + plotH - (plotH * clampPercent(value)) / 100;
-  const scored = rows.filter((row) => row.sla !== null && row.completion !== null).slice(0, 30);
+  const scored = rows.filter((row) => row.sla !== null && row.completion !== null);
   return (
     <div className="w-full overflow-x-auto">
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[680px]" role="img" aria-label="SLA and completion performance scatter">
@@ -1258,8 +1466,8 @@ function RadarChart({ teamRows }) {
 }
 
 function KpiHeatmap({ teamRows, kpiRows }) {
-  const teams = teamRows.slice(0, 8);
-  const kpis = kpiRows.slice(0, 8);
+  const teams = teamRows;
+  const kpis = kpiRows;
   const maxValue = Math.max(...teams.flatMap((team) => kpis.map((kpi) => team.items.filter((task) => mainKpi(task) === kpi.name).length)), 1);
   return (
     <div className="heatmap-wrap">
@@ -1286,9 +1494,10 @@ function KpiHeatmap({ teamRows, kpiRows }) {
 }
 
 function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue, monthlyTrend, periodLabel, riskAsOfDate, user, empId, tasks }) {
-  const highestRisk = [...teamRows].sort((a, b) => ((b.overdueWeight * 3 + b.atRiskWeight + b.riskWeightShare) - (a.overdueWeight * 3 + a.atRiskWeight + a.riskWeightShare)))[0];
-  const highestLoad = [...teamRows].sort((a, b) => b.activeWeight - a.activeWeight || b.totalWeight - a.totalWeight)[0];
-  const strongestTeam = [...teamRows].sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
+  const { openTeam } = React.useContext(PerformanceActions);
+  const highestRisk = [...teamRows].filter((row) => row.overdue || row.risk).sort((a, b) => (b.overdueWeight + b.atRiskWeight) - (a.overdueWeight + a.atRiskWeight))[0];
+  const highestLoad = [...teamRows].filter((row) => row.activeWeight > 0).sort((a, b) => b.activeWeight - a.activeWeight || b.totalWeight - a.totalWeight)[0];
+  const strongestTeam = [...teamRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0))[0];
   const insights = [
     portfolio.overdue.length ? `${portfolio.overdue.length} overdue task(s), ${fmtWeightShare(portfolio.overdueWeight, portfolio.totalWeight)} of workload, require attention.` : 'No overdue active tasks in the current scope.',
     portfolio.atRisk.length ? `${portfolio.atRisk.length} task(s), ${fmtWeightShare(portfolio.atRiskWeight, portfolio.totalWeight)} of workload, are due within 3 business days.` : 'Short-term delivery risk is currently contained.',
@@ -1320,11 +1529,11 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Decision Lens</div>
             <div className="mt-4 grid gap-3 text-sm">
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Total portfolio</span><strong>{fmtNum(tasks.length)}</strong></div>
-              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Workload share</span><strong>{fmtPct(100)}</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Workload share</span><strong>{portfolio.totalWeight > 0 ? fmtPct(100) : '—'}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Active weight</span><strong>{fmtWeightShare(portfolio.activeWeight, portfolio.totalWeight)}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Risk basis</span><strong>{riskAsOfLabel(riskAsOfDate)}</strong></div>
-              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Risk adjusted score</span><strong>{fmtPct(portfolio.riskAdjustedScore)}</strong></div>
-              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">SLA breach rate</span><strong>{tasks.length ? fmtPct(Math.round((portfolio.slaFail.length / Math.max(1, portfolio.completed.length)) * 1000) / 10) : '-'}</strong></div>
+              <details><summary>ค่าช่วยติดตามความเสี่ยง (แยกจาก Performance)</summary><p>Risk adjusted {fmtPct(portfolio.riskAdjustedScore)} = Performance หักค่าความเสี่ยง {portfolio.riskPenalty} จุด ตามสูตรเดิม ใช้เพื่อติดตามงาน</p></details>
+              <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">SLA breach rate</span><strong>{portfolio.completed.length ? fmtPct(Math.round((portfolio.slaFail.length / portfolio.completed.length) * 1000) / 10) : '-'}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Teams monitored</span><strong>{fmtNum(teamRows.length)}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-[var(--mx-muted)]">Presentation URL</span><strong>/dashboard?empId={empId || 'EMPID'}</strong></div>
             </div>
@@ -1337,12 +1546,12 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
             <div>
               <h2 className="section-title m-0">Weighted Workload</h2>
-              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Workload is shown as percentage share for consistent reading across views.</p>
+              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">สัดส่วนน้ำหนักงานในขอบเขตนี้ ไม่ใช่น้ำหนัก KPI ที่ตั้งค่า</p>
             </div>
             <span className={`mx-badge ${portfolio.overdueWeight ? 'status-bad' : portfolio.atRiskWeight ? 'status-warn' : 'status-good'}`}>Risk Weight {fmtWeightShare(portfolio.overdueWeight + portfolio.atRiskWeight, portfolio.totalWeight)}</span>
           </div>
           <div className="metric-strip mt-5">
-            <div><span>Total Weight</span><strong>{fmtPct(100)}</strong></div>
+            <div><span>Total Weight</span><strong>{portfolio.totalWeight > 0 ? fmtPct(100) : '—'}</strong></div>
             <div><span>Completed Weight</span><strong>{fmtWeightShare(portfolio.completedWeight, portfolio.totalWeight)}</strong></div>
             <div><span>Active Weight</span><strong>{fmtWeightShare(portfolio.activeWeight, portfolio.totalWeight)}</strong></div>
             <div><span>Overdue Weight</span><strong>{fmtWeightShare(portfolio.overdueWeight, portfolio.totalWeight)}</strong></div>
@@ -1353,7 +1562,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
             <div>
               <h2 className="section-title m-0">Aging Backlog</h2>
-              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Active work grouped by risk age and work-unit exposure.</p>
+              <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">งานค้างแยกตามช่วงกำหนดส่ง • กดตัวเลขดูงานต้นทาง</p>
             </div>
             <span className="mx-badge status-neutral">Active {fmtNum(portfolio.active.length)}</span>
           </div>
@@ -1361,7 +1570,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
             {Object.entries(portfolio.aging).map(([key, bucket]) => (
               <div key={key} className={`aging-card ${key.includes('overdue') ? 'risk' : key === 'dueSoon' ? 'warn' : ''}`}>
                 <span>{bucket.label}</span>
-                <strong>{fmtNum(bucket.total)}</strong>
+                <strong><TaskLink items={bucket.items} title={bucket.label}>{fmtNum(bucket.total)}</TaskLink></strong>
                 <em>{fmtWeightShare(bucket.weight, portfolio.activeWeight)} active weight</em>
               </div>
             ))}
@@ -1373,15 +1582,15 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
           <div>
             <h2 className="section-title m-0">Data Quality Watch</h2>
-            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Checks missing fields that can make score and reporting less reliable.</p>
+            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">ตรวจข้อมูลที่มีผลต่อความน่าเชื่อถือของคะแนน • กดตัวเลขเพื่อดูงานและผู้รับผิดชอบ</p>
           </div>
-          <span className={`mx-badge ${portfolio.dataQuality.totalIssues ? 'status-warn' : 'status-good'}`}>{fmtNum(portfolio.dataQuality.totalIssues)} issue(s)</span>
+          <span className={`mx-badge ${portfolio.dataQuality.totalIssues ? 'status-warn' : 'status-good'}`}>{fmtNum(portfolio.dataQuality.totalIssues)} จุด / {portfolio.dataQuality.affectedTasks} งาน (งานเดียวอาจมีหลายจุด)</span>
         </div>
         <div className="quality-grid mt-5">
           {portfolio.dataQuality.checks.map((check) => (
             <div key={check.key} className={`quality-card ${check.items.length ? 'warn' : 'good'}`}>
               <span>{check.label}</span>
-              <strong>{fmtNum(check.items.length)}</strong>
+              <strong><TaskLink items={check.items} title={check.label}>{fmtNum(check.items.length)}</TaskLink></strong>
               <em>{check.items.length ? 'Needs review' : 'Ready'}</em>
             </div>
           ))}
@@ -1401,6 +1610,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
               <span className="mx-badge status-bad">เสี่ยง/เกินกำหนด</span>
             </div>
           </div>
+          <p className="text-sm mt-3">กราฟนี้แสดงจำนวนงาน ไม่ใช่ Completion % • เสร็จในช่วงนี้อาจเป็นงานเข้าจากช่วงก่อนหน้า • ความเสี่ยงใช้สถานะปัจจุบันและกำหนดส่ง ไม่ใช่ snapshot ย้อนหลัง</p>
           <div className="mt-5"><LineChart labels={monthlyTrend.labels} months={monthlyTrend.months} series={monthlyTrend.series} mode="volume" /></div>
         </section>
 
@@ -1414,7 +1624,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
       <div className="grid 2xl:grid-cols-[0.9fr_1.1fr] gap-5">
         <section className="mx-card p-5 md:p-7">
           <h2 className="section-title m-0">Performance Balance</h2>
-          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">A blended radar of SLA, completion, health, risk control, and capacity.</p>
+          <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">กราฟสรุป 5 ทีมที่มีงานมากที่สุด • Health และการควบคุมความเสี่ยงเป็นค่าช่วยติดตาม ไม่ใช่คะแนนประเมินหลัก</p>
           <RadarChart teamRows={teamRows} />
         </section>
         <section className="mx-card p-5 md:p-7">
@@ -1429,10 +1639,10 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
           <h2 className="section-title m-0">Unified SLA + KPI Control Board</h2>
           <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Team-level control view for SLA, completion, backlog, and risk.</p>
           <div className="grid gap-4">
-            {teamRows.slice(0, 8).map((row) => (
+            <AllItems rows={teamRows} initial={8}>{(row) => (
               <div key={row.team} className="control-row">
                 <div className="min-w-0">
-                  <div className="font-black truncate">{row.team}</div>
+                  <button className="metric-link font-black" onClick={() => openTeam(row)}>{row.team}</button>
                   <div className="mt-1 text-xs text-[var(--mx-muted)]">Top KPI: {row.topKpi} / workload {fmtPct(row.workloadShare)}</div>
                 </div>
                 <div>
@@ -1446,10 +1656,10 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
                 <div className="flex flex-wrap gap-2 justify-end">
                   <span className={`mx-badge ${row.overdue ? 'status-bad' : row.risk ? 'status-warn' : 'status-good'}`}>{row.overdue} late / {row.risk} risk</span>
                   <span className="mx-badge status-info">Active Weight {fmtWeightShare(row.activeWeight, row.totalWeight)}</span>
-                  <span className="mx-badge status-neutral">{fmtNum(row.backlog)} backlog</span>
+                  <TaskLink title={row.team + ' / งานค้าง'} items={row.items.filter(isActive)}>{fmtNum(row.backlog)} backlog</TaskLink>
                 </div>
               </div>
-            ))}
+            )}</AllItems>
           </div>
         </section>
 
@@ -1457,13 +1667,13 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
           <h2 className="section-title m-0">Priority Watchlist</h2>
           <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Active work with the highest near-term SLA exposure.</p>
           <div className="priority-watchlist-scroll grid gap-3">
-            {criticalQueue.map(({ task, days, weight }) => {
+            <AllItems rows={criticalQueue} initial={12}>{({ task, days, weight }) => {
               const [label, klass] = riskBadge(days);
               return (
                 <div key={task.id || `${task.job}-${task.deadline}`} className="insight-card p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-extrabold truncate">{extractJobCode(task.job)}</div>
+                      <div className="font-extrabold truncate"><TaskLink items={[task]} title={task.job || 'รายละเอียดงาน'}>{extractJobCode(task.job)}</TaskLink></div>
                       <div className="mt-1 text-sm text-[var(--mx-muted)] line-clamp-2">{task.job || '-'}</div>
                     </div>
                     <span className={`mx-badge ${klass}`}>{label}</span>
@@ -1475,7 +1685,7 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
                   </div>
                 </div>
               );
-            })}
+            }}</AllItems>
             {!criticalQueue.length && <div className="mx-soft p-5 text-center text-[var(--mx-muted)]">No critical active work in this scope.</div>}
           </div>
         </section>
@@ -1484,7 +1694,9 @@ function OverviewPanel({ portfolio, teamRows, kpiRows, statusRows, criticalQueue
   );
 }
 
-function TeamDetailModal({ team, holidays = [], onClose }) {
+function TeamDetailModal({ team, holidays = [], personRows = [], onClose }) {
+  const { openPerson, openTasks } = React.useContext(PerformanceActions);
+  useDialogAccessibility(Boolean(team), onClose);
   if (!team) return null;
   const riskAsOfDate = team.asOfDate || new Date();
   const members = team.members || [];
@@ -1497,42 +1709,24 @@ function TeamDetailModal({ team, holidays = [], onClose }) {
       fail: items.filter(isCompletedLate).length,
       scores: calcWeightedScores(items),
     }))
-    .sort((a, b) => b.total - a.total || b.fail - a.fail)
-    .slice(0, 12);
-  const peopleBreakdown = Object.entries(groupBy(team.items || [], personName))
-    .map(([name, items]) => {
-      const portfolio = buildPortfolio(items, holidays, riskAsOfDate);
-      const member = members.find((item) => item.name === name);
-      return {
-        name,
-        profile: member?.profile || items.find((task) => getPhotoUrl(task)) || null,
-        total: items.length,
-        active: portfolio.active.length,
-        completed: portfolio.completed.length,
-        overdue: portfolio.overdue.length,
-        slaFail: portfolio.slaFail.length,
-        score: portfolio.weightedScore,
-      };
-    })
-    .sort((a, b) => (b.score || 0) - (a.score || 0) || b.total - a.total)
-    .slice(0, 10);
+    .sort((a, b) => b.total - a.total || b.fail - a.fail);
+  const peopleBreakdown = personRows.filter((person) => person.team === team.team).map((person) => ({ ...person, source: person, name: person.person, score: person.weightedScore }));
   const urgent = (team.items || [])
     .filter(isActive)
     .map((task) => ({ task, days: daysUntil(task, holidays, riskAsOfDate), weight: taskWeight(task) }))
-    .filter((item) => item.days !== null)
-    .sort((a, b) => a.days - b.days || b.weight - a.weight)
-    .slice(0, 10);
+    .filter((item) => item.days !== null && item.days <= 3)
+    .sort((a, b) => a.days - b.days || b.weight - a.weight);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card team-modal-card" onClick={(event) => event.stopPropagation()}>
-        <button className="modal-close no-print" onClick={onClose} aria-label="Close"><i className="fa-solid fa-xmark"></i></button>
+      <div className="modal-card team-modal-card" role="dialog" aria-modal="true" aria-label="รายละเอียดทีม" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
+        <button className="modal-close no-print" onClick={onClose} aria-label="Close">×</button>
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
           <div className="min-w-0 flex-1">
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Team Drilldown</div>
             <h2 className="section-title mt-2 mb-1">{team.team}</h2>
             <div className="flex flex-wrap gap-2">
-              <span className={`mx-badge ${healthClass(team.health)}`}>Health {team.health}</span>
+              <span className={`mx-badge ${healthClass(team.health)}`}>Health {team.health === null ? 'ยังประเมินไม่ได้' : team.health}</span>
               <span className="mx-badge status-neutral">Top KPI: {team.topKpi}</span>
             </div>
             <div className="team-member-strip mt-5" aria-label={`${team.team} members`}>
@@ -1552,18 +1746,19 @@ function TeamDetailModal({ team, holidays = [], onClose }) {
             <div><span>Total</span><strong>{fmtNum(team.total)}</strong></div>
             <div><span>Backlog</span><strong>{fmtNum(team.backlog)}</strong></div>
             <div><span>W.SLA</span><strong>{fmtPct(team.sla)}</strong></div>
-            <div><span>SLA Fail</span><strong>{fmtNum(team.slaFail)}</strong></div>
+            <div><span>SLA Fail</span><strong><TaskLink title={team.team + ' / งานเสร็จช้า'} items={team.items.filter(isCompletedLate)}>{fmtNum(team.slaFail)}</TaskLink></strong></div>
           </div>
         </div>
 
+        <ReportContext />
         <div className="mt-6 team-modal-grid">
           <section className="mx-soft p-5">
-            <h3 className="m-0 text-lg font-black">KPI Mix ของทีม</h3>
+            <h3 className="m-0 text-lg font-black">KPI Mix ของทีม</h3><p className="text-sm">{team.total} งาน • ยกเลิก {team.cancelled || 0} งาน • กด KPI เพื่อดูงาน</p>
             <div className="mt-4 grid gap-3 team-modal-scroll">
               {kpiBreakdown.map((row) => (
                 <div key={row.name}>
                   <div className="flex justify-between gap-3 mb-2 text-sm">
-                    <strong className="truncate">{row.name}</strong>
+                    <button className="metric-link" onClick={() => openTasks(row.name, team.items.filter((task) => mainKpi(task) === row.name))}>{row.name}</button>
                     <span>{fmtNum(row.total)} งาน / SLA {fmtPct(row.scores.sla)}</span>
                   </div>
                   <HorizontalBar value={team.total ? Math.round((row.total / team.total) * 1000) / 10 : 0} color={row.fail ? 'var(--mx-warning)' : 'var(--mx-info)'} />
@@ -1586,7 +1781,7 @@ function TeamDetailModal({ team, holidays = [], onClose }) {
                   <div className="flex items-center gap-3 min-w-0">
                     <Avatar item={person.profile || person} name={person.name} className="team-person-avatar" />
                     <div className="min-w-0">
-                      <div className="font-black truncate">{String(index + 1).padStart(2, '0')} {person.name}</div>
+                      <button className="metric-link font-black" onClick={() => openPerson(person.source)}>{String(index + 1).padStart(2, '0')} {person.name}</button>
                       <div className="mt-1 text-xs text-[var(--mx-muted)]">{fmtNum(person.active)} active / {fmtNum(person.overdue)} overdue</div>
                     </div>
                   </div>
@@ -1633,7 +1828,7 @@ function TeamDetailModal({ team, holidays = [], onClose }) {
 }
 
 function TeamsPanel({ teamRows, holidays = [] }) {
-  const [selectedTeam, setSelectedTeam] = useState(null);
+  const { openTeam: setSelectedTeam } = React.useContext(PerformanceActions);
   const [teamSearch, setTeamSearch] = useState('');
   const [teamBandFilter, setTeamBandFilter] = useState('all');
   const [teamSort, setTeamSort] = useState({ key: 'total', direction: 'desc' });
@@ -1643,14 +1838,14 @@ function TeamsPanel({ teamRows, holidays = [] }) {
   return (
     <div className="grid gap-6">
       <div className="detail-grid">
-        {filteredTeams.slice(0, 8).map((row, index) => (
+        <AllItems rows={filteredTeams} initial={8}>{(row, index) => (
           <button key={row.team} className="mx-card leader-card team-card-button p-5 text-left" onClick={() => setSelectedTeam(row)}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">Rank {String(index + 1).padStart(2, '0')} / Team</div>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--mx-muted)] font-black">ลำดับ {String(index + 1).padStart(2, '0')} / Team</div>
                 <h3 className="mt-2 mb-0 text-xl font-black truncate">{row.team}</h3>
               </div>
-              <span className={`mx-badge ${healthClass(row.health)}`}>{row.health}</span>
+              <span className={`mx-badge ${healthClass(row.health)}`}>{row.health === null ? 'ยังประเมินไม่ได้' : row.health}</span>
             </div>
             <div className="mini-metric-grid mt-5">
               <div><span>Total</span><strong>{fmtNum(row.total)}</strong></div>
@@ -1667,20 +1862,20 @@ function TeamsPanel({ teamRows, holidays = [] }) {
               <i className="fa-solid fa-arrow-up-right-from-square"></i>
             </div>
           </button>
-        ))}
+        )}</AllItems>
       </div>
 
       <section className="mx-card p-5 md:p-7">
         <h2 className="section-title m-0">Completion Rate by Team</h2>
         <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">Operational workload stack with completion proportion and remaining backlog.</p>
-        <StackedWorkloadChart rows={teamRows} />
+        <StackedWorkloadChart rows={filteredTeams} />
       </section>
 
       <section className="mx-card p-5 md:p-7">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div>
             <h2 className="section-title m-0">Team SLA Summary</h2>
-            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Detailed team matrix aligned with the SPDS performance dashboard structure.</p>
+            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">ตัวกรองในแท็บนี้ใช้กับการ์ด กราฟ และตารางรายทีม • ลำดับเปลี่ยนตามการเรียง ไม่ใช่อันดับคะแนน</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 no-print">
             <input className="mx-input sm:!w-72" value={teamSearch} onChange={(e) => setTeamSearch(e.target.value)} placeholder="Search team or top KPI" />
@@ -1698,12 +1893,12 @@ function TeamsPanel({ teamRows, holidays = [] }) {
         <DataTable minWidth={1220}>
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-              <th className="p-4">Rank</th>
+              <th className="p-4">ลำดับ</th>
               <SortHeader label="Team" sortKey="team" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
               <SortHeader label="Total" sortKey="total" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
               <SortHeader label="Workload" sortKey="workloadShare" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
               <SortHeader label="Completed" sortKey="completed" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
-              <SortHeader label="Active Weight" sortKey="activeWeightShare" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
+              <SortHeader label="Active Weight" sortKey="activeOwnShare" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
               <SortHeader label="Backlog" sortKey="backlog" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
               <SortHeader label="On Process" sortKey="onProcess" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
               <SortHeader label="SLA Pass" sortKey="slaPass" sortConfig={teamSort} onSort={(key) => setTeamSort((current) => nextSort(current, key))} />
@@ -1716,19 +1911,21 @@ function TeamsPanel({ teamRows, holidays = [] }) {
           <tbody className="divide-y divide-[var(--mx-line)]">
             {filteredTeams.map((row, index) => (
               <tr key={row.team}>
-                <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td><td className="p-4 font-black">{row.team}</td><td className="p-4">{fmtNum(row.total)}</td><td className="p-4 font-bold">{fmtPct(row.workloadShare)}</td><td className="p-4">{fmtNum(row.completed)}</td><td className="p-4 font-bold">{fmtWeightShare(row.activeWeight, row.totalWeight)}</td><td className="p-4">{fmtNum(row.backlog)}</td><td className="p-4">{fmtNum(row.onProcess)}</td><td className="p-4">{fmtNum(row.slaPass)}</td><td className="p-4">{fmtNum(row.slaFail)}</td><td className="p-4 font-bold">{fmtPct(row.sla)}</td><td className="p-4 font-bold">{fmtPct(row.completion)}</td><td className="p-4"><span className={`mx-badge ${healthClass(row.sla)}`}>{performanceLabel(row.sla)}</span></td>
+                <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td><td className="p-4 font-black"><button className="metric-link" onClick={() => setSelectedTeam(row)}>{row.team}</button></td><td className="p-4">{fmtNum(row.total)}</td><td className="p-4 font-bold">{fmtPct(row.workloadShare)}</td><td className="p-4">{fmtNum(row.completed)}</td><td className="p-4 font-bold">{fmtWeightShare(row.activeWeight, row.totalWeight)}</td><td className="p-4">{fmtNum(row.backlog)}</td><td className="p-4">{fmtNum(row.onProcess)}</td><td className="p-4">{fmtNum(row.slaPass)}</td><td className="p-4"><TaskLink title={row.team + ' / งานเสร็จช้า'} items={row.items.filter(isCompletedLate)}>{fmtNum(row.slaFail)}</TaskLink></td><td className="p-4 font-bold">{fmtPct(row.sla)}</td><td className="p-4 font-bold">{fmtPct(row.completion)}</td><td className="p-4"><span className={`mx-badge ${healthClass(row.sla)}`}>{performanceLabel(row.sla)}</span></td>
               </tr>
             ))}
             {!filteredTeams.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="13">No team records match these filters.</td></tr>}
           </tbody>
         </DataTable>
       </section>
-      <TeamDetailModal team={selectedTeam} holidays={holidays} onClose={() => setSelectedTeam(null)} />
+
     </div>
   );
 }
 
 function EmployeeDetailModal({ person, holidays = [], kpis = [], onClose }) {
+  const { openTeam } = React.useContext(PerformanceActions);
+  useDialogAccessibility(Boolean(person), onClose);
   if (!person) return null;
   const riskAsOfDate = person.asOfDate || new Date();
   const kpiBreakdown = Object.entries(groupBy(person.items, mainKpi))
@@ -1740,14 +1937,12 @@ function EmployeeDetailModal({ person, holidays = [], kpis = [], onClose }) {
   const completedTasks = person.items
     .filter(isCompleted)
     .sort((a, b) => new Date(b.completiondate || b.deadline || 0) - new Date(a.completiondate || a.deadline || 0));
-  const recentCompleted = completedTasks.slice(0, 6);
   const slaFailTasks = person.items
     .filter(isCompletedLate)
     .map((task) => ({ task, days: businessDaysBetween(task.deadline, task.completiondate, holidays), weight: taskWeight(task) }))
-    .sort((a, b) => Math.abs(b.days || 0) - Math.abs(a.days || 0) || b.weight - a.weight)
-    .slice(0, 6);
+    .sort((a, b) => Math.abs(b.days || 0) - Math.abs(a.days || 0) || b.weight - a.weight);
   const completionDays = completedTasks
-    .map((task) => businessDaysBetween(task.startdate || task.created_at || task.deadline, task.completiondate || task.deadline, holidays))
+    .map((task) => businessDaysBetween(task.startdate || task.created_at, task.completiondate, holidays))
     .filter((value) => value !== null && Number.isFinite(value) && value >= 0);
   const avgCompletionDays = completionDays.length
     ? Math.round((completionDays.reduce((sum, value) => sum + value, 0) / completionDays.length) * 10) / 10
@@ -1759,26 +1954,25 @@ function EmployeeDetailModal({ person, holidays = [], kpis = [], onClose }) {
   const urgent = person.items
     .filter(isActive)
     .map((task) => ({ task, days: daysUntil(task, holidays, riskAsOfDate), weight: taskWeight(task) }))
-    .filter((item) => item.days !== null)
-    .sort((a, b) => a.days - b.days || b.weight - a.weight)
-    .slice(0, 8);
-  const topKpiRows = kpiBreakdown.slice(0, 6);
-  const performedSubKpis = Object.entries(groupBy(person.items, subKpi))
+    .filter((item) => item.days !== null && item.days <= 3)
+    .sort((a, b) => a.days - b.days || b.weight - a.weight);
+  const topKpiRows = kpiBreakdown;
+  const performedSubKpis = Object.entries(groupBy(person.items, (task) => mainKpi(task) + " / " + subKpi(task)))
     .map(([name, items]) => ({
       name,
       total: items.length,
       active: items.filter(isActive).length,
       completed: items.filter(isCompleted).length,
-      weight: Math.max(...items.map(taskWeight), 1),
+      weights: weightValues(items),
     }))
-    .sort((a, b) => b.weight - a.weight || b.active - a.active || b.total - a.total);
-  const topStatusRows = statusBreakdown.slice(0, 4);
-  const topUrgent = urgent.slice(0, 4);
-  const topRecentCompleted = recentCompleted.slice(0, 4);
+    .sort((a, b) => b.active - a.active || b.total - a.total);
+  const topStatusRows = statusBreakdown;
+  const topUrgent = urgent;
+  const topRecentCompleted = completedTasks;
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card employee-modal-card" onClick={(event) => event.stopPropagation()}>
-        <button className="modal-close no-print" onClick={onClose} aria-label="Close"><i className="fa-solid fa-xmark"></i></button>
+      <div className="modal-card employee-modal-card" role="dialog" aria-modal="true" aria-label="รายละเอียดบุคคล" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
+        <button className="modal-close no-print" onClick={onClose} aria-label="Close">×</button>
         <div className="employee-modal-header">
           <div className="employee-profile-strip">
             <Avatar item={person.profile || person} name={person.person} className="modal-avatar" />
@@ -1796,6 +1990,9 @@ function EmployeeDetailModal({ person, holidays = [], kpis = [], onClose }) {
             <strong>{fmtPct(person.weightedScore)}</strong>
           </div>
         </div>
+        <ReportContext />
+        <PersonalKpiTable person={person} catalog={kpis} holidays={holidays} />
+        <button className="mx-btn no-print mt-3" onClick={() => openTeam({ team: person.team })}>ดูทีม {person.team}</button>
         <div className="employee-summary-grid">
           <div><span>Total Work</span><strong>{fmtNum(person.total)}</strong></div>
           <div><span>Active Weight</span><strong>{fmtWeightShare(person.activeWeight, person.totalWeight)}</strong></div>
@@ -1833,7 +2030,7 @@ function EmployeeDetailModal({ person, holidays = [], kpis = [], onClose }) {
               <div><span>Avg Days</span><strong>{avgCompletionDays === null ? '-' : avgCompletionDays}</strong></div>
               <div><span>Slowest</span><strong>{maxCompletionDays === null ? '-' : maxCompletionDays}</strong></div>
               <div><span>On-Time</span><strong>{fmtNum(person.slaPass)}</strong></div>
-              <div><span>Late</span><strong>{fmtNum(person.slaFail)}</strong></div>
+              <div><span>Late</span><strong><TaskLink title={person.person + ' / งานเสร็จช้า'} items={person.items.filter(isCompletedLate)}>{fmtNum(person.slaFail)}</TaskLink></strong></div>
             </div>
           </section>
           <section className="mx-soft p-5 employee-main-panel">
@@ -1883,7 +2080,7 @@ function EmployeeDetailModal({ person, holidays = [], kpis = [], onClose }) {
                   </div>
                   <div className="employee-kpi-score">
                     <span>Weight</span>
-                    <strong>{fmtPct(row.weight)}</strong>
+                    <strong>{formatWeights(row.weights)}</strong>
                   </div>
                 </div>
               ))}
@@ -1988,7 +2185,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div>
             <h2 className="section-title m-0">Employee Performance Deep Dive</h2>
-            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Filter by team, inspect workload, SLA, backlog, and top KPI ownership.</p>
+            <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">ตัวกรองในแท็บนี้ใช้กับการ์ดและตารางรายบุคคล • ลำดับตามการเรียง ไม่ใช่อันดับคะแนน</p>
           </div>
           <div className="filter-pills no-print">
             <button className={`pill ${personTeamFilter === 'all' ? 'active' : ''}`} onClick={() => setPersonTeamFilter('all')}>All Teams</button>
@@ -2009,7 +2206,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
       </section>
 
       <div className="employee-grid">
-        {filtered.slice(0, 36).map((row, index) => (
+        <AllItems rows={filtered} initial={12}>{(row, index) => (
           <button key={row.employeeKey || row.name} className="mx-card employee-card p-5 text-left" onClick={() => setSelectedPerson(row)}>
             <div className="flex items-start gap-4">
               <Avatar item={row.profile || row} name={row.person} />
@@ -2017,7 +2214,7 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
                 <div className="font-black truncate">{row.person}</div>
                 <div className="mt-1 flex flex-wrap gap-2">
                   <span className="mx-badge status-neutral">{row.team}</span>
-                  <span className={`mx-badge ${healthClass(row.sla)}`}>Rank {index + 1}</span>
+                  <span className="mx-badge status-neutral">ลำดับ {index + 1}</span>
                 </div>
               </div>
             </div>
@@ -2036,20 +2233,20 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
               <div className="mt-1 text-[var(--mx-muted)]">{row.topKpi} / {fmtNum(row.topKpiCount)} task(s) / team load {fmtPct(row.workloadShare)}</div>
             </div>
           </button>
-        ))}
+        )}</AllItems>
       </div>
 
       <section className="mx-card p-5 md:p-7">
-        <h2 className="section-title m-0">Employee Leaderboard Matrix</h2>
+        <h2 className="section-title m-0">ตารางผลงานรายบุคคล</h2>
         <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">{fmtNum(filtered.length)} people from {fmtNum(tasks.length)} task records.</p>
         <DataTable minWidth={1220}>
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-              <th className="p-4">Rank</th>
+              <th className="p-4">ลำดับ</th>
               <SortHeader label="Name" sortKey="person" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
               <SortHeader label="Team" sortKey="team" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
               <SortHeader label="Total" sortKey="total" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
-              <SortHeader label="Active Weight" sortKey="activeWeightShare" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
+              <SortHeader label="Active Weight" sortKey="activeOwnShare" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
               <SortHeader label="Team Load" sortKey="workloadShare" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
               <SortHeader label="Completed" sortKey="completed" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
               <SortHeader label="SLA Pass" sortKey="slaPass" sortConfig={employeeSort} onSort={(key) => setEmployeeSort((current) => nextSort(current, key))} />
@@ -2063,22 +2260,23 @@ function EmployeesPanel({ personRows, teams, personTeamFilter, setPersonTeamFilt
             {filtered.map((row, index) => (
               <tr key={row.employeeKey || row.name}>
                 <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td>
-                <td className="p-4 font-black">{row.person}</td>
+                <td className="p-4 font-black"><button className="metric-link" onClick={() => setSelectedPerson(row)}>{row.person}</button></td>
                 <td className="p-4"><span className="mx-badge status-neutral">{row.team}</span></td>
-                <td className="p-4">{fmtNum(row.total)}</td><td className="p-4 font-bold">{fmtWeightShare(row.activeWeight, row.totalWeight)}</td><td className="p-4">{fmtPct(row.workloadShare)}</td><td className="p-4">{fmtNum(row.completed)}</td><td className="p-4">{fmtNum(row.slaPass)}</td><td className="p-4">{fmtNum(row.slaFail)}</td><td className="p-4 font-bold">{fmtPct(row.sla)}</td><td className="p-4 font-bold">{fmtPct(row.completion)}</td>
-                <td className="p-4"><span className={`mx-badge ${healthClass(row.weightedScore)}`}>{row.weightedScore >= 90 ? 'Excellent' : row.weightedScore >= 75 ? 'Good' : row.weightedScore >= 60 ? 'Monitor' : 'Critical'}</span></td>
+                <td className="p-4">{fmtNum(row.total)}</td><td className="p-4 font-bold">{fmtWeightShare(row.activeWeight, row.totalWeight)}</td><td className="p-4">{fmtPct(row.workloadShare)}</td><td className="p-4">{fmtNum(row.completed)}</td><td className="p-4">{fmtNum(row.slaPass)}</td><td className="p-4"><TaskLink title={row.team + ' / งานเสร็จช้า'} items={row.items.filter(isCompletedLate)}>{fmtNum(row.slaFail)}</TaskLink></td><td className="p-4 font-bold">{fmtPct(row.sla)}</td><td className="p-4 font-bold">{fmtPct(row.completion)}</td>
+                <td className="p-4"><span className={`mx-badge ${healthClass(row.weightedScore)}`}>{fmtPct(row.weightedScore)} • {performanceLabel(row.weightedScore)}</span></td>
               </tr>
             ))}
             {!filtered.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="12">No employee records match these filters.</td></tr>}
           </tbody>
         </DataTable>
       </section>
-      <EmployeeDetailModal person={selectedPerson} holidays={holidays} kpis={kpis} onClose={() => setSelectedPerson(null)} />
+
     </div>
   );
 }
 
 function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
+  const { openPerson } = React.useContext(PerformanceActions);
   const [analysisSearch, setAnalysisSearch] = useState('');
   const [analysisBandFilter, setAnalysisBandFilter] = useState('all');
   const filteredKpiRows = kpiRows
@@ -2090,16 +2288,15 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
   const filteredTeamRows = teamRows
     .filter((row) => matchesSearch(row, ['team', 'topKpi'], analysisSearch))
     .filter((row) => matchesBand(row.sla, analysisBandFilter));
-  const totalTasks = kpiRows.reduce((sum, row) => sum + row.total, 0);
-  const topPerformer = [...personRows].filter((row) => row.weightedScore !== null).sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total)[0];
-  const bestTeam = [...teamRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0) || b.total - a.total)[0];
-  const avgTasks = personRows.length ? Math.round(personRows.reduce((sum, row) => sum + row.total, 0) / personRows.length) : 0;
-  const highRiskKpis = [...filteredKpiRows].sort((a, b) => (b.slaFail - a.slaFail) || (b.active - a.active) || b.total - a.total).slice(0, 8);
+  const totalTasks = filteredKpiRows.reduce((sum, row) => sum + row.total, 0);
+  const topPerformer = [...filteredPersonRows].filter((row) => row.weightedScore !== null).sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total)[0];
+  const bestTeam = [...filteredTeamRows].filter((row) => row.sla !== null).sort((a, b) => (b.sla || 0) - (a.sla || 0) || b.total - a.total)[0];
+  const avgTasks = filteredPersonRows.length ? Math.round(filteredPersonRows.reduce((sum, row) => sum + row.total, 0) / filteredPersonRows.length) : 0;
+  const highRiskKpis = [...filteredKpiRows].filter((row) => row.overdue || row.risk).sort((a, b) => b.overdueWeight - a.overdueWeight || b.overdue - a.overdue || b.atRiskWeight - a.atRiskWeight || b.risk - a.risk);
   const employeeLeaders = [...filteredPersonRows]
     .filter((row) => row.sla !== null || row.completion !== null)
-    .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total)
-    .slice(0, 12);
-  const teamKpiRows = filteredTeamRows.slice(0, 10).map((team) => {
+    .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.total - a.total);
+  const teamKpiRows = filteredTeamRows.map((team) => {
     const groups = Object.entries(groupBy(team.items || [], mainKpi))
       .map(([name, items]) => ({
         name,
@@ -2107,8 +2304,7 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
         fail: items.filter(isCompletedLate).length,
         scores: calcWeightedScores(items),
       }))
-      .sort((a, b) => b.total - a.total || b.fail - a.fail)
-      .slice(0, 3);
+      .sort((a, b) => b.total - a.total || b.fail - a.fail);
     return { ...team, groups };
   });
   return (
@@ -2118,7 +2314,7 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
           <div>
             <p className="eyebrow mb-2">KPI Intelligence</p>
             <h2 className="section-title m-0">ภาพวิเคราะห์ KPI สำหรับผู้บริหาร</h2>
-            <p className="mt-2 mb-0 text-sm text-[var(--mx-muted)]">รวมสัดส่วนงาน จุดเสี่ยง ผลงานรายบุคคล และความเข้มข้นของ KPI รายทีมในมุมเดียว</p>
+            <p className="mt-2 mb-0 text-sm text-[var(--mx-muted)]">ตัวกรองในแท็บนี้ใช้กับข้อมูลวิเคราะห์ด้านล่าง • ระดับของ KPI/ทีมอิง SLA ส่วนบุคคลอิง Performance</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 no-print">
             <input className="mx-input sm:!w-80" value={analysisSearch} onChange={(e) => setAnalysisSearch(e.target.value)} placeholder="Search KPI, team, employee" />
@@ -2136,7 +2332,7 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
         <div className="kpi-insight-grid">
           <div className="kpi-insight-card">
             <span>หมวด KPI</span>
-            <strong>{fmtNum(kpiRows.length)}</strong>
+            <strong>{fmtNum(filteredKpiRows.length)}</strong>
             <em>Main categories</em>
           </div>
           <div className="kpi-insight-card">
@@ -2152,7 +2348,7 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
           <div className="kpi-insight-card">
             <span>เฉลี่ยงาน/คน</span>
             <strong>{fmtNum(avgTasks)}</strong>
-            <em>{fmtNum(personRows.length)} คนในช่วงที่เลือก</em>
+            <em>{fmtNum(filteredPersonRows.length)} คนตามตัวกรอง</em>
           </div>
         </div>
       </section>
@@ -2162,12 +2358,12 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
           <h2 className="section-title m-0">สัดส่วน KPI Portfolio</h2>
           <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">เรียงตามปริมาณงาน พร้อมคุณภาพการส่งมอบของแต่ละหมวด KPI</p>
           <div className="kpi-portfolio-list">
-            {filteredKpiRows.slice(0, 10).map((row, index) => (
+            {filteredKpiRows.map((row, index) => (
               <div key={row.name} className="kpi-row-card">
                 <div className="kpi-row-rank">{String(index + 1).padStart(2, '0')}</div>
                 <div className="min-w-0">
                   <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="font-black break-words leading-tight">{row.name}</div>
+                    <div className="font-black break-words leading-tight"><TaskLink title={row.name} items={row.items}>{row.name}</TaskLink></div>
                     <span className={`mx-badge ${healthClass(row.sla)}`}>{fmtPct(row.sla)}</span>
                   </div>
                   <HorizontalBar value={row.share} color={row.sla >= 95 ? 'var(--mx-success)' : row.sla >= 85 ? 'var(--mx-warning)' : 'var(--mx-danger)'} />
@@ -2175,7 +2371,7 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
                 <div className="kpi-row-stats">
                   <span><b>{fmtPct(row.share)}</b><em>Share</em></span>
                   <span><b>{fmtNum(row.total)}</b><em>Total</em></span>
-                  <span><b>{fmtPct(row.weightShare)}</b><em>Weight</em></span>
+                  <span><b>{fmtPct(row.weightShare)}</b><em>สัดส่วนภาระงาน</em></span>
                   <span><b>{fmtPct(row.completion)}</b><em>Done</em></span>
                   <span><b>{fmtNum(row.slaFail)}</b><em>Fail</em></span>
                 </div>
@@ -2192,11 +2388,11 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
             {highRiskKpis.map((row) => (
               <div key={row.name} className="watch-row">
                 <div className="min-w-0">
-                  <div className="font-black line-clamp-2">{row.name}</div>
+                  <div className="font-black"><TaskLink title={row.name + ' / งานเสี่ยง'} items={row.riskItems}>{row.name}</TaskLink></div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="mx-badge status-neutral">Active {fmtNum(row.active)}</span>
-                    <span className="mx-badge status-info">Weight {fmtPct(row.weightShare)}</span>
-                    <span className={`mx-badge ${row.slaFail > 0 ? 'status-bad' : 'status-good'}`}>Fail {fmtNum(row.slaFail)}</span>
+                    <span className="mx-badge status-info">สัดส่วนภาระงาน {fmtPct(row.weightShare)}</span>
+                    <span className={`mx-badge ${row.overdue > 0 ? 'status-bad' : 'status-warn'}`}>เกินกำหนด {fmtNum(row.overdue)} / ใกล้ครบ {fmtNum(row.risk)}</span>
                   </div>
                 </div>
                 <div className="watch-score">
@@ -2205,26 +2401,26 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
                 </div>
               </div>
             ))}
-            {!highRiskKpis.length && <div className="text-sm text-[var(--mx-muted)]">ไม่มีข้อมูล KPI ในช่วงที่เลือก</div>}
+            {!highRiskKpis.length && <div className="text-sm text-[var(--mx-muted)]">ไม่มี KPI ที่มีงานเกินกำหนดหรือใกล้ครบกำหนดตามตัวกรอง</div>}
           </div>
         </section>
       </div>
 
       <div className="grid 2xl:grid-cols-[1fr_1fr] gap-5">
         <section className="mx-card p-5 md:p-7">
-          <h2 className="section-title m-0">Employee SLA Leaderboard</h2>
+          <h2 className="section-title m-0">บุคคลเรียงตาม Performance</h2>
           <p className="mt-1 mb-5 text-sm text-[var(--mx-muted)]">อันดับบุคคลจากคะแนนถ่วงน้ำหนัก พร้อมปริมาณงานและสถานะ SLA</p>
           <DataTable minWidth={760}>
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-                <th className="p-4">Rank</th><th className="p-4">Name</th><th className="p-4">Team</th><th className="p-4">Tasks</th><th className="p-4">W.SLA</th><th className="p-4">Performance</th>
+                <th className="p-4">ลำดับ</th><th className="p-4">Name</th><th className="p-4">Team</th><th className="p-4">Tasks</th><th className="p-4">W.SLA</th><th className="p-4">Performance</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--mx-line)]">
               {employeeLeaders.map((row, index) => (
                 <tr key={row.name}>
                   <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td>
-                  <td className="p-4 font-black max-w-[220px]">{row.person}</td>
+                  <td className="p-4 font-black max-w-[220px]"><button className="metric-link" onClick={() => openPerson(row)}>{row.person}</button></td>
                   <td className="p-4"><span className="mx-badge status-neutral">{row.team}</span></td>
                   <td className="p-4">{fmtNum(row.total)}</td>
                   <td className="p-4 font-bold">{fmtPct(row.sla)}</td>
@@ -2241,7 +2437,7 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
           <DataTable minWidth={900}>
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-                <th className="p-4">Rank</th><th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">W.SLA</th><th className="p-4">Top KPI Mix</th>
+                <th className="p-4">ลำดับ</th><th className="p-4">Team</th><th className="p-4">Total</th><th className="p-4">W.SLA</th><th className="p-4">Top KPI Mix</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--mx-line)]">
@@ -2274,85 +2470,37 @@ function KpiAnalysisPanel({ kpiRows, personRows, teamRows }) {
   );
 }
 
-function KpiWeightsPanel({ kpiWeightRows, kpiSearch, setKpiSearch }) {
-  const [weightTeamFilter, setWeightTeamFilter] = useState('all');
-  const [weightBandFilter, setWeightBandFilter] = useState('all');
-  const [weightSort, setWeightSort] = useState({ key: 'weight', direction: 'desc' });
-  const search = kpiSearch.trim().toLowerCase();
-  const teams = [...new Set(kpiWeightRows.map((row) => row.team))].sort((a, b) => a.localeCompare(b));
-  const filtered = sortRows(kpiWeightRows
-    .filter((row) => !search || [row.team, row.main, row.sub].join(' ').toLowerCase().includes(search))
-    .filter((row) => weightTeamFilter === 'all' || row.team === weightTeamFilter)
-    .filter((row) => matchesBand(row.sla, weightBandFilter)), weightSort);
-  return (
-    <section className="mx-card p-5 md:p-7">
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-        <div>
-          <h2 className="section-title m-0">KPI Configurations & Weights</h2>
-          <p className="mt-1 mb-0 text-sm text-[var(--mx-muted)]">Searchable KPI weight detail by team, main KPI category, and Sub KPI weight.</p>
-        </div>
-        <div className="grid sm:grid-cols-[minmax(260px,420px)_180px_160px] gap-2 no-print">
-          <input className="mx-input" value={kpiSearch} onChange={(e) => setKpiSearch(e.target.value)} placeholder="Search team, main KPI, or sub KPI" />
-          <select className="mx-input" value={weightTeamFilter} onChange={(e) => setWeightTeamFilter(e.target.value)}>
-            <option value="all">All teams</option>
-            {teams.map((team) => <option key={team} value={team}>{team}</option>)}
-          </select>
-          <select className="mx-input" value={weightBandFilter} onChange={(e) => setWeightBandFilter(e.target.value)}>
-            <option value="all">All bands</option>
-            <option value="excellent">Excellent</option>
-            <option value="good">Good</option>
-            <option value="monitor">Monitor</option>
-            <option value="critical">Critical</option>
-            <option value="unrated">Unrated</option>
-          </select>
-        </div>
-      </div>
-      <p className="mt-4 mb-0 text-sm text-[var(--mx-muted)]">Showing {fmtNum(filtered.length)} of {fmtNum(kpiWeightRows.length)} KPI configurations.</p>
-      <div className="mt-5">
-        <DataTable minWidth={1300}>
-          <thead>
-            <tr className="text-left text-[11px] uppercase tracking-[0.14em] text-[var(--mx-muted)]">
-              <th className="p-4">Rank</th>
-              <SortHeader label="Team" sortKey="team" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="Main KPI" sortKey="main" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="Sub KPI" sortKey="sub" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="Weight" sortKey="weight" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="Total Units" sortKey="totalWeight" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="Active Units" sortKey="activeWeight" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="Total" sortKey="total" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="Completed" sortKey="completed" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="Pending" sortKey="pending" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="SLA Pass" sortKey="slaPass" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="SLA Fail" sortKey="slaFail" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <SortHeader label="SLA %" sortKey="sla" sortConfig={weightSort} onSort={(key) => setWeightSort((current) => nextSort(current, key))} />
-              <th className="p-4">Band</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--mx-line)]">
-            {filtered.map((row, index) => (
-              <tr key={`${row.team}-${row.main}-${row.sub}`}>
-                <td className="p-4 font-black text-[var(--mx-brass)]">{String(index + 1).padStart(2, '0')}</td>
-                <td className="p-4"><span className="mx-badge status-neutral">{row.team}</span></td>
-                <td className="p-4 font-black max-w-[280px]">{row.main}</td>
-                <td className="p-4 max-w-[360px]">{row.sub}</td>
-                <td className="p-4 font-bold">{row.weight}</td>
-                <td className="p-4 font-bold">{fmtWorkUnits(row.totalWeight)}</td>
-                <td className="p-4 font-bold">{fmtWorkUnits(row.activeWeight)}</td>
-                <td className="p-4">{fmtNum(row.total)}</td>
-                <td className="p-4">{fmtNum(row.completed)}</td>
-                <td className="p-4">{fmtNum(row.pending)}</td>
-                <td className="p-4">{fmtNum(row.slaPass)}</td>
-                <td className="p-4">{fmtNum(row.slaFail)}</td>
-                <td className="p-4 font-bold">{fmtPct(row.sla)}</td>
-                <td className="p-4"><span className={`mx-badge ${healthClass(row.sla)}`}>{performanceLabel(row.sla)}</span></td>
-              </tr>
-            ))}
-            {!filtered.length && <tr><td className="p-8 text-center text-[var(--mx-muted)]" colSpan="14">No KPI weight records match these filters.</td></tr>}
-          </tbody>
-        </DataTable>
-      </div>
-    </section>
-  );
+function KpiWeightsPanel({ catalog, tasks, personRows, holidays, asOfDate, kpiSearch, setKpiSearch }) {
+  const [mode, setMode] = useState('current');
+  const [personKey, setPersonKey] = useState('all');
+  const [mainFilter, setMainFilter] = useState('all');
+  const [sort, setSort] = useState('main');
+  const person = personRows.find((row) => row.employeeKey === personKey);
+  const all = buildWeightCatalogRows(catalog, tasks, holidays, asOfDate);
+  const mains = [...new Set(all.map((row) => row.main))].sort((a, b) => a.localeCompare(b, 'th'));
+  const activeMainFilter = mains.includes(mainFilter) ? mainFilter : 'all';
+  const rows = sortRows(all.filter((row) => (mode === 'actual' || row.configured)
+    && (activeMainFilter === 'all' || row.main === activeMainFilter)
+    && matchesSearch(row, ['team', 'main', 'sub'], kpiSearch)).map((row) => ({ ...row, total: row.items.length, risk: row.portfolio.overdueWeight + row.portfolio.atRiskWeight })), { key: sort, direction: sort === 'main' ? 'asc' : 'desc' });
+  return <section className="mx-card p-5 md:p-7">
+    <h2 className="section-title">ทะเบียน KPI และน้ำหนักที่ใช้จริง</h2>
+    <p className="text-sm text-[var(--mx-muted)]">ทะเบียนปัจจุบันรวม KPI ที่ยังไม่มีงาน • น้ำหนักงานย้อนหลังยึดข้อมูลที่บันทึกกับงาน ไม่มีการแทนค่าด้วยค่าตั้งปัจจุบัน</p>
+    <div className="scope-controls no-print">
+      <label>มุมมอง<select className="mx-input" aria-label="มุมมอง" value={mode} onChange={(e) => setMode(e.target.value)}><option value="current">การตั้งค่าปัจจุบัน</option><option value="actual">น้ำหนักจากงานในช่วงที่เลือก</option></select></label>
+      <label>บุคคล<select className="mx-input" aria-label="บุคคล" value={person ? personKey : 'all'} onChange={(e) => setPersonKey(e.target.value)}><option value="all">ทั้งหมดในขอบเขต</option>{personRows.map((row) => <option key={row.employeeKey} value={row.employeeKey}>{row.person} / {row.team}</option>)}</select></label>
+      {!person && <><label>Main KPI<select className="mx-input" aria-label="Main KPI" value={activeMainFilter} onChange={(e) => setMainFilter(e.target.value)}><option value="all">ทั้งหมด</option>{mains.map((name) => <option key={name}>{name}</option>)}</select></label>
+      <label>ค้นหา<input className="mx-input" value={kpiSearch} onChange={(e) => setKpiSearch(e.target.value)} placeholder="ทีม / Main / Sub KPI" /></label>
+      <label>เรียงตาม<select className="mx-input" aria-label="เรียงตาม" value={sort} onChange={(e) => setSort(e.target.value)}><option value="main">Main KPI</option><option value="total">จำนวนงาน</option><option value="risk">น้ำหนักงานเสี่ยง</option></select></label></>}
+    </div>
+    <p className="text-sm">{person ? 'รายละเอียดบุคคล: ' + person.person + (mode === 'current' ? ' • KPI ที่ได้รับมอบหมายตามทะเบียนปัจจุบัน' : ' • KPI จากงานจริงในช่วงที่เลือก') : (mode === 'current' ? 'การตั้งค่าปัจจุบัน' : 'น้ำหนักจากงานในช่วงที่เลือก') + ' • ' + rows.length + ' รายการ'} • ตัวกรองหน้านี้ใช้เฉพาะตารางนี้</p>
+    {person ? <PersonalKpiTable person={person} catalog={catalog} holidays={holidays} mode={mode} /> : <>
+      <DataTable minWidth={1100}><thead><tr><th>ทีม</th><th>Main KPI</th><th>Sub KPI</th><th>น้ำหนักพื้นฐานปัจจุบัน</th><th>น้ำหนักที่บันทึกกับงาน</th><th>ทั้งหมด / เสร็จ / ค้าง / ยกเลิก</th><th>W.Completion</th><th>W.SLA</th></tr></thead>
+        <tbody>{rows.map((row) => <tr key={row.key}><td>{row.team}</td><td>{row.main}</td><td><TaskLink title={row.main + ' / ' + row.sub} items={row.items}>{row.sub}</TaskLink><small className="block">{row.configured ? 'มีในทะเบียนปัจจุบัน' : 'จากงานจริง / ไม่มีทะเบียนที่ตรงกัน'}</small></td>
+          <td>{formatWeights(row.baseWeights)}</td><td>{formatWeights(row.weights)}{row.weights.length > 1 && <small className="block">หลายค่าน้ำหนัก ไม่ใช้ค่าสูงสุดแทนทั้งกลุ่ม</small>}{row.items.some((task) => !hasExplicitWeight(task)) && <small className="block">มีงานใช้ค่าสำรอง 1</small>}</td>
+          <td><TaskLink title={'งาน: ' + row.sub} items={row.items}>{row.items.length}</TaskLink> / {row.portfolio.completed.length} / {row.portfolio.active.length} / {row.portfolio.cancelled.length}</td><td>{fmtPct(row.portfolio.completion)}</td><td>{fmtPct(row.portfolio.scores.sla)}</td></tr>)}
+          {!rows.length && <tr><td colSpan="8">ไม่มีรายการตรงกับเงื่อนไข หรือยังโหลดทะเบียน KPI ไม่ได้</td></tr>}</tbody></DataTable>
+      <p className="text-sm text-[var(--mx-muted)]">น้ำหนักพื้นฐานอาจถูกปรับเฉพาะบุคคล เลือกบุคคลเพื่อดูค่าที่ใช้กับคนนั้น • ไม่รวมค่าน้ำหนักจากหลาย Sub KPI เป็นน้ำหนัก Main KPI โดยอัตโนมัติ</p></>}
+  </section>;
 }
 
 function App() {
@@ -2376,6 +2524,10 @@ function App() {
   const [personTeamFilter, setPersonTeamFilter] = useState('all');
   const [kpiSearch, setKpiSearch] = useState('');
   const [selectedPerson, setSelectedPerson] = useState(null);
+  const [selectedTeam, setSelectedTeam] = useState(null);
+  const [taskSelection, setTaskSelection] = useState(null);
+  const [scopeTeam, setScopeTeam] = useState('all');
+  const [scopeMain, setScopeMain] = useState('all');
   const [theme, setTheme] = useState(getInitialExecutiveTheme);
   const [state, setState] = useState({ loading: false, error: '', user: null, tasks: [], staff: [], holidays: [], kpis: [], lastUpdated: null });
   const loadRequestRef = React.useRef(0);
@@ -2392,7 +2544,7 @@ function App() {
       setState((prev) => ({ ...prev, error: 'Please provide empId in the URL or the input field.' }));
       return;
     }
-    setState((prev) => ({ ...prev, loading: true, error: '' }));
+    setState((prev) => ({ ...prev, loading: true, error: '', warnings: [], tasks: [], staff: [], kpis: [], lastUpdated: null }));
     try {
       const session = readExecutiveSession(cleanEmpId, initialSessionId);
       if (session && typeof window !== 'undefined') window.MAXIWA_ACTIVE_SESSION = session;
@@ -2410,19 +2562,22 @@ function App() {
         ? API.getPerformanceEmployeeTasks(user, selectedMonths, year, userEmpId(user))
         : API.getPerformanceTasks(selectedMonths, year, isTeamScopedRole(user.role) ? user.team : 'all', userEmpId(user));
 
+      const warnings = [];
       const staffPromise = (async () => {
         try {
           if (isSelfScopedRole(user.role)) {
             return [user];
           } else if (isTeamScopedRole(user.role)) {
             const staffRes = await API.getAllStaffInTeam(user.team, userEmpId(user));
+            if (staffRes?.error) throw new Error('Staff directory unavailable');
             return staffRes.staff || [];
           } else if (isStrategicViewRole(user.role) || user.role === 'Manager' || user.role === 'Admin') {
             const staffRes = await API.getAllStaff(userEmpId(user));
+            if (staffRes?.error) throw new Error('Staff directory unavailable');
             return filterByAllowedTeams(user, staffRes.staff || []);
           }
         } catch (staffError) {
-          console.warn('Performance View staff image load failed:', staffError);
+          warnings.push('โหลดทะเบียนบุคลากรไม่สำเร็จ รายชื่อคนที่ไม่มีงานและน้ำหนักเฉพาะบุคคลอาจไม่ครบ');
           return [];
         }
         return [];
@@ -2433,10 +2588,11 @@ function App() {
           if (!isSelfScopedRole(user.role)) {
             const kpiTeam = isTeamScopedRole(user.role) ? user.team : '';
             const kpisRes = await API.getKPIsByTeam(kpiTeam);
+            if (kpisRes?.error) throw new Error('KPI catalog unavailable');
             return kpisRes.kpis || user.kpis || [];
           }
         } catch {
-          // Fall back to KPI data returned during login and task-derived KPI rows.
+          warnings.push('โหลดทะเบียน KPI ไม่สำเร็จ ใช้ข้อมูลเริ่มต้นที่มี รายการตั้งค่าอาจไม่ครบ');
         }
         return user.kpis || [];
       })();
@@ -2453,12 +2609,13 @@ function App() {
       ]);
       if (requestId !== loadRequestRef.current) return;
 
-      const tasks = filterPerformanceTasks(filterByAllowedTeams(user, taskResult.tasks || taskResult || []));
+      if (taskResult?.error) throw new Error(taskResult.error);
+      const tasks = filterPerformanceTasks(scopeTasksForUser(user, taskResult.tasks || taskResult || []));
       let holidays = taskResult.holidays || [];
       if (holidayResult) {
         holidays = holidayResult.holidays || holidays;
       }
-      setState({ loading: false, error: '', user, tasks, staff, holidays, kpis, lastUpdated: Date.now() });
+      setState({ loading: false, error: '', warnings, user, tasks, staff, holidays, kpis, lastUpdated: Date.now() });
       const url = new URL(window.location.href);
       url.searchParams.set('empId', cleanEmpId);
       if (selectedMonths.length > 0) {
@@ -2492,13 +2649,24 @@ function App() {
     window.history.replaceState(null, '', url);
   }, [activeTab]);
 
-  const allTasks = filterPerformanceTasks(state.tasks || []);
-  const tasks = allTasks;
-  const staffDirectory = state.staff || [];
+  const allTasks = useMemo(() => filterPerformanceTasks(state.tasks || []), [state.tasks]);
+  const visibleStaff = useMemo(() => filterByAllowedTeams(state.user, isSelfScopedRole(state.user?.role) ? [state.user] : state.staff || [])
+    .filter((profile) => profile && !isResignedTask(profile) && (!isTeamScopedRole(state.user?.role) || teamName(profile) === state.user.team)), [state.user, state.staff]);
+  const visibleCatalog = useMemo(() => filterByAllowedTeams(state.user, state.kpis || []).filter((kpi) =>
+    (!isTeamScopedRole(state.user?.role) || kpi.team === state.user.team)
+    && (!isSelfScopedRole(state.user?.role) || ((!kpi.team || kpi.team === state.user.team) && isKpiAssignedToPerson(state.user, kpi)))), [state.kpis, state.user]);
+  const scopeTeams = [...new Set([...allTasks.map(teamName), ...visibleStaff.map(teamName), ...visibleCatalog.map((kpi) => kpi.team).filter(Boolean)])].sort();
+  const scopeMains = [...new Set([...allTasks.filter((task) => scopeTeam === 'all' || teamName(task) === scopeTeam).map(mainKpi),
+    ...visibleCatalog.filter((kpi) => scopeTeam === 'all' || kpi.team === scopeTeam).map(kpiMainValue)])].filter(Boolean).sort();
+  const tasks = useMemo(() => allTasks.filter((task) => (scopeTeam === 'all' || teamName(task) === scopeTeam) && (scopeMain === 'all' || mainKpi(task) === scopeMain)), [allTasks, scopeTeam, scopeMain]);
+  const catalog = useMemo(() => visibleCatalog.filter((kpi) => (scopeTeam === 'all' || kpi.team === scopeTeam) && (scopeMain === 'all' || kpiMainValue(kpi) === scopeMain)), [visibleCatalog, scopeTeam, scopeMain]);
+  const staffDirectory = useMemo(() => visibleStaff.filter((profile) => (scopeTeam === 'all' || teamName(profile) === scopeTeam)
+    && (scopeMain === 'all' || assignedSubKpisForPerson(profile, visibleCatalog).some((kpi) => kpi.main === scopeMain) || tasks.some((task) => personGroupKey(task) === personGroupKey(profile)))), [visibleStaff, visibleCatalog, scopeTeam, scopeMain, tasks]);
+  useEffect(() => { setTaskSelection(null); setSelectedPerson(null); setSelectedTeam(null); }, [state.tasks, scopeTeam, scopeMain, year, selectedMonths.join(',')]);
   const holidaySet = useMemo(() => buildHolidaySet(state.holidays || []), [state.holidays]);
   // riskAsOfDate: for single-month use end-of-month; for multi-month or all: use end of latest selected month or today
   const riskAsOfDate = useMemo(() => {
-    if (selectedMonths.length === 0) return normalizeDateOnly(new Date()) || new Date();
+    if (selectedMonths.length === 0) return getPerformanceRiskAsOfDate(12, year);
     const maxMonth = Math.max(...selectedMonths);
     return getPerformanceRiskAsOfDate(maxMonth, year);
   }, [selectedMonths, year]);
@@ -2525,8 +2693,10 @@ function App() {
     return map;
   }, [staffDirectory, state.user]);
 
-  const teamRows = useMemo(() => buildGroupRows(tasks, teamName, holidaySet, riskAsOfDate)
-    .map((row) => {
+  const teamRows = useMemo(() => {
+    const rows = buildGroupRows(tasks, teamName, holidaySet, riskAsOfDate);
+    [...new Set(staffDirectory.map(teamName))].forEach((team) => { if (!rows.some((row) => row.name === team)) rows.push({ ...emptyPersonMetrics(holidaySet, riskAsOfDate), name: team }); });
+    return rows.map((row) => {
       const memberMap = {};
       (row.items || []).forEach((task) => {
         const name = personName(task);
@@ -2537,6 +2707,7 @@ function App() {
           || (getPhotoUrl(task) ? task : null);
         memberMap[key] = { key, name, profile };
       });
+      staffDirectory.filter((profile) => teamName(profile) === row.name).forEach((profile) => { const key = personName(profile).trim().toLowerCase(); if (!memberMap[key]) memberMap[key] = { key, name: personName(profile), profile }; });
       const members = Object.values(memberMap).sort((a, b) => a.name.localeCompare(b.name));
       return {
         ...row,
@@ -2547,49 +2718,16 @@ function App() {
         riskWeightShare: (portfolio.overdueWeight + portfolio.atRiskWeight) ? roundMetric(((row.overdueWeight + row.atRiskWeight) / (portfolio.overdueWeight + portfolio.atRiskWeight)) * 100, 1) : 0,
       };
     })
-    .sort((a, b) => ((b.overdueWeight * 3 + b.atRiskWeight + b.backlog / Math.max(b.total, 1)) - (a.overdueWeight * 3 + a.atRiskWeight + a.backlog / Math.max(a.total, 1))) || (b.totalWeight - a.totalWeight)), [tasks, staffByName, holidaySet, riskAsOfDate, portfolio.totalWeight, portfolio.activeWeight, portfolio.overdueWeight, portfolio.atRiskWeight]);
+    .sort((a, b) => ((b.overdueWeight * 3 + b.atRiskWeight + b.backlog / Math.max(b.total, 1)) - (a.overdueWeight * 3 + a.atRiskWeight + a.backlog / Math.max(a.total, 1))) || (b.totalWeight - a.totalWeight)); }, [tasks, staffDirectory, staffByName, holidaySet, riskAsOfDate, portfolio.totalWeight, portfolio.activeWeight, portfolio.overdueWeight, portfolio.atRiskWeight]);
 
-  const personRows = useMemo(() => {
-    const rows = buildGroupRows(tasks, personGroupKey, holidaySet, riskAsOfDate);
-    const teamWeightTotals = {};
-    const teamActiveTotals = {};
-    const teamRiskTotals = {};
-    rows.forEach((row) => {
-      const team = teamName(row.items?.[0]);
-      teamWeightTotals[team] = (teamWeightTotals[team] || 0) + row.totalWeight;
-      teamActiveTotals[team] = (teamActiveTotals[team] || 0) + row.activeWeight;
-      teamRiskTotals[team] = (teamRiskTotals[team] || 0) + row.overdueWeight + row.atRiskWeight;
-    });
-    return rows.map((row) => {
-      const firstTask = row.items?.[0] || {};
-      const person = personName(firstTask);
-      const team = teamName(firstTask);
-      const emp = taskPersonId(firstTask);
-      const profile = staffByName[String(emp || '').trim().toLowerCase()]
-        || staffByName[String(person || '').trim().toLowerCase()]
-        || row.items.map((task) => task).find((task) => getPhotoUrl(task))
-        || null;
-      return {
-        ...row,
-        employeeKey: row.name,
-        person,
-        team,
-        empId: emp,
-        profile,
-        workloadShare: teamWeightTotals[team] ? roundMetric((row.totalWeight / teamWeightTotals[team]) * 100, 1) : 0,
-        activeWeightShare: teamActiveTotals[team] ? roundMetric((row.activeWeight / teamActiveTotals[team]) * 100, 1) : 0,
-        riskWeightShare: teamRiskTotals[team] ? roundMetric(((row.overdueWeight + row.atRiskWeight) / teamRiskTotals[team]) * 100, 1) : 0,
-      };
-    })
-    .sort((a, b) => (b.weightedScore || 0) - (a.weightedScore || 0) || b.totalWeight - a.totalWeight);
-  }, [tasks, staffByName, holidaySet, riskAsOfDate]);
+  const personRows = useMemo(() => buildPeopleRows(tasks, staffDirectory, holidaySet, riskAsOfDate), [tasks, staffDirectory, holidaySet, riskAsOfDate]);
 
   const statusRows = useMemo(() => Object.entries(groupBy(tasks, (task) => task.status || 'Unknown'))
     .map(([status, items]) => ({ status, total: items.length, pct: tasks.length ? Math.round((items.length / tasks.length) * 1000) / 10 : 0 }))
     .sort((a, b) => b.total - a.total), [tasks]);
 
   const kpiRows = useMemo(() => buildKpiRows(tasks, holidaySet, riskAsOfDate), [tasks, holidaySet, riskAsOfDate]);
-  const kpiWeightRows = useMemo(() => buildKpiWeightRows(tasks, holidaySet, riskAsOfDate), [tasks, holidaySet, riskAsOfDate]);
+
   const teams = useMemo(() => [...new Set(teamRows.map((row) => row.team))], [teamRows]);
 
   const monthlyTrend = useMemo(() => {
@@ -2612,15 +2750,15 @@ function App() {
       const monthCount = selectedYear < currentYear ? 12 : selectedYear === currentYear ? currentMonthIndex + 1 : 0;
       // If specific months selected, show only those; otherwise all months up to current
       const months = selectedMonths.length > 0
-        ? selectedMonths.map((m) => m - 1).filter((idx) => idx <= (selectedYear === currentYear ? currentMonthIndex : 11))
+        ? [...new Set(selectedMonths)].sort((a, b) => a - b).map((m) => m - 1).filter((idx) => idx <= (selectedYear === currentYear ? currentMonthIndex : 11))
         : Array.from({ length: monthCount }, (_, i) => i);
       months.forEach((monthIndex) => {
-        const intakeTasks = allTasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, null, today));
-        const completedTasks = allTasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, null, today));
-        const riskTasks = allTasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, null, holidaySet, today));
+        const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, null, today));
+        const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, null, today));
+        const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, null, holidaySet, today));
         const monthPortfolio = buildPortfolio(completedTasks, holidaySet);
         sla.push(completedTasks.length ? monthPortfolio.scores.sla : null);
-        trendCompletion.push(intakeTasks.length ? roundMetric((completedTasks.length / intakeTasks.length) * 100, 1) : null);
+        trendCompletion.push(null);
         risk.push(riskTasks.length);
         total.push(intakeTasks.length);
         completed.push(completedTasks.length);
@@ -2643,12 +2781,12 @@ function App() {
         : 0;
     const days = Array.from({ length: dayCount }, (_, i) => i + 1);
     days.forEach((day) => {
-      const intakeTasks = allTasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, day, today));
-      const completedTasks = allTasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, day, today));
-      const riskTasks = allTasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidaySet, today));
+      const intakeTasks = tasks.filter((task) => taskDateMatchesPeriod(task, intakeFields, year, monthIndex, day, today));
+      const completedTasks = tasks.filter((task) => isCompleted(task) && taskDateMatchesPeriod(task, completionFields, year, monthIndex, day, today));
+      const riskTasks = tasks.filter((task) => taskDueRiskMatchesPeriod(task, year, monthIndex, day, holidaySet, today));
       const dayPortfolio = buildPortfolio(completedTasks, holidaySet);
       sla.push(completedTasks.length ? dayPortfolio.scores.sla : null);
-      trendCompletion.push(intakeTasks.length ? roundMetric((completedTasks.length / intakeTasks.length) * 100, 1) : null);
+      trendCompletion.push(null);
       risk.push(riskTasks.length);
       total.push(intakeTasks.length);
       completed.push(completedTasks.length);
@@ -2663,16 +2801,26 @@ function App() {
 
   const criticalQueue = useMemo(() => portfolio.active
     .map((task) => ({ task, days: daysUntil(task, holidaySet, riskAsOfDate), weight: taskWeight(task) }))
-    .filter((item) => item.days !== null)
+    .filter((item) => item.days !== null && item.days <= 3)
     .sort((a, b) => {
       const riskA = a.days < 0 ? 0 : a.days <= 3 ? 1 : 2;
       const riskB = b.days < 0 ? 0 : b.days <= 3 ? 1 : 2;
       return (riskA - riskB) || (a.days - b.days) || (b.weight - a.weight);
-    })
-    .slice(0, 12), [portfolio.active, holidaySet, riskAsOfDate]);
+    }), [portfolio.active, holidaySet, riskAsOfDate]);
 
+  const activePerson = personRows.find((row) => row.employeeKey === selectedPerson?.employeeKey) || null;
+  const activeTeam = teamRows.find((row) => row.team === selectedTeam?.team) || null;
+  const actions = {
+    reportContext: periodLabel + ' • ทีม ' + (scopeTeam === 'all' ? 'ทั้งหมดที่มีสิทธิ์' : scopeTeam) + ' • Main KPI ' + (scopeMain === 'all' ? 'ทั้งหมด' : scopeMain) + ' • ' + riskAsOfLabel(riskAsOfDate) + ' • อัปเดต ' + (state.lastUpdated ? new Date(state.lastUpdated).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'ยังไม่มีข้อมูล') + ' (เวลาไทย) • สถานะล่าสุดที่โหลด',
+    openTasks: (title, items) => { const visible = new Set(tasks); setTaskSelection({ title, items: items.filter((task) => visible.has(task)) }); },
+    openPerson: (source) => {
+      const row = personRows.find((person) => person.employeeKey === source?.employeeKey || person.employeeKey === personGroupKey(source) || person.items.includes(source));
+      if (row) { setTaskSelection(null); setSelectedTeam(null); setSelectedPerson(row); }
+    },
+    openTeam: (source) => { setTaskSelection(null); setSelectedPerson(null); setSelectedTeam(source); },
+  };
   return (
-    <Shell>
+    <PerformanceActions.Provider value={actions}><div className={taskSelection || activePerson || activeTeam ? 'performance-root has-dialog' : 'performance-root'}><Shell>
       <header className="mx-card stage-header p-5 md:p-8">
         <div className="executive-header-grid">
           <div className="min-w-0">
@@ -2707,16 +2855,27 @@ function App() {
         {state.error && <div className="mt-4 mx-soft p-4 text-sm font-bold text-[var(--mx-danger)]">{state.error}</div>}
       </header>
 
+      <section className="mx-card p-5 scope-panel" aria-label="ขอบเขตข้อมูล">
+        <h2 className="section-title">ขอบเขตข้อมูลทุกแท็บ</h2>
+        <div className="scope-controls no-print"><label>ทีม<select className="mx-input" aria-label="ทีม" value={scopeTeam} onChange={(e) => { setScopeTeam(e.target.value); setScopeMain('all'); setPersonTeamFilter('all'); }}><option value="all">ทุกทีมที่มีสิทธิ์</option>{scopeTeams.map((team) => <option key={team}>{team}</option>)}</select></label>
+          <label>Main KPI<select className="mx-input" aria-label="Main KPI" value={scopeMain} onChange={(e) => setScopeMain(e.target.value)}><option value="all">ทั้งหมด</option>{scopeMains.map((main) => <option key={main}>{main}</option>)}</select></label></div>
+        <p>{periodLabel} • ทีม {scopeTeam === 'all' ? 'ทั้งหมดที่มีสิทธิ์' : scopeTeam} • Main KPI {scopeMain === 'all' ? 'ทั้งหมด' : scopeMain} • {riskAsOfLabel(riskAsOfDate)}</p>
+        <p className="text-sm text-[var(--mx-muted)]">ข้อมูลสถานะล่าสุดที่โหลด ไม่ใช่ประวัติสถานะ ณ วันย้อนหลัง • งานเสร็จเลือกตามวันปิดในช่วงที่เลือก งานค้างรวมงานเริ่มก่อนสิ้นช่วงจากปีก่อนด้วย • กราฟงานเข้า–เสร็จคำนวณจากชุดข้อมูลที่โหลดในขอบเขตนี้</p>
+        <p className="text-sm">อัปเดตล่าสุด {state.lastUpdated ? new Date(state.lastUpdated).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'ยังไม่มีข้อมูล'} (เวลาไทย) • บุคลากรมีงาน {personRows.filter((row) => row.total > 0).length} / {personRows.length} คนในขอบเขต • ไม่มีงาน {personRows.filter((row) => row.total === 0).length} คน</p>
+        {state.loading && <p role="status">กำลังโหลดข้อมูลช่วงที่เลือก… ตัวเลขจะแสดงเมื่อโหลดข้อมูลสำเร็จ</p>}
+        {(state.warnings || []).map((warning) => <p key={warning} role="status" className="text-[var(--mx-warning)]">{warning}</p>)}
+        <ScoreMethod tasks={tasks} holidays={holidaySet} />
+      </section>
       <section className="mx-card hero-band p-5 md:p-8">
         <div className="presentation-grid items-stretch">
           <div className="grid md:grid-cols-2 gap-5">
-            <GaugeMetric label="SLA รวม" value={portfolio.scores.sla} sub="คะแนนงานเสร็จตรงเวลาถ่วงน้ำหนักตามกลุ่ม KPI" tone="var(--mx-info)" />
-            <GaugeMetric label="Completion ถ่วงน้ำหนัก" value={portfolio.completion} sub={`เสร็จแล้ว ${fmtNum(portfolio.completed.length)} จาก ${fmtNum(tasks.length)} งาน`} tone="var(--mx-success)" />
+            <GaugeMetric label="SLA รวม" value={portfolio.scores.sla} sub="น้ำหนักงานเสร็จตรงเวลา ÷ น้ำหนักงานเสร็จทั้งหมด" tone="var(--mx-info)" />
+            <GaugeMetric label="Completion ถ่วงน้ำหนัก" value={portfolio.completion} sub={`เสร็จ ${portfolio.completed.length} / ไม่ยกเลิก ${tasks.length - portfolio.cancelled.length} งาน • ยกเลิก ${portfolio.cancelled.length}`} tone="var(--mx-success)" />
           </div>
           <div className="grid sm:grid-cols-3 gap-5">
-            <Metric label="งานทั้งหมด" value={fmtNum(tasks.length)} sub={periodLabel} icon="fa-clipboard-list" tone="status-neutral" />
-            <Metric label="เกินกำหนด" value={fmtNum(portfolio.overdue.length)} sub="งานที่ยัง active และเลย deadline" icon="fa-triangle-exclamation" tone={portfolio.overdue.length ? 'status-bad' : 'status-good'} />
-            <Metric label="เสี่ยงใกล้ครบกำหนด" value={fmtNum(portfolio.atRisk.length)} sub="ครบกำหนดภายใน 3 วันทำการ" icon="fa-clock" tone={portfolio.atRisk.length ? 'status-warn' : 'status-good'} />
+            <Metric items={tasks} label="งานทั้งหมด" value={fmtNum(tasks.length)} sub={periodLabel} icon="fa-clipboard-list" tone="status-neutral" />
+            <Metric items={portfolio.overdue} label="เกินกำหนด" value={fmtNum(portfolio.overdue.length)} sub="งานที่ยัง active และเลย deadline" icon="fa-triangle-exclamation" tone={portfolio.overdue.length ? 'status-bad' : 'status-good'} />
+            <Metric items={portfolio.atRisk} label="เสี่ยงใกล้ครบกำหนด" value={fmtNum(portfolio.atRisk.length)} sub="ครบกำหนดภายใน 3 วันทำการ" icon="fa-clock" tone={portfolio.atRisk.length ? 'status-warn' : 'status-good'} />
           </div>
         </div>
       </section>
@@ -2736,10 +2895,13 @@ function App() {
 
       {activeTab === 'overview' && <OverviewPanel portfolio={portfolio} teamRows={teamRows} kpiRows={kpiRows} statusRows={statusRows} criticalQueue={criticalQueue} monthlyTrend={monthlyTrend} periodLabel={periodLabel} riskAsOfDate={riskAsOfDate} user={state.user} empId={empId} tasks={tasks} />}
       {activeTab === 'teams' && <TeamsPanel teamRows={teamRows} holidays={holidaySet} />}
-      {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} selectedPerson={selectedPerson} setSelectedPerson={setSelectedPerson} holidays={holidaySet} kpis={state.kpis} />}
+      {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} selectedPerson={selectedPerson} setSelectedPerson={actions.openPerson} holidays={holidaySet} kpis={catalog} />}
       {activeTab === 'kpi' && <KpiAnalysisPanel kpiRows={kpiRows} personRows={personRows} teamRows={teamRows} />}
-      {activeTab === 'weights' && <KpiWeightsPanel kpiWeightRows={kpiWeightRows} kpiSearch={kpiSearch} setKpiSearch={setKpiSearch} />}
-    </Shell>
+      {activeTab === 'weights' && <KpiWeightsPanel catalog={catalog} tasks={tasks} personRows={personRows} holidays={holidaySet} asOfDate={riskAsOfDate} kpiSearch={kpiSearch} setKpiSearch={setKpiSearch} />}
+      <TeamDetailModal team={activeTeam} holidays={holidaySet} personRows={personRows} onClose={() => setSelectedTeam(null)} />
+      <EmployeeDetailModal person={activePerson} holidays={holidaySet} kpis={catalog} onClose={() => setSelectedPerson(null)} />
+      {taskSelection && <TaskExplorer key={taskSelection.title} selection={taskSelection} holidays={holidaySet} asOfDate={riskAsOfDate} onClose={() => setTaskSelection(null)} />}
+    </Shell></div></PerformanceActions.Provider>
   );
 }
 
