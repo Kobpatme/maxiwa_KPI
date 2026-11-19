@@ -7,7 +7,7 @@ const context = vm.createContext({ console, Date, Set, Map, URLSearchParams, win
   React: { createContext: (value) => ({ value }) } });
 vm.runInContext(fs.readFileSync('public/js/api.js', 'utf8'), context);
 const source = fs.readFileSync('public/js/executive-dashboard.js', 'utf8').replace(/ReactDOM\.createRoot[\s\S]*$/, '');
-vm.runInContext(transformSync(source, { loader: 'jsx' }).code + '\n globalThis.model = { buildPortfolio, buildGroupRows, buildKpiRows, buildPersonalKpiRows, buildWeightCatalogRows, buildPeopleRows, taskWeight, hasExplicitWeight, buildDataQuality, buildAgingBuckets, scopeTasksForUser, filterByAllowedTeams, sortRows, performanceLabel, daysUntil, getPerformanceRiskAsOfDate };', context);
+vm.runInContext(transformSync(source, { loader: 'jsx' }).code + '\n globalThis.model = { buildPortfolio, buildGroupRows, buildKpiRows, buildPersonalKpiRows, buildWeightCatalogRows, buildPeopleRows, taskWeight, hasExplicitWeight, buildDataQuality, buildAgingBuckets, scopeTasksForUser, filterByAllowedTeams, sortRows, performanceLabel, daysUntil, getPerformanceRiskAsOfDate, buildExecutiveRows, executiveCounts };', context);
 const m = context.model;
 const asOf = new Date('2026-11-19T00:00:00');
 const make = (patch = {}) => ({ id: 'T1', empid: 'E1', name: 'Fixture One', team: 'Alpha', mainkpi: 'Delivery', subkpi: 'Install', status: 'Pending', mainkpiweight: 30, startdate: '2025-12-01', deadline: '2026-11-18', ...patch });
@@ -131,4 +131,20 @@ test('Staff directory aliases retain the employee identity', () => {
   const rows = m.buildPeopleRows([make()], [{ emp_id: 'E1', fullname: 'Fixture One', team: 'Alpha' }], [], asOf);
   assert.equal(rows.length, 1); assert.equal(rows[0].empId, 'E1'); assert.ok(rows[0].profile);
 });
+test('Executive rows group Main KPIs without adding repeated weights or inventing rate targets', () => {
+  const people = m.buildPeopleRows([make(), make({ subkpi: 'Audit', mainkpiweight: 50 })], [profile], [], asOf);
+  const rows = m.buildExecutiveRows(people, catalog, []);
+  assert.equal(rows.length, 1); assert.deepEqual(Array.from(rows[0].weights), [25, 50]);
+  assert.equal(rows[0].target, null); assert.equal(rows[0].assessment, 'unrated');
+  const counts = m.executiveCounts(rows); assert.equal(counts.total, 1); assert.equal(counts.passed, 0); assert.equal(counts.below, 0); assert.equal(counts.unrated, 1);
+});
+
+test('Executive counts count each person once across Main KPIs and retain zero-work people', () => {
+  const people = m.buildPeopleRows([make(), make({ mainkpi: 'Quality' })], [profile, { empid: 'E2', name: 'No Work', team: 'Alpha' }], [], asOf);
+  const rows = m.buildExecutiveRows(people, catalog, []);
+  assert.equal(m.executiveCounts(rows).total, 2); assert.equal(m.executiveCounts(rows).unrated, 2);
+  assert.ok(rows.some((row) => row.person.empId === 'E2' && row.reason === 'ยังไม่มีงาน'));
+  assert.equal(rows[0].portfolio.overdue.length, 1);
+});
+
 console.log('Passed ' + count + ' Performance model tests');

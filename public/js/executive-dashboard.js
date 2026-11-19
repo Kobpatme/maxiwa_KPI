@@ -924,6 +924,73 @@ function buildWeightCatalogRows(catalog, tasks, holidays, asOfDate) {
 
 const PerformanceActions = React.createContext({ openTasks: () => {}, openPerson: () => {}, openTeam: () => {} });
 
+
+// The current KPI schema configures weights and lead times, not pass-rate targets.
+// Keep the executive result factual rather than deriving a pass threshold from a weight/band.
+function buildExecutiveRows(people, catalog, holidays) {
+  return people.flatMap((person) => {
+    const subs = buildPersonalKpiRows(person, catalog, holidays);
+    const groups = Object.entries(groupBy(subs, (row) => row.main));
+    if (!groups.length) groups.push(['ยังไม่มี KPI', []]);
+    return groups.map(([main, children]) => {
+      const items = children.flatMap((row) => row.items);
+      const portfolio = buildPortfolio(items, holidays, person.asOfDate);
+      const weights = [...new Set(children.filter((row) => row.configured && row.assignmentKnown && row.assigned).map((row) => row.effectiveWeight))].sort((a, b) => a - b);
+      return { key: person.employeeKey + '::' + main, person, main, weights, items, portfolio,
+        assessment: 'unrated', reason: items.some((task) => !isCancelled(task)) ? 'ยังประเมินไม่ได้' : 'ยังไม่มีงาน', target: null };
+    });
+  }).sort((a, b) => b.portfolio.overdue.length - a.portfolio.overdue.length || b.portfolio.active.length - a.portfolio.active.length || a.person.person.localeCompare(b.person.person, 'th') || a.main.localeCompare(b.main, 'th'));
+}
+
+function executiveCounts(rows) {
+  const people = new Map();
+  rows.forEach((row) => {
+    const statuses = people.get(row.person.employeeKey) || [];
+    statuses.push(row.assessment); people.set(row.person.employeeKey, statuses);
+  });
+  const counts = { total: people.size, passed: 0, below: 0, unrated: 0 };
+  people.forEach((statuses) => {
+    if (statuses.includes('below')) counts.below++;
+    else if (statuses.every((status) => status === 'passed')) counts.passed++;
+    else counts.unrated++;
+  });
+  return counts;
+}
+
+function ExecutiveSummary({ people, catalog, holidays, loading }) {
+  const [query, setQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const { openPerson } = React.useContext(PerformanceActions);
+  const allRows = useMemo(() => buildExecutiveRows(people, catalog, holidays), [people, catalog, holidays]);
+  const rows = allRows.filter((row) => matchesSearch({ person: row.person.person, team: row.person.team, main: row.main }, ['person', 'team', 'main'], query));
+  const counts = executiveCounts(rows);
+  const visible = showAll ? rows : rows.slice(0, 15);
+  return <section className="executive-summary mx-card" aria-label="สรุปผลรายบุคคล">
+    <div className="executive-counts" aria-label="ผลเทียบเป้ารายบุคคล">
+      <div><span>ผู้รับผิดชอบ</span><strong>{counts.total}<small> คน</small></strong></div>
+      <div><span>ผ่านเป้า</span><strong>{counts.passed}<small> คน</small></strong></div>
+      <div><span>ต่ำกว่าเป้า</span><strong>{counts.below}<small> คน</small></strong></div>
+      <div><span>ยังประเมินไม่ได้</span><strong>{counts.unrated}<small> คน</small></strong></div>
+    </div>
+    <div className="executive-table-heading"><div><h2>ใคร ทำอะไร ได้เท่าไหร่</h2><p>เรียงคนที่มีงานเกินกำหนดก่อน • กดชื่อเพื่อดูรายละเอียด</p></div>
+      <input className="mx-input no-print" aria-label="ค้นหาผู้รับผิดชอบหรือ KPI" placeholder="ค้นหาคน / ทีม / KPI" value={query} onChange={(event) => { setQuery(event.target.value); setShowAll(false); }} /></div>
+    <p className="executive-target-note">ยังไม่มีเกณฑ์ผ่าน SLA/Completion ที่ตั้งไว้ จึงยังไม่สรุปว่าผ่านเป้า • น้ำหนักคือความสำคัญของ KPI</p>
+    <div className="executive-table-wrap"><table className="executive-table"><thead><tr><th>ผู้รับผิดชอบ</th><th>Main KPI</th><th>น้ำหนักที่ตั้ง</th><th>เป้าหมาย</th><th>ผลจริง</th><th>ผลเทียบเป้า</th></tr></thead><tbody>
+      {visible.map((row) => <tr key={row.key}>
+        <td data-label="ผู้รับผิดชอบ"><button className="metric-link executive-person" onClick={() => openPerson(row.person)}>{row.person.person}</button><small>{row.person.team}</small></td>
+        <td data-label="Main KPI">{row.main}</td>
+        <td data-label="น้ำหนักที่ตั้ง"><strong>{row.weights.length > 1 ? fmtPct(row.weights[0]) + '–' + fmtPct(row.weights[row.weights.length - 1]) : formatWeights(row.weights)}</strong>{row.weights.length > 1 && <small>ต่างกันตาม Sub KPI</small>}</td>
+        <td data-label="เป้าหมาย" className="executive-muted">ยังไม่กำหนด</td>
+        <td data-label="ผลจริง"><strong>{row.items.length > row.portfolio.cancelled.length ? 'เสร็จ ' + row.portfolio.completed.length + '/' + (row.items.length - row.portfolio.cancelled.length) + ' งาน' : 'ยังไม่มีงาน'}</strong><small>SLA {fmtPct(row.portfolio.scores.sla)}{row.portfolio.overdue.length > 0 ? ' • เกินกำหนด ' + row.portfolio.overdue.length + ' งาน' : ''}</small></td>
+        <td data-label="ผลเทียบเป้า"><span className="mx-badge status-neutral">{row.reason}</span></td>
+      </tr>)}
+      {!rows.length && <tr><td colSpan="6" className="executive-empty">{loading ? 'กำลังโหลดผลงาน…' : query ? 'ไม่พบผู้รับผิดชอบหรือ KPI ที่ค้นหา' : 'ไม่มีข้อมูลในช่วงที่เลือก'}</td></tr>}
+    </tbody></table></div>
+    <div className="executive-table-footer"><span>{visible.length} จาก {rows.length} รายการ • {counts.total} คน</span>{rows.length > 15 && <button className="mx-btn no-print" onClick={() => setShowAll(!showAll)}>{showAll ? 'ย่อรายการ' : 'ดูทั้งหมด'} ({rows.length})</button>}</div>
+    {!showAll && rows.length > 15 && <p className="print-only">แสดง 15 รายการแรก กรุณากดดูทั้งหมดก่อนพิมพ์</p>}
+  </section>;
+}
+
 function ReportContext() {
   const { reportContext } = React.useContext(PerformanceActions);
   return <p className="report-context text-sm text-[var(--mx-muted)]">{reportContext}</p>;
@@ -1251,19 +1318,6 @@ function TabBar({ activeTab, setActiveTab, selectedMonths, setSelectedMonths, ye
             <span>{tab.label}</span>
           </button>
         ))}
-      </div>
-      <div className="tab-filter-controls">
-        <MonthPicker selectedMonths={selectedMonths} onChange={setSelectedMonths} />
-        <select className="mx-input" value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Filter year">
-          {years.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <button className="mx-btn mx-btn-primary" onClick={onLoad} disabled={loading} aria-live="polite">
-          <i className={`fa-solid ${loading ? 'fa-rotate-right fa-spin' : 'fa-arrows-rotate'} mr-2`}></i>{loading ? 'กำลังโหลด' : 'รีเฟรช'}
-        </button>
-      </div>
-      <div className="load-status" role="status">
-        <span className={`load-status-dot ${loading ? 'is-loading' : ''}`}></span>
-        {loading ? 'กำลังโหลดข้อมูลตามช่วงที่เลือก' : lastUpdated ? `อัปเดตล่าสุด ${new Date(lastUpdated).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.` : 'พร้อมโหลดข้อมูล'}
       </div>
     </nav>
   );
@@ -2520,6 +2574,7 @@ function App() {
     return [];
   });
   const [year, setYear] = useState(Number(params.get('year') || new Date().getFullYear()));
+  const [advanced, setAdvanced] = useState(false);
   const [activeTab, setActiveTab] = useState(() => TAB_ITEMS.some((item) => item.id === params.get('tab')) ? params.get('tab') : 'overview');
   const [personTeamFilter, setPersonTeamFilter] = useState('all');
   const [kpiSearch, setKpiSearch] = useState('');
@@ -2821,23 +2876,9 @@ function App() {
   };
   return (
     <PerformanceActions.Provider value={actions}><div className={taskSelection || activePerson || activeTeam ? 'performance-root has-dialog' : 'performance-root'}><Shell>
-      <header className="mx-card stage-header p-5 md:p-8">
+      <header className="mx-card executive-brief-header">
         <div className="executive-header-grid">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
-              {state.user && <Avatar item={state.user} name={state.user.name || state.user.empId} className="header-avatar" />}
-              <span className="mx-badge status-info"><i className="fa-solid fa-display"></i> Performance View</span>
-              <span className="mx-badge status-neutral">METRIX Verity</span>
-              {state.user && <span className="mx-badge status-good">{state.user.team}</span>}
-            </div>
-            <h1 className="display-title mt-5 mb-0 break-words">
-              <span className="block">ภาพรวมผลการดำเนินงาน</span>
-              <span className="display-title-sub block">SLA & KPI Command Center</span>
-            </h1>
-            <p className="mt-4 mb-0 max-w-[84ch] text-base md:text-[18px] leading-8 text-[var(--mx-muted)]">
-              สรุป SLA, น้ำหนัก KPI, ภาระงานรายทีม, ผลงานรายบุคคล และความเสี่ยงสำคัญสำหรับเปิดนำเสนอผู้บริหารได้ทันที
-            </p>
-          </div>
+          <div><span className="executive-eyebrow">PERFORMANCE VIEW</span><h1>สรุปผลงานรายบุคคล</h1><p>{periodLabel}</p></div>
           <div className="no-print control-panel executive-controls">
             <button
               className="mx-btn theme-toggle"
@@ -2856,16 +2897,23 @@ function App() {
       </header>
 
       <section className="mx-card p-5 scope-panel" aria-label="ขอบเขตข้อมูล">
-        <h2 className="section-title">ขอบเขตข้อมูลทุกแท็บ</h2>
-        <div className="scope-controls no-print"><label>ทีม<select className="mx-input" aria-label="ทีม" value={scopeTeam} onChange={(e) => { setScopeTeam(e.target.value); setScopeMain('all'); setPersonTeamFilter('all'); }}><option value="all">ทุกทีมที่มีสิทธิ์</option>{scopeTeams.map((team) => <option key={team}>{team}</option>)}</select></label>
-          <label>Main KPI<select className="mx-input" aria-label="Main KPI" value={scopeMain} onChange={(e) => setScopeMain(e.target.value)}><option value="all">ทั้งหมด</option>{scopeMains.map((main) => <option key={main}>{main}</option>)}</select></label></div>
-        <p>{periodLabel} • ทีม {scopeTeam === 'all' ? 'ทั้งหมดที่มีสิทธิ์' : scopeTeam} • Main KPI {scopeMain === 'all' ? 'ทั้งหมด' : scopeMain} • {riskAsOfLabel(riskAsOfDate)}</p>
-        <p className="text-sm text-[var(--mx-muted)]">ข้อมูลสถานะล่าสุดที่โหลด ไม่ใช่ประวัติสถานะ ณ วันย้อนหลัง • งานเสร็จเลือกตามวันปิดในช่วงที่เลือก งานค้างรวมงานเริ่มก่อนสิ้นช่วงจากปีก่อนด้วย • กราฟงานเข้า–เสร็จคำนวณจากชุดข้อมูลที่โหลดในขอบเขตนี้</p>
-        <p className="text-sm">อัปเดตล่าสุด {state.lastUpdated ? new Date(state.lastUpdated).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'ยังไม่มีข้อมูล'} (เวลาไทย) • บุคลากรมีงาน {personRows.filter((row) => row.total > 0).length} / {personRows.length} คนในขอบเขต • ไม่มีงาน {personRows.filter((row) => row.total === 0).length} คน</p>
+        <div className="brief-filters no-print">
+          <div className="brief-period"><span>เดือน</span><MonthPicker selectedMonths={selectedMonths} onChange={setSelectedMonths} /></div>
+          <label>ปี<select className="mx-input" aria-label="Filter year" value={year} onChange={(e) => setYear(Number(e.target.value))}>{years.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <label>ทีม<select className="mx-input" aria-label="ทีม" value={scopeTeam} onChange={(e) => { setScopeTeam(e.target.value); setScopeMain('all'); setPersonTeamFilter('all'); }}><option value="all">ทุกทีมที่มีสิทธิ์</option>{scopeTeams.map((team) => <option key={team}>{team}</option>)}</select></label>
+          <label>Main KPI<select className="mx-input" aria-label="Main KPI" value={scopeMain} onChange={(e) => setScopeMain(e.target.value)}><option value="all">ทั้งหมด</option>{scopeMains.map((main) => <option key={main}>{main}</option>)}</select></label>
+          <button className="mx-btn" disabled={state.loading} onClick={() => load(empId)}>{state.loading ? 'กำลังโหลด' : 'รีเฟรช'}</button>
+        </div>
+        <p className="brief-context">{periodLabel} • ทีม {scopeTeam === 'all' ? 'ทั้งหมดที่มีสิทธิ์' : scopeTeam} • Main KPI {scopeMain === 'all' ? 'ทั้งหมด' : scopeMain} • อัปเดตล่าสุด {state.lastUpdated ? new Date(state.lastUpdated).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'ยังไม่มีข้อมูล'}</p>
         {state.loading && <p role="status">กำลังโหลดข้อมูลช่วงที่เลือก… ตัวเลขจะแสดงเมื่อโหลดข้อมูลสำเร็จ</p>}
         {(state.warnings || []).map((warning) => <p key={warning} role="status" className="text-[var(--mx-warning)]">{warning}</p>)}
-        <ScoreMethod tasks={tasks} holidays={holidaySet} />
       </section>
+      {!advanced && <ExecutiveSummary people={personRows} catalog={catalog} holidays={holidaySet} loading={state.loading} />}
+      <details className="advanced-performance" open={advanced} onToggle={(event) => setAdvanced(event.currentTarget.open)}>
+        <summary>{advanced ? 'กลับสู่สรุปผู้บริหาร' : 'รายละเอียดและการวิเคราะห์'}</summary>
+        {advanced && <div className="advanced-content grid gap-5">
+        <p className="text-sm text-[var(--mx-muted)]">สถานะล่าสุดที่โหลด ไม่ใช่ snapshot ย้อนหลัง • งานค้างรวมงานเริ่มก่อนสิ้นช่วง • {riskAsOfLabel(riskAsOfDate)}</p>
+        <ScoreMethod tasks={tasks} holidays={holidaySet} />
       <section className="mx-card hero-band p-5 md:p-8">
         <div className="presentation-grid items-stretch">
           <div className="grid md:grid-cols-2 gap-5">
@@ -2898,6 +2946,8 @@ function App() {
       {activeTab === 'employees' && <EmployeesPanel personRows={personRows} teams={teams} personTeamFilter={personTeamFilter} setPersonTeamFilter={setPersonTeamFilter} tasks={tasks} selectedPerson={selectedPerson} setSelectedPerson={actions.openPerson} holidays={holidaySet} kpis={catalog} />}
       {activeTab === 'kpi' && <KpiAnalysisPanel kpiRows={kpiRows} personRows={personRows} teamRows={teamRows} />}
       {activeTab === 'weights' && <KpiWeightsPanel catalog={catalog} tasks={tasks} personRows={personRows} holidays={holidaySet} asOfDate={riskAsOfDate} kpiSearch={kpiSearch} setKpiSearch={setKpiSearch} />}
+        </div>}
+      </details>
       <TeamDetailModal team={activeTeam} holidays={holidaySet} personRows={personRows} onClose={() => setSelectedTeam(null)} />
       <EmployeeDetailModal person={activePerson} holidays={holidaySet} kpis={catalog} onClose={() => setSelectedPerson(null)} />
       {taskSelection && <TaskExplorer key={taskSelection.title} selection={taskSelection} holidays={holidaySet} asOfDate={riskAsOfDate} onClose={() => setTaskSelection(null)} />}
