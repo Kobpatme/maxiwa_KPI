@@ -31,7 +31,7 @@ const tasks = [make({ status: 'Completed', completiondate: '2026-11-17' }), make
   make({ id: 'T4', status: 'Cancelled', completiondate: '2026-11-17' }), make({ id: 'T5', empid: 'E2', name: 'Fixture Two', team: 'Beta', mainkpi: 'Quality', subkpi: 'Inspect', status: 'Completed', completiondate: '2026-11-19' }),
   make({ id: 'T6', mainkpi: 'Legacy', subkpi: '', deadline: null, mainkpiweight: undefined }),
 ];
-let role = 'Admin'; let catalogFails = false; let taskFails = false; let empty = false; let dense = false;
+let role = 'Admin'; let catalogFails = false; let taskFails = false; let empty = false; let dense = false; let legacyFixture = false;
 const apiCalls = [];
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -50,7 +50,8 @@ const server = createServer(async (req, res) => {
       const kind = url.searchParams.get('kind');
       const filtered = (empty ? [] : dense ? [...tasks, ...Array.from({ length: 55 }, (_, i) => make({ id: 'DENSE' + i, job: 'DENSE work ' + i }))] : tasks).filter((task) => performanceTaskInPeriod(task, months, Number(url.searchParams.get('year')))
         && (kind === 'active' ? !['Completed', 'Cancelled'].includes(task.status) : ['Completed', 'Cancelled'].includes(task.status)));
-      return json({ tasks: filtered, holidays: [], hasMore: false, nextOffset: null });
+      const rendered = legacyFixture ? filtered.map((task) => task.id === 'T2' ? { ...task, mainkpi: 'Old Delivery' } : task.id === 'T3' ? { ...task, subkpi: 'Unmatched Sub' } : task) : filtered;
+      return json({ tasks: rendered, holidays: [], hasMore: false, nextOffset: null });
     }
     if (url.pathname.endsWith('/getHolidays')) return json({ holidays: [] });
     throw new Error('Unexpected API ' + url.pathname);
@@ -89,12 +90,18 @@ try {
   assert.equal(await page.getByRole('dialog').count(), 0);
   await page.getByRole('button', { name: 'รายทีม', exact: true }).click();
   assert.equal(await page.locator('.team-card-button').count(), 2);
+  assert.ok((await page.locator('.hero-band .score-basis-label').innerText()).includes('คะแนนทีม'));
+  const alphaScore = page.locator('tbody tr').filter({ has: page.getByRole('button', { name: 'Alpha', exact: true }) });
+  assert.equal(await alphaScore.locator('td').nth(11).innerText(), '33%');
   await page.locator('.team-card-button').filter({ hasText: 'Alpha' }).click();
   await page.getByRole('dialog', { name: 'รายละเอียดทีม' }).waitFor();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Active Weight', exact: true }).click();
   assert.equal(await page.locator('tbody tr').first().getByRole('button', { name: 'Alpha', exact: true }).count(), 1);
   await page.getByRole('button', { name: 'รายบุคคล', exact: true }).click();
+  assert.ok((await page.locator('.hero-band .score-basis-label').innerText()).includes('คะแนนบุคคล'));
+  const personScore = page.locator('tbody tr').filter({ has: page.getByRole('button', { name: 'Fixture One', exact: true }) });
+  assert.equal(await personScore.locator('td').nth(11).innerText(), '28%');
   const cardWeights = page.locator('.employee-card').filter({ hasText: 'Fixture One' }).locator('.person-configured-weights');
   assert.ok((await cardWeights.innerText()).includes('25%'));
   assert.ok(!(await cardWeights.innerText()).includes('Audit'));
@@ -106,7 +113,8 @@ try {
   assert.equal(await dialog.locator('.personal-kpi-detail details[open]').count(), 0);
   const deliverySummary = dialog.locator('.personal-main-summary').filter({ hasText: 'Delivery' });
   assert.equal(await deliverySummary.locator('.personal-main-total').innerText(), 'รวม 25%');
-  assert.equal(await dialog.locator('.personal-main-summary').filter({ hasText: 'Legacy' }).locator('.personal-main-total').innerText(), 'รวม —');
+  assert.ok((await dialog.locator('.personal-main-summary').filter({ hasText: 'Legacy' }).locator('.personal-main-total').innerText()).startsWith('รวม —'));
+  assert.ok((await dialog.locator('.personal-main-summary').filter({ hasText: 'Legacy' }).innerText()).includes('ข้อมูลไม่ครบ 1 รายการ'));
   await dialog.locator('.personal-kpi-detail details > summary').filter({ hasText: 'Delivery' }).click();
   assert.equal(await dialog.locator('.personal-kpi-detail details[open]').count(), 1);
   const kpiRow = dialog.locator('.personal-kpi-detail tbody tr').filter({ hasText: 'Install' });
@@ -117,6 +125,9 @@ try {
   await dialog.getByRole('button', { name: 'Delivery / Install', exact: true }).click();
   await page.getByRole('dialog', { name: 'Delivery / Install', exact: true }).waitFor();
   assert.equal(await page.getByRole('dialog', { name: 'Delivery / Install', exact: true }).locator('tbody tr').count(), 4);
+  const inspected = page.getByRole('dialog', { name: 'Delivery / Install', exact: true }).locator('tbody tr').filter({ hasText: '• T1' }).first();
+  assert.ok((await inspected.locator('td').nth(4).innerText()).includes('30%'));
+  assert.ok((await inspected.locator('td').nth(5).innerText()).includes('50%'));
   await page.keyboard.press('Escape');
   await dialog.waitFor();
   await page.emulateMedia({ media: 'print' });
@@ -152,7 +163,7 @@ try {
   assert.ok(!(await page.locator('.kpi-portfolio-list').innerText()).includes('Quality'));
   await page.locator('.kpi-intelligence input').fill('');
   await page.getByRole('button', { name: 'ภาพรวม', exact: true }).click();
-  await page.getByRole('button', { name: 'ไม่มีน้ำหนัก (ใช้ค่าสำรอง 1)', exact: true }).click();
+  await page.getByRole('button', { name: 'ไม่มีน้ำหนักมาตรฐานทีม (ใช้ค่าสำรอง 1)', exact: true }).click();
   assert.equal(await page.getByRole('dialog').locator('tbody tr').count(), 1);
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Toggle Performance View theme' }).click();
@@ -189,6 +200,20 @@ try {
   assert.ok((await blank.locator('.hero-band').innerText()).includes('-'));
   await blank.close(); empty = false;
   results.push({ check: 'Partial catalog warning and empty dataset', passed: true });
+  legacyFixture = true;
+  const legacyPage = await open('employees');
+  await legacyPage.locator('.employee-card').filter({ hasText: 'Fixture One' }).click();
+  const legacyDialog = legacyPage.getByRole('dialog', { name: 'รายละเอียดบุคคล' });
+  const renamedSummary = legacyDialog.locator('.personal-main-summary').filter({ hasText: 'Old Delivery' });
+  assert.equal(await renamedSummary.locator('.personal-main-total').innerText(), 'รวม 25%');
+  const partialSummary = legacyDialog.locator('.personal-main-summary').filter({ hasText: /^Delivery/ });
+  assert.ok((await partialSummary.innerText()).includes('รวมที่ทราบ 25%'));
+  assert.ok((await partialSummary.innerText()).includes('ข้อมูลไม่ครบ 1 รายการ'));
+  assert.equal(await legacyDialog.locator('.personal-kpi-detail details[open]').count(), 0);
+  await legacyPage.screenshot({ path: path.join(output, 'partial-person-weights.png'), fullPage: false });
+  await legacyPage.close(); legacyFixture = false;
+  results.push({ check: 'Renamed Main KPI resolves personal setting; incomplete group shows confirmed subtotal with missing count', passed: true });
+
   taskFails = true;
   const failed = await open('overview', {}, true);
   assert.ok((await failed.locator('header').innerText()).includes('Fixture task failed'));

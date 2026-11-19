@@ -7,7 +7,7 @@ const context = vm.createContext({ console, Date, Set, Map, URLSearchParams, win
   React: { createContext: (value) => ({ value }) } });
 vm.runInContext(fs.readFileSync('public/js/api.js', 'utf8'), context);
 const source = fs.readFileSync('public/js/executive-dashboard.js', 'utf8').replace(/ReactDOM\.createRoot[\s\S]*$/, '');
-vm.runInContext(transformSync(source, { loader: 'jsx' }).code + '\n globalThis.model = { buildPortfolio, buildGroupRows, buildKpiRows, buildPersonalKpiRows, buildWeightCatalogRows, buildPeopleRows, taskWeight, hasExplicitWeight, buildDataQuality, buildAgingBuckets, scopeTasksForUser, filterByAllowedTeams, sortRows, performanceLabel, daysUntil, getPerformanceRiskAsOfDate, visiblePersonalKpiRows, configuredWeightsForPerson, sumPersonalKpiWeights };', context);
+vm.runInContext(transformSync(source, { loader: 'jsx' }).code + '\n globalThis.model = { buildPortfolio, buildGroupRows, buildKpiRows, buildPersonalKpiRows, buildWeightCatalogRows, buildPeopleRows, taskWeight, hasExplicitWeight, buildDataQuality, buildAgingBuckets, scopeTasksForUser, filterByAllowedTeams, sortRows, performanceLabel, daysUntil, getPerformanceRiskAsOfDate, visiblePersonalKpiRows, configuredWeightsForPerson, sumPersonalKpiWeights, summarizePersonalKpiWeights, resolvePersonalTaskKpi, teamTaskWeightInfo, createTeamWeightResolver, buildTeamPeopleRows };', context);
 const m = context.model;
 const asOf = new Date('2026-11-19T00:00:00');
 const make = (patch = {}) => ({ id: 'T1', empid: 'E1', name: 'Fixture One', team: 'Alpha', mainkpi: 'Delivery', subkpi: 'Install', status: 'Pending', mainkpiweight: 30, startdate: '2025-12-01', deadline: '2026-11-18', ...patch });
@@ -149,5 +149,70 @@ test('Main KPI total sums each displayed Sub KPI once, preserves equal weights a
   assert.equal(m.sumPersonalKpiWeights([install, install]), 25);
   assert.equal(m.sumPersonalKpiWeights(rows.map((row) => ({ ...row, assignmentKnown: false }))), null);
   assert.equal(m.sumPersonalKpiWeights([]), null);
+});
+test('Renamed Main KPI resolves a unique same-team Sub KPI and retains the personal override', () => {
+  const person = { profile, team: 'Alpha', items: [make({ mainkpi: 'Old Delivery' })] };
+  const uniqueCatalog = catalog.filter((kpi) => kpi.id !== 'K3');
+  const rows = m.visiblePersonalKpiRows(person, uniqueCatalog, []);
+  assert.equal(rows.length, 1); assert.equal(rows[0].effectiveWeight, 25); assert.equal(m.sumPersonalKpiWeights(rows), 25);
+  const byId = m.resolvePersonalTaskKpi(make({ mainkpi: 'Old Main', subkpi: 'Old Sub', kpi_id: 'K1' }), catalog);
+  assert.equal(byId.id, 'K1');
+});
+
+test('Ambiguous or cross-team matches do not borrow another KPI setting', () => {
+  const ambiguous = [...catalog, { id: 'OTHER', team: 'Alpha', main: 'Another Main', sub: 'Install', main_weight: 99 }];
+  assert.equal(m.resolvePersonalTaskKpi(make({ mainkpi: 'Old Main' }), ambiguous), null);
+  assert.equal(m.resolvePersonalTaskKpi(make({ team: 'Beta', kpi_id: 'K1' }), catalog), null);
+  assert.equal(m.resolvePersonalTaskKpi(make({ mainkpi: 'Old', subkpi: '' }), catalog), null);
+});
+
+test('Partial Main KPI totals preserve confirmed weights and explicitly count missing settings', () => {
+  const rows = m.visiblePersonalKpiRows({ profile, team: 'Alpha', items: [make(), make({ subkpi: 'No Match' })] }, catalog, []);
+  const result = m.summarizePersonalKpiWeights(rows);
+  assert.equal(result.total, 25); assert.equal(result.missing, 1); assert.equal(result.complete, false);
+  assert.equal(m.sumPersonalKpiWeights(rows), null);
+});
+test('Team and personal scores use independent weight bases for identical tasks', () => {
+  const teamCatalog = [{ id: 'A', team: 'Alpha', main: 'Delivery', sub: 'Install', main_weight: 10 }, { id: 'B', team: 'Alpha', main: 'Delivery', sub: 'Audit', main_weight: 30 }];
+  const tasks = [make({ status: 'Completed', completiondate: '2026-11-17', mainkpiweight: 90 }), make({ id: 'T2', subkpi: 'Audit', status: 'Completed', completiondate: '2026-11-19', mainkpiweight: 10 }), make({ id: 'T3', mainkpiweight: 100 })];
+  const weight = m.createTeamWeightResolver(teamCatalog);
+  const team = m.buildPortfolio(tasks, [], asOf, weight); const personal = m.buildPortfolio(tasks, [], asOf);
+  assert.equal(team.completion, 80); assert.equal(team.scores.sla, 25); assert.equal(team.weightedScore, 52.5);
+  assert.equal(personal.completion, 50); assert.equal(personal.scores.sla, 90); assert.equal(personal.weightedScore, 70);
+  assert.equal(team.scoreBasis, 'team'); assert.equal(personal.scoreBasis, 'personal');
+  assert.equal(team.activeWeight, 0.1); assert.equal(team.aging.overdue1to3.weight, 0.1);
+  tasks[0].mainkpiweight = 900;
+  assert.equal(m.buildPortfolio(tasks, [], asOf, weight).weightedScore, 52.5);
+  assert.notEqual(m.buildPortfolio(tasks, [], asOf).weightedScore, personal.weightedScore);
+  const grouped = m.buildGroupRows(tasks, (task) => task.team, [], asOf, weight)[0];
+  assert.equal(grouped.weightedScore, team.weightedScore);
+  const kpi = m.buildKpiRows(tasks, [], asOf, weight)[0]; assert.equal(kpi.completion, team.completion); assert.equal(kpi.sla, team.scores.sla);
+});
+
+test('Team fallback uses an explicit base snapshot and never borrows personal effective weight', () => {
+  const task = make({ mainkpiweight: 99, extra_data: { kpi_effective_weight: 99, kpi_base_weight: 15 } });
+  assert.equal(m.teamTaskWeightInfo(task, []).value, 15); assert.equal(m.taskWeight(task), 99);
+  assert.equal(m.teamTaskWeightInfo(task, catalog).value, 50);
+  const unknown = make({ subkpi: 'Unknown', mainkpiweight: 99 });
+  const resolver = m.createTeamWeightResolver(catalog); assert.equal(resolver(unknown), 1); assert.equal(resolver.info(unknown).known, false);
+  assert.equal(m.buildPortfolio([unknown], [], asOf, resolver).dataQuality.checks.find((check) => check.key === 'missingWeight').items.length, 1);
+});
+
+test('Team score aggregates team tasks directly, not the mean of employee scores', () => {
+  const teamCatalog = [{ team: 'Alpha', main: 'Delivery', sub: 'Install', main_weight: 10 }, { team: 'Alpha', main: 'Delivery', sub: 'Audit', main_weight: 30 }];
+  const tasks = [make({ status: 'Completed', completiondate: '2026-11-17', mainkpiweight: 90 }), make({ empid: 'E2', name: 'Another Person', subkpi: 'Audit', status: 'Completed', completiondate: '2026-11-19', mainkpiweight: 10 })];
+  const team = m.buildPortfolio(tasks, [], asOf, m.createTeamWeightResolver(teamCatalog));
+  const people = m.buildPeopleRows(tasks, [profile], [], asOf);
+  assert.equal(team.scores.sla, 25); assert.equal(people[0].sla, 100); assert.equal(people[1].sla, 0);
+  assert.notEqual(team.scores.sla, (people[0].sla + people[1].sla) / 2);
+  assert.equal(people.reduce((sum, row) => sum + row.total, 0), tasks.length);
+});
+test('A person with work in multiple teams contributes only the matching team tasks to each team detail', () => {
+  const tasks = [make({ status: 'Completed', completiondate: '2026-11-17' }), make({ id: 'BETA', team: 'Beta', status: 'Completed', completiondate: '2026-11-19' })];
+  const people = m.buildPeopleRows(tasks, [profile], [], asOf);
+  assert.equal(people.length, 1); assert.equal(people[0].total, 2);
+  const alpha = m.buildTeamPeopleRows(people, 'Alpha', [], asOf)[0]; const beta = m.buildTeamPeopleRows(people, 'Beta', [], asOf)[0];
+  assert.equal(alpha.total, 1); assert.equal(beta.total, 1); assert.equal(alpha.score, 100); assert.equal(beta.score, 50);
+  assert.equal(alpha.source.employeeKey, people[0].employeeKey);
 });
 console.log('Passed ' + count + ' Performance model tests');
